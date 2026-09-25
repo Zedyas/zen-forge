@@ -50,6 +50,8 @@
     "mupdf": "1.28.1",
     "papaparse": "^5.7.0",
     "pdfjs-dist": "^6.3.289",
+    "pptxgenjs": "^4.0.1",
+    "pptxtojson": "^2.2.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "sonner": "^2.0.8",

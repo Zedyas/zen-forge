@@ -9,4 +9,12 @@ export default defineConfig({
       '@shared': resolve('src/shared'),
     },
   },
+  test: {
+    server: {
+      deps: {
+        // pptxtojson's `main` is a UMD file that Node cannot import by name; Vite reads its ES `module` build instead.
+        inline: ['pptxtojson'],
+      },
+    },
+  },
 })
