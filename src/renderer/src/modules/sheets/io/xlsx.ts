@@ -151,7 +151,8 @@ export function unsupportedFunctionEvents(sheets: readonly SheetData[]): Finding
   }
 
   const construct = `Unsupported formula functions: ${[...names].sort().join(', ')}`
-  return [...cellsBySheet].map(([location, count]) => ({ construct, severity: 'degraded', location, count, unit: 'cells' }))
+  const suggestedAlternative = 'These cells show an error here. Their formulas are saved unchanged.'
+  return [...cellsBySheet].map(([location, count]) => ({ construct, severity: 'degraded', location, count, unit: 'cells', suggestedAlternative }))
 }
 
 interface CellContext {

@@ -20,9 +20,9 @@ export async function inspectPdf(bytes: Uint8Array): Promise<PdfInspection> {
 
   if (doc.isEncrypted) {
     findings.push({
-      construct: 'Encryption and permission restrictions',
+      construct: 'Password and permission restrictions',
       severity: 'dropped',
-      location: 'A saved copy is written unencrypted, without the original password or permissions.',
+      suggestedAlternative: 'A file Zendo saves has no password and no permission restrictions.',
     })
   }
 
@@ -30,8 +30,7 @@ export async function inspectPdf(bytes: Uint8Array): Promise<PdfInspection> {
     findings.push({
       construct: 'XFA form',
       severity: 'dropped',
-      location: 'Dynamic XFA layouts cannot be rendered or filled here.',
-      suggestedAlternative: 'Open in Adobe Acrobat',
+      suggestedAlternative: 'Its fields can’t be shown or filled here. Fill it in Adobe Acrobat instead.',
     })
   }
 
@@ -40,7 +39,8 @@ export async function inspectPdf(bytes: Uint8Array): Promise<PdfInspection> {
     findings.push({
       construct: 'Digital signatures',
       severity: 'dropped',
-      location: `${signatures.length} signature field${signatures.length === 1 ? '' : 's'}; any save invalidates the signature.`,
+      location: `${signatures.length} signature field${signatures.length === 1 ? '' : 's'}`,
+      suggestedAlternative: 'Saving any change makes the signatures invalid. Save a copy to keep the signed original.',
     })
   }
 
@@ -49,7 +49,8 @@ export async function inspectPdf(bytes: Uint8Array): Promise<PdfInspection> {
     findings.push({
       construct: 'Embedded file attachments',
       severity: 'degraded',
-      location: `${attachments.length} attached file${attachments.length === 1 ? '' : 's'} are kept in this document but lost if its pages are merged into another PDF.`,
+      location: `${attachments.length} attached file${attachments.length === 1 ? '' : 's'}`,
+      suggestedAlternative: 'Kept when you save this PDF; not carried over when its pages are combined into another PDF.',
     })
   }
 
@@ -58,7 +59,7 @@ export async function inspectPdf(bytes: Uint8Array): Promise<PdfInspection> {
     findings.push({
       construct: 'JavaScript actions',
       severity: 'degraded',
-      location: 'Scripts are never run here, and are lost if these pages are merged into another PDF or the form is flattened.',
+      suggestedAlternative: 'Never run here. Kept when you save; removed when the pages are combined into another PDF or the form is flattened.',
     })
   }
 
@@ -66,7 +67,7 @@ export async function inspectPdf(bytes: Uint8Array): Promise<PdfInspection> {
     findings.push({
       construct: 'Tagged reading order',
       severity: 'degraded',
-      location: 'The accessibility structure is not rebuilt when pages are reordered, removed, or edited.',
+      suggestedAlternative: 'Kept, but not updated when pages are reordered, removed or edited, so screen readers may read them out of order.',
     })
   }
 

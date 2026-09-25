@@ -99,8 +99,11 @@ describe('xlsx', () => {
       construct: 'Merged cells',
       severity: 'degraded',
       location: 'Sheet1 (2 ranges)',
+      suggestedAlternative: 'Shown as separate cells, and saved unmerged. Their values are kept.',
     })
     expect(findings.length).toBe(byConstruct.size)
+    // Every note in the import report says what happens to that part of the file.
+    expect(findings.filter(finding => finding.suggestedAlternative === undefined)).toEqual([])
   })
 
   it('translates a shared formula into each cell of its range', async () => {

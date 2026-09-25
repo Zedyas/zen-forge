@@ -20,7 +20,7 @@ describe('inspectPdf', () => {
     const report = await inspectPdf(await doc.save())
 
     expect(report.findings.map(finding => [finding.construct, finding.severity])).toEqual([
-      ['Encryption and permission restrictions', 'dropped'],
+      ['Password and permission restrictions', 'dropped'],
     ])
   })
 

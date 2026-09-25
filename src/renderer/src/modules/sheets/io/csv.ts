@@ -113,6 +113,7 @@ export function readDelimited(bytes: Uint8Array, sheetName: string, format: Deli
       construct: `Malformed ${format.toUpperCase()} rows`,
       severity: 'degraded',
       location: `${parsed.errors.length} rows`,
+      suggestedAlternative: 'Read as closely as possible, for example a field with a missing closing quote. Check those rows.',
     })
   }
 
