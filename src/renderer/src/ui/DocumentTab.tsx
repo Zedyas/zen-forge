@@ -6,6 +6,7 @@ import { closeDocument, moveToNewWindow } from '../app/document-actions'
 import { useDocumentsStore, type OpenDocument } from '../app/documents-store'
 import { platformClient } from '../services/platform/client'
 import { AppIcon } from './AppIcon'
+import { icon, tinyIcon } from './icons'
 
 function reportFailure(error: unknown): void {
   toast.error('Could not move the tab', { description: error instanceof Error ? error.message : undefined })
@@ -32,7 +33,7 @@ export function DocumentTab({ document, active }: { readonly document: OpenDocum
           if (event.button === 1) void closeDocument(document.id)
         }}
       >
-        <AppIcon application={document.kind} size={15} />
+        <AppIcon application={document.kind} size={icon.size} />
         <span className="doc-tab-name">{document.name}</span>
         <button
           type="button"
@@ -45,7 +46,7 @@ export function DocumentTab({ document, active }: { readonly document: OpenDocum
           }}
         >
           {document.dirty && <i className="dirty-dot" aria-hidden="true" />}
-          <X aria-hidden="true" size={12} strokeWidth={2} />
+          <X {...tinyIcon} />
         </button>
       </ContextMenu.Trigger>
       <ContextMenu.Portal>

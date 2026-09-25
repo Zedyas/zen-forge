@@ -205,7 +205,9 @@ function createWindow(restore?: WindowSession): WindowRecord {
     title: suiteName,
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#17181b' : '#f2f3f5',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
-    trafficLightPosition: process.platform === 'darwin' ? { x: 16, y: 14 } : undefined,
+    // The buttons are 14pt circles and y is their top, so they centre on the title bar's centre line:
+    // --titlebar-center (24px) in styles.css, minus 7.
+    trafficLightPosition: process.platform === 'darwin' ? { x: 16, y: 17 } : undefined,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,

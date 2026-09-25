@@ -11,6 +11,7 @@ import { recordRecent } from '../services/index/document-index'
 import { platformClient } from '../services/platform/client'
 import { AppIcon } from '../ui/AppIcon'
 import { DocumentTab } from '../ui/DocumentTab'
+import { icon } from '../ui/icons'
 import { commandShortcut, Tip } from '../ui/Tip'
 import { TitleSlotContext } from '../ui/TitleSlot'
 import { PdfWorkspace } from '../modules/pdf/PdfWorkspace'
@@ -102,7 +103,8 @@ function HomeTab({ active }: { readonly active: boolean }) {
         className={`home-tab${active ? ' is-active' : ''}`}
         onClick={() => useDocumentsStore.getState().select(homeTabId)}
       >
-        <AppIcon application="home" size={18} />
+        {/* A size up from the tab icons, so the suite mark reads as the window's own tab. */}
+        <AppIcon application="home" size={20} />
       </button>
     </Tip>
   )
@@ -113,24 +115,24 @@ function NewTabMenu() {
     <Menu.Root>
       <Tip label="New tab">
         <Menu.Trigger className="tool new-tab" aria-label="New tab">
-          <Plus aria-hidden="true" size={15} strokeWidth={1.8} />
+          <Plus {...icon} />
         </Menu.Trigger>
       </Tip>
       <Menu.Portal>
         <Menu.Positioner sideOffset={6} align="start">
           <Menu.Popup className="menu-popup">
             <Menu.Item className="menu-item" onClick={() => runCommand('file.new')}>
-              <AppIcon application="sheets" size={20} /><span>New spreadsheet</span><kbd>{commandShortcut('file.new')}</kbd>
+              <AppIcon application="sheets" size={icon.size} /><span>New spreadsheet</span><kbd>{commandShortcut('file.new')}</kbd>
             </Menu.Item>
             <Menu.Item className="menu-item" onClick={() => runCommand('file.open')}>
-              <FolderOpen aria-hidden="true" size={16} /><span>Open…</span><kbd>{commandShortcut('file.open')}</kbd>
+              <FolderOpen {...icon} /><span>Open…</span><kbd>{commandShortcut('file.open')}</kbd>
             </Menu.Item>
             <Menu.Separator className="menu-separator" />
             <Menu.Item className="menu-item" onClick={() => void createPdfFromImages().catch(reportFailure('Could not create the PDF'))}>
-              <Images aria-hidden="true" size={16} /><span>PDF from images…</span>
+              <Images {...icon} /><span>PDF from images…</span>
             </Menu.Item>
             <Menu.Item className="menu-item" onClick={() => void combinePdfs().catch(reportFailure('Could not combine the PDFs'))}>
-              <Files aria-hidden="true" size={16} /><span>Combine PDFs…</span>
+              <Files {...icon} /><span>Combine PDFs…</span>
             </Menu.Item>
           </Menu.Popup>
         </Menu.Positioner>
@@ -146,12 +148,12 @@ function ViewToggles() {
     <div className="title-actions">
       <Tip label={toolbar ? 'Hide toolbar' : 'Show toolbar'} shortcut={commandShortcut('view.toolbar')}>
         <button type="button" className="tool" aria-label="Toolbar" aria-pressed={toolbar} onClick={() => runCommand('view.toolbar')}>
-          <PanelTop aria-hidden="true" size={16} strokeWidth={1.7} />
+          <PanelTop {...icon} />
         </button>
       </Tip>
       <Tip label={inspector ? 'Hide inspector' : 'Show inspector'} shortcut={commandShortcut('view.inspector')}>
         <button type="button" className="tool" aria-label="Inspector" aria-pressed={inspector} onClick={() => runCommand('view.inspector')}>
-          <PanelRight aria-hidden="true" size={16} strokeWidth={1.7} />
+          <PanelRight {...icon} />
         </button>
       </Tip>
     </div>
@@ -203,16 +205,17 @@ export function WindowScreen() {
         }}
       >
         <header className="titlebar titlebar-drag">
-          <HomeTab active={active === undefined} />
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-            <div className="doc-tabs" role="tablist" aria-label="Open files">
-              <SortableContext items={documents.map(document => document.id)} strategy={horizontalListSortingStrategy}>
-                {documents.map(document => <DocumentTab key={document.id} document={document} active={document.id === activeId} />)}
-              </SortableContext>
-            </div>
-          </DndContext>
-          <NewTabMenu />
-          <span className="titlebar-spacer" />
+          <div className="titlebar-tabs">
+            <HomeTab active={active === undefined} />
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+              <div className="doc-tabs" role="tablist" aria-label="Open files">
+                <SortableContext items={documents.map(document => document.id)} strategy={horizontalListSortingStrategy}>
+                  {documents.map(document => <DocumentTab key={document.id} document={document} active={document.id === activeId} />)}
+                </SortableContext>
+              </div>
+            </DndContext>
+            <NewTabMenu />
+          </div>
           <div ref={setTitleSlot} className="no-drag" />
           {active !== undefined && <ViewToggles />}
         </header>

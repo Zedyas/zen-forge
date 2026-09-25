@@ -58,10 +58,30 @@
   /* Text and icons drawn on an --accent background. White on Home's deep suite blue. */
   --on-accent: #ffffff;
 
+  /* Sizes, shared by every application window (Ledger, Hanko, Sumi, Slides). Build bars from these
+     rather than new numbers, so rows line up across the suite. */
+  /* Title bar height while the toolbar shows. */
   --titlebar: 40px;
-  --toolbar: 38px;
+  /* Document tab height. Tabs stand on the title bar's bottom edge. */
+  --tab: 32px;
+  /* The title bar's one centre line: traffic lights, Home, tab icons and names, + and the view toggles.
+     electron/main/index.ts puts the traffic lights on it (y = this − 7), so change both together. */
+  --titlebar-center: calc(var(--titlebar) - var(--tab) / 2);
+  /* Toolbar and find bar height, including the 1px line under them. */
+  --toolbar: 37px;
+  /* Status bar height, including the 1px line above it. */
   --statusbar: 28px;
+  /* Icon buttons, text fields, selects, segmented controls and buttons inside bars and the inspector. */
   --control: 26px;
+  /* Standalone buttons: Home actions and dialog buttons. */
+  --button: 30px;
+  /* Icons in bars, menus and Home. Lucide icons get it from `icon` in ui/icons.ts. */
+  --icon: 16px;
+  /* Icons in the status bar, inspector, panels, popovers and toasts (`smallIcon` in ui/icons.ts). */
+  --icon-small: 14px;
+  /* Space between an icon and its label. */
+  --gap: 6px;
+  /* Corners of controls, and of floating surfaces (menus, popovers, panels). */
   --radius: 6px;
   --radius-large: 10px;
 }
@@ -224,51 +244,79 @@ kbd { color: var(--faint); font: 500 11px var(--font-ui); letter-spacing: 0.02em
 
 .app-icon { display: block; flex: none; }
 .app-icon.is-unavailable { filter: grayscale(1); opacity: 0.45; }
+/* The suite mark's dark plate would vanish into dark chrome and leave only the ring; a hairline rim
+   keeps the plate's edge, as macOS does for dark Dock icons. */
+@media (prefers-color-scheme: dark) {
+  .suite-plate { stroke: rgb(255 255 255 / 20%); stroke-width: 1; }
+}
 
 /* ─── Window frame ────────────────────────────────────────────────────── */
 
 .window { display: flex; flex-direction: column; height: 100%; background: var(--chrome); }
 
+/*
+ * Every title-bar item is centred on --titlebar-center, the same line as the traffic lights. The top
+ * padding makes the content box the tab row, so centring an item in it puts the item on the tabs'
+ * centre line. The line under the bar is an inset shadow, so the active tab can paint over it and
+ * join the toolbar.
+ */
 .titlebar {
   position: relative; flex: none;
-  display: flex; align-items: stretch; gap: 2px;
+  display: flex; align-items: center;
   height: var(--titlebar);
-  padding: 0 10px 0 82px;
+  padding: calc(var(--titlebar) - var(--tab)) 10px 0;
   background: var(--chrome);
+  box-shadow: inset 0 -1px 0 var(--line);
 }
-.window[data-toolbar="hidden"] .titlebar { border-bottom: 1px solid var(--line); }
-.titlebar > * { align-self: center; }
+/* Without the toolbar the tabs are pills. The bar grows just enough to centre them on the same line,
+   since the traffic lights cannot move. */
+.window[data-toolbar="hidden"] .titlebar { height: calc(2 * var(--titlebar-center) + 1px); padding-top: 0; padding-bottom: 1px; }
+
+/* Home, the document tabs and +, after the traffic lights (x 16–76, set in electron/main/index.ts). */
+.titlebar-tabs { flex: 1 1 auto; align-self: stretch; display: flex; align-items: center; min-width: 0; padding-left: 72px; }
+.title-actions { display: flex; align-items: center; gap: 2px; }
+/* The minimal-mode tools sit between two equal halves, so they stay centred in the window and the
+   tabs shrink instead of running under them. */
+.window[data-toolbar="hidden"] :is(.titlebar-tabs, .title-actions) { flex: 1 1 0; }
+.window[data-toolbar="hidden"] .title-actions { justify-content: flex-end; }
 
 .home-tab {
   display: grid; place-items: center; flex: none;
-  width: 34px; height: 28px; margin-right: 6px;
-  border: 0; border-radius: 8px; background: transparent;
+  width: 32px; height: var(--control); margin-right: 6px;
+  border: 0; border-radius: var(--radius); background: transparent;
 }
 .home-tab:hover { background: var(--hover); }
 .home-tab.is-active { background: var(--surface); box-shadow: var(--shadow-float); }
 
-.doc-tabs { display: flex; align-items: flex-end; align-self: stretch; gap: 1px; min-width: 0; overflow: hidden; }
+/*
+ * Active and inactive tabs share one content box (from under the top border to the bar's line), so
+ * their icons and names share one centre line and one baseline. An inactive tab stops above the line;
+ * the active tab covers it.
+ */
+.doc-tabs { display: flex; align-self: stretch; gap: 1px; min-width: 0; overflow: hidden; }
 .doc-tab {
   position: relative; flex: 0 1 auto;
-  display: inline-flex; align-items: center; gap: 7px;
-  min-width: 90px; max-width: 230px; height: 30px;
-  padding: 0 8px 0 10px; margin-top: auto;
+  display: inline-flex; align-items: center; gap: var(--gap);
+  min-width: 90px; max-width: 230px;
+  padding: 0 8px 0 10px; margin-bottom: 1px;
   border: 1px solid transparent; border-bottom: 0;
   border-radius: 8px 8px 0 0;
   background: transparent; color: var(--dim);
   font-weight: 500;
 }
 .doc-tab:hover { color: var(--ink); background: var(--hover); }
-.doc-tab.is-active { background: var(--surface); color: var(--ink); border-color: var(--line); margin-bottom: -1px; height: 31px; z-index: 1; }
+.doc-tab.is-active { background: var(--surface); color: var(--ink); border-color: var(--line); margin-bottom: 0; padding-bottom: 1px; z-index: 1; }
 .doc-tab.is-active:hover { background: var(--surface); }
-.doc-tab.is-active .doc-tab-name { font: 600 13.5px/1 var(--font-doc); letter-spacing: -0.005em; }
-.window[data-toolbar="hidden"] .doc-tab { height: 28px; margin: auto 0; border-radius: 8px; border-bottom: 1px solid transparent; }
-.window[data-toolbar="hidden"] .doc-tab.is-active { height: 28px; margin-bottom: auto; box-shadow: var(--shadow-float); border-color: transparent; }
+.doc-tab.is-active .doc-tab-name { top: 0; font-family: var(--font-doc); font-size: 13.5px; font-weight: 600; letter-spacing: -0.005em; }
+.window[data-toolbar="hidden"] .doc-tab { align-self: center; height: var(--control); margin: 0; padding-bottom: 0; border-radius: var(--radius); border-bottom: 1px solid transparent; }
+.window[data-toolbar="hidden"] .doc-tab.is-active { box-shadow: var(--shadow-float); border-color: transparent; }
 .doc-tab.is-dragging { opacity: 0.6; }
-.doc-tab-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* At one line height the system font's baseline lands 0.5px below New York's (the active name), so
+   inactive names move up to share it; both then centre on the icon within 0.2px. */
+.doc-tab-name { position: relative; top: -0.5px; line-height: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .doc-tab-close {
   display: grid; place-items: center; flex: none;
-  width: 16px; height: 16px; margin-left: auto;
+  width: var(--icon); height: var(--icon); margin-left: auto;
   border: 0; border-radius: 4px; background: transparent; color: var(--dim);
 }
 .doc-tab-close:hover { background: var(--pressed); color: var(--ink); }
@@ -278,20 +326,18 @@ kbd { color: var(--faint); font: 500 11px var(--font-ui); letter-spacing: 0.02em
 .doc-tab:hover .doc-tab-close .dirty-dot { display: none; }
 .doc-tab:not(:hover):not(.is-active) .doc-tab-close:not(.is-dirty) { visibility: hidden; }
 
-.new-tab { align-self: center; margin-left: 2px; }
-.titlebar-spacer { flex: 1; }
+.new-tab { margin-left: 2px; }
 .title-essentials {
-  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
-  display: flex; align-items: center; gap: 1px; padding: 2px;
-  border-radius: 9px; background: var(--surface); box-shadow: var(--shadow-float);
+  display: flex; align-items: center; gap: 1px; margin: 0 12px; padding: 2px;
+  border-radius: calc(var(--radius) + 2px); background: var(--surface); box-shadow: var(--shadow-float);
 }
-.title-actions { display: flex; align-items: center; gap: 2px; }
 
+/* The line above the toolbar belongs to the title bar. */
 .toolbar {
   flex: none; display: flex; align-items: center; gap: 1px;
   height: var(--toolbar); padding: 0 8px;
   background: var(--surface);
-  border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
   overflow: hidden;
 }
 .toolbar-grow { flex: 1; min-width: 8px; }
@@ -355,7 +401,7 @@ kbd { color: var(--faint); font: 500 11px var(--font-ui); letter-spacing: 0.02em
 
 /* ─── Home ────────────────────────────────────────────────────────────── */
 
-.home { flex: 1; display: flex; flex-direction: column; min-height: 0; background: var(--chrome); border-top: 1px solid var(--line); }
+.home { flex: 1; display: flex; flex-direction: column; min-height: 0; background: var(--chrome); }
 .home-search {
   display: inline-flex; align-items: center; gap: 7px;
   width: 210px; height: 28px; padding: 0 10px;

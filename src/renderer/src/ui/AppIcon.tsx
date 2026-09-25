@@ -70,7 +70,7 @@ function SlidesArt() {
 function SuiteArt() {
   return (
     <>
-      <rect {...plate} fill={suitePlate} />
+      <rect {...plate} className="suite-plate" fill={suitePlate} />
       <path fill={suiteInk} d={ensoPath} />
       {stones.map(stone => (
         <ellipse key={stone.colour} cx={stone.x} cy={stone.y} rx={stoneRadius + 0.2} ry={stoneRadius} fill={stone.colour} />
