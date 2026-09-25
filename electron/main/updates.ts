@@ -1,6 +1,6 @@
 import { app, net, shell } from 'electron'
 import { createHash } from 'node:crypto'
-import { open, rm, type FileHandle } from 'node:fs/promises'
+import { link, open, rm, type FileHandle } from 'node:fs/promises'
 import { basename, extname, join } from 'node:path'
 import { suiteName } from '../../src/shared/applications'
 import type { UpdateCheckResult, UpdateStatus } from '../../src/shared/shell'
@@ -68,13 +68,16 @@ function checkForUpdates(): Promise<UpdateCheckResult> {
   return checking
 }
 
-/** Creates `name` in `folder`, or `name (1)`, `name (2)` and so on when taken, as browsers name repeat downloads. */
-async function createFile(folder: string, name: string): Promise<{ path: string; file: FileHandle }> {
+/**
+ * Runs `claim` on `name` in `folder`, or on `name (1)`, `name (2)` and so on while it fails because the
+ * name is taken, as browsers name repeat downloads. Resolves the path it claimed; never overwrites a file.
+ */
+async function claimName<Result>(folder: string, name: string, claim: (path: string) => Promise<Result>): Promise<{ path: string; result: Result }> {
   const extension = extname(name)
   for (let copy = 0; copy < 100; copy += 1) {
     const path = join(folder, copy === 0 ? name : `${basename(name, extension)} (${copy})${extension}`)
     try {
-      return { path, file: await open(path, 'wx') }
+      return { path, result: await claim(path) }
     } catch (error) {
       if (!(error instanceof Error && 'code' in error && error.code === 'EEXIST')) throw error
     }
@@ -98,6 +101,7 @@ async function save(dmg: Release['dmg'], file: FileHandle, onPercent: (percent: 
       hash.update(chunk.value)
       await file.write(chunk.value)
       received += chunk.value.byteLength
+      if (received > dmg.size) throw new Error(`${dmg.name} is larger than GitHub listed.`)
       const next = Math.min(100, Math.floor((received / dmg.size) * 100))
       if (next !== percent) {
         percent = next
@@ -111,28 +115,38 @@ async function save(dmg: Release['dmg'], file: FileHandle, onPercent: (percent: 
   }
 }
 
-/** Downloads the offered dmg to Downloads, checks its SHA-256 against the release's SHA256SUMS.txt, then opens it. */
+/**
+ * Downloads the offered dmg to Downloads as a `.part` file, checks its SHA-256 against the release's
+ * SHA256SUMS.txt, and only then gives it its .dmg name and opens it. A download cut short, by a
+ * failure or by quitting, never leaves an unchecked file under the .dmg name.
+ */
 async function downloadUpdate(): Promise<void> {
   const release = offered
   if (release === undefined || status.state === 'downloading') return
   const { version, dmg } = release
   setStatus({ state: 'downloading', version, percent: 0 })
-  let path: string | undefined
+  let partPath: string | undefined
+  let path: string
   let message = 'Couldn’t download the update. Try again later.'
   try {
     const sums = await (await request(release.checksumsUrl, 'text/plain', AbortSignal.timeout(15_000))).text()
     const expected = checksumFor(sums, dmg.name)
     if (expected === undefined) throw new Error(`SHA256SUMS.txt does not list ${dmg.name}.`)
-    const target = await createFile(app.getPath('downloads'), dmg.name)
-    path = target.path
-    const actual = await save(dmg, target.file, percent => setStatus({ state: 'downloading', version, percent }))
+    const downloads = app.getPath('downloads')
+    const part = await claimName(downloads, `${dmg.name}.part`, candidate => open(candidate, 'wx'))
+    partPath = part.path
+    const actual = await save(dmg, part.result, percent => setStatus({ state: 'downloading', version, percent }))
     if (actual !== expected) {
       message = 'The download didn’t match its checksum, so it was deleted. Try again.'
       throw new Error(`${dmg.name} has SHA-256 ${actual}; SHA256SUMS.txt lists ${expected}.`)
     }
+    // A hard link fails when the name is taken, so an existing file is never replaced.
+    const verifiedPart = partPath
+    path = (await claimName(downloads, dmg.name, candidate => link(verifiedPart, candidate))).path
+    await rm(verifiedPart, { force: true })
   } catch (error) {
     console.warn('Update download failed:', error)
-    if (path !== undefined) await rm(path, { force: true }).catch(() => undefined)
+    if (partPath !== undefined) await rm(partPath, { force: true }).catch(() => undefined)
     setStatus({ state: 'failed', version, message })
     return
   }
