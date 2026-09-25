@@ -300,7 +300,7 @@ export function removeHiddenLayers(doc: PDFDocument): void {
     if (edits.length === 0) return undefined
     const output = applyEdits(content, edits)
     // A check on the above: emptying a block keeps its `q`/`Q` and marked-content pairs, so their balance must not change.
-    const after = scanContent(output)
+    const after = scan(output)
     for (const [opens, close] of [[['q'], 'Q'], [['BDC', 'BMC'], 'EMC']] as const) {
       if (balanced(instructions, opens, close) && !balanced(after, opens, close)) {
         throw unsafe('Zendo couldn’t remove this PDF’s hidden layers without changing what its pages show.')

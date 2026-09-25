@@ -76,7 +76,7 @@ async function drawPages(state: ReadyPdf): Promise<PageImage[]> {
       // Redaction boxes are painted where they were drawn on the page shown, so the printed page must match it.
       const shown = await shownPage(state.sources[item.source], item.index, item.rotation)
       if (!sameGeometry(await shownPage(bytes, index, 0), shown)) {
-        throw new Error(`Zendo can't print page ${index + 1} safely: the printed page would not match the page shown, so redaction boxes could miss. Print this PDF from Adobe Acrobat instead.`)
+        throw new Error(`Zendo can’t print page ${index + 1} safely: the printed page would not match the page shown, so redaction boxes could miss. Print this PDF from Adobe Acrobat instead.`)
       }
       images.push(await drawPage(pdf, index, item.markups.flatMap(placed => isRedaction(placed.markup) ? [placed.markup] : [])))
     }

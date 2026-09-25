@@ -72,7 +72,7 @@ async function markRedactions(bytes: Uint8Array, requests: readonly RedactionReq
     // The boxes were drawn on the page as shown. A page that differs in size, turn or scale would
     // take them somewhere else, and leave uncovered what they were drawn over.
     if (!sameGeometry(geometry, shown)) {
-      throw new Error(`Zendo can't redact page ${index + 1} safely: the saved page would not match the page shown, so the boxes could miss. Nothing was saved. Redact this PDF in Adobe Acrobat instead.`)
+      throw new Error(`Zendo can’t redact page ${index + 1} safely: the saved page would not match the page shown, so the boxes could miss. Nothing was saved. Redact this PDF in Adobe Acrobat instead.`)
     }
     areas.set(page, boxes.map(box => rectToUserSpace(geometry, box)))
   }

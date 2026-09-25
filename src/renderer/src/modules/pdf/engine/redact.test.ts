@@ -40,7 +40,7 @@ describe('redactPages', () => {
   it('refuses boxes drawn on a page that differs from the page it would redact', async () => {
     const { doc, box, shown } = await statement(90)
     const request = { index: 0, shown: { ...shown, rotation: 0 as const }, boxes: [box] }
-    await expect(redactPages(await doc.save(), [request], keepHidden)).rejects.toThrow("Zendo can't redact page 1 safely")
+    await expect(redactPages(await doc.save(), [request], keepHidden)).rejects.toThrow('Zendo can’t redact page 1 safely')
   })
 
   it('removes a form field under a box, value included, and keeps the fields elsewhere', async () => {
