@@ -9,6 +9,7 @@ import { DocInspector } from './DocInspector'
 import { DocEssentials, DocToolbar } from './DocToolbar'
 import { clearFind } from './find'
 import { FindBar } from './FindBar'
+import { exportDocPdf, printDoc } from './print'
 import { countText } from './text-stats'
 import { documentPage, documentTheme, themeVariables } from './theme'
 
@@ -82,6 +83,8 @@ export function DocEditor({ document, editor }: DocEditorProps) {
     documentId: document.id,
     editor,
     openFind,
+    print: () => printDoc(editor),
+    exportPdf: () => exportDocPdf(document.id, editor),
   }), [document.id, editor, openFind])
   useEffect(() => setActiveDoc(controller), [controller])
   // The caret is where it was when the tab was last shown; a new document is ready to type in.

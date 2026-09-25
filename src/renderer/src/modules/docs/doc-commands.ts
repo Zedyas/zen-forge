@@ -12,6 +12,8 @@ export interface DocController {
   readonly documentId: string
   readonly editor: Editor
   openFind(): void
+  print(): Promise<void>
+  exportPdf(): Promise<void>
 }
 
 let active: DocController | undefined
@@ -151,6 +153,10 @@ export function runDocCommand(command: CommandId): void | Promise<void> {
       return setZoom(documentId, -1)
     case 'view.actualSize':
       return setZoom(documentId, 0)
+    case 'file.print':
+      return active.print()
+    case 'file.exportPdf':
+      return active.exportPdf()
   }
 }
 

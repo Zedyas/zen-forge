@@ -2,7 +2,7 @@
    A white page on the grey desk. The paper stays light in dark mode, as printed
    paper does. `.sumi-prose` holds every rule for the document itself and reads
    the document's theme from CSS variables (theme.ts, themeVariables), so the
-   same HTML looks the same anywhere it is shown. The sizes match the styles
+   printout (print.ts) looks the same as the page. The sizes match the styles
    the .docx writer gives Word. */
 
 .sumi-desk { flex: 1; min-height: 0; overflow: auto; padding: 28px 24px 64px; background: var(--desk); }
@@ -171,3 +171,8 @@
 .sumi-outline li[data-level="0"] .button { font-weight: 600; }
 .sumi-outline li[data-level="2"] { padding-left: 12px; }
 .sumi-outline li[data-level="3"] { padding-left: 24px; }
+
+/* ─── Printout (print.ts), mounted only while printing ─── */
+
+/* An empty paragraph is a blank line in Word; on screen the editor holds it open, in print this does. */
+.sumi-print :is(p, h1, h2, h3):empty::after { content: "\a0"; }
