@@ -1,11 +1,11 @@
 import { Menu, shell, type MenuItemConstructorOptions, type WebContents } from 'electron'
 import { handle } from './security'
 
-/** Links in documents open in the default browser, never in Zendo. Only https: no files, scripts or other apps. */
+/** Links in documents open in the default browser, never in Zendo. Only web links: no files, scripts or other apps. */
 export function registerLinkIpc(): void {
   handle('shell:open-external', async (_event, url: string) => {
     const parsed = new URL(url)
-    if (parsed.protocol !== 'https:') throw new Error('Only https links can be opened.')
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') throw new Error('Only web links can be opened.')
     await shell.openExternal(parsed.toString())
   })
 }

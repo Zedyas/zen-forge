@@ -10,12 +10,27 @@ import { documentPage, documentTheme, themeVariables } from './theme'
 const millimetresPerTwip = 25.4 / 1440
 
 /**
+ * A picture that is not stored in the document, or whose data cannot be shown, prints as its
+ * description instead, so one broken picture never stops the printout.
+ */
+async function replaceBrokenImages(root: HTMLElement): Promise<void> {
+  await Promise.all(Array.from(root.querySelectorAll('img'), async image => {
+    const stored = (image.getAttribute('src') ?? '').startsWith('data:')
+    if (stored && await image.decode().then(() => true, () => false)) return
+    const description = document.createElement('span')
+    description.className = 'sumi-print-missing'
+    description.textContent = image.alt === '' ? '[Picture]' : `[${image.alt}]`
+    image.replaceWith(description)
+  }))
+}
+
+/**
  * The document as it prints: the editor's content serialized by the schema, styled by the same
  * `.sumi-prose` rules and theme variables as the page on screen (docs.css), on the document's own
  * paper. Word margins can differ on each side, and page numbers sit in the bottom margin, so the
  * printout carries its own @page rule for both; the print service's rule sets the paper size.
  */
-export function docPrintout(editor: Editor): Printout {
+export async function docPrintout(editor: Editor): Promise<Printout> {
   const doc = editor.state.doc
   const page = documentPage(doc.attrs['page'])
   const theme = documentTheme(doc.attrs['theme'])
@@ -30,6 +45,7 @@ export function docPrintout(editor: Editor): Printout {
   prose.className = 'sumi-prose sumi-print'
   for (const [name, value] of themeVariables(theme)) prose.style.setProperty(name, value)
   prose.append(DOMSerializer.fromSchema(editor.schema).serializeFragment(doc.content))
+  await replaceBrokenImages(prose)
 
   const content = document.createElement('div')
   content.append(rule, prose)

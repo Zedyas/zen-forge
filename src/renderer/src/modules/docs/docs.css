@@ -69,12 +69,15 @@
 .sumi-prose ul, .sumi-prose ol { margin: 0 0 var(--sumi-normal-after); padding-left: 0.5in; }
 .sumi-prose li > p { margin: 0; }
 .sumi-prose li > ul, .sumi-prose li > ol { margin: 0; }
+/* Markers go by nesting level, whatever kind of list is around them, as in the Word file Sumi writes. */
 .sumi-prose ul { list-style-type: disc; }
-.sumi-prose ul ul { list-style-type: circle; }
-.sumi-prose ul ul ul { list-style-type: square; }
+.sumi-prose :is(ul, ol) ul { list-style-type: circle; }
+.sumi-prose :is(ul, ol) :is(ul, ol) ul { list-style-type: square; }
+.sumi-prose :is(ul, ol) :is(ul, ol) :is(ul, ol) ul { list-style-type: disc; }
 .sumi-prose ol { list-style-type: decimal; }
-.sumi-prose ol ol { list-style-type: lower-alpha; }
-.sumi-prose ol ol ol { list-style-type: lower-roman; }
+.sumi-prose :is(ul, ol) ol { list-style-type: lower-alpha; }
+.sumi-prose :is(ul, ol) :is(ul, ol) ol { list-style-type: lower-roman; }
+.sumi-prose :is(ul, ol) :is(ul, ol) :is(ul, ol) ol { list-style-type: decimal; }
 .sumi-prose ul[data-type="taskList"] { padding-left: 0; list-style: none; }
 .sumi-prose ul[data-type="taskList"] li { display: flex; align-items: flex-start; gap: 7px; }
 .sumi-prose ul[data-type="taskList"] li > label { flex: none; margin-top: 0.15em; user-select: none; }

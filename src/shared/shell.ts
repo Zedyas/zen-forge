@@ -86,7 +86,7 @@ export interface ShellBridge {
   print(): Promise<boolean>
   /** Prints this window's page to PDF bytes, with the page sizes its CSS sets. */
   printToPdf(): Promise<Uint8Array>
-  /** Opens an https link in the default browser. */
+  /** Opens a web (http or https) link in the default browser. */
   openExternal(url: string): Promise<void>
   pathForDroppedFile(file: File): string
   getAppearance(): Promise<Appearance>

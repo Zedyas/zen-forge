@@ -202,10 +202,10 @@ export function removeLink(editor: Editor): void {
   editor.chain().focus().extendMarkRange('link').unsetLink().run()
 }
 
-/** Opens a link in the default browser. Only https links open; the app never navigates itself. */
+/** Opens a web link in the default browser. Other kinds of link never open; the app never navigates itself. */
 export async function openLink(href: string): Promise<void> {
-  if (!href.startsWith('https://')) {
-    toast.info('Only https links open from Zendo', { description: href })
+  if (!/^https?:\/\//i.test(href)) {
+    toast.info('Only web links open from Zendo', { description: href })
     return
   }
   await platformClient.openExternal(href)
