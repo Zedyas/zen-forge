@@ -22,7 +22,7 @@ export interface ApplicationDefinition {
 }
 
 export const applications: readonly ApplicationDefinition[] = [
-  { id: 'sheets', name: 'Ledger', kind: 'Spreadsheets', available: true, opens: ['xlsx', 'xlsm', 'csv', 'tsv'], saves: ['xlsx', 'csv', 'tsv'] },
+  { id: 'sheets', name: 'Ledger', kind: 'Spreadsheets', available: true, opens: ['xlsx', 'xlsm', 'csv', 'tsv', 'xls', 'ods', 'numbers'], saves: ['xlsx', 'csv', 'tsv'] },
   { id: 'pdf', name: 'Hanko', kind: 'PDF editor', available: true, opens: ['pdf'], saves: ['pdf'] },
   { id: 'docs', name: 'Sumi', kind: 'Documents', available: false, opens: ['docx', 'md', 'markdown'], saves: [] },
   { id: 'slides', name: 'Slides', kind: 'Presentations', available: false, opens: ['pptx'], saves: [] },

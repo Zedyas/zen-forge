@@ -21,7 +21,7 @@ import {
   type WorkbookData,
 } from '../model/workbook-data'
 import { aggregateFindings, type FindingEvent } from './findings'
-import { numberFormatPattern, parseNumberFormat } from './number-format'
+import { numberFormatPattern, numberFormatStyle } from './number-format'
 import { packageFindings, readWorkbookPackage, type DefaultFont } from './package-parts'
 
 export interface XlsxImport {
@@ -55,6 +55,12 @@ interface ExtendedColor {
 interface ImportedCell {
   readonly input: CellInput
   readonly value: string | number | boolean | null
+}
+
+/** A defined name as the file lists it: `ranges` holds one reference per area. */
+export interface DefinedNameEntry {
+  readonly name: string
+  readonly ranges: readonly string[]
 }
 
 const minimumColumnWidth = 48
@@ -109,6 +115,10 @@ function columnIndex(letters: string): number {
   return [...letters.toUpperCase()].reduce((total, letter) => total * 26 + (letter.charCodeAt(0) - 64), 0) - 1
 }
 
+/** A column width in Excel's character units, as pixels the grid can show. */
+export function columnWidthPixels(characters: number): number {
+  return Math.max(minimumColumnWidth, Math.min(maximumColumnWidth, Math.round(characters * 7 + 5)))
+}
 
 function cachedValue(result: ExcelJS.CellValue): string | number | boolean | null {
   if (result === null || result === undefined) return null
@@ -122,6 +132,26 @@ function calledFunctions(formula: string): readonly string[] {
   const withoutText = formula.replaceAll(/"(?:[^"]|"")*"/g, '""')
   return [...withoutText.matchAll(/(?:_xlfn\.|_xlws\.)*([A-Za-z][A-Za-z0-9_.]*)\s*\(/g)]
     .flatMap(match => (match[1] === undefined ? [] : [match[1].toUpperCase()]))
+}
+
+/** Formulas calling functions the calculation engine does not have, counted per sheet under one finding. */
+export function unsupportedFunctionEvents(sheets: readonly SheetData[]): FindingEvent[] {
+  const supported = supportedFunctions()
+  const names = new Set<string>()
+  const cellsBySheet = new Map<string, number>()
+
+  for (const sheet of sheets) {
+    for (const input of sheet.cells.flat()) {
+      if (typeof input !== 'string' || !input.startsWith('=')) continue
+      const missing = calledFunctions(input).filter(name => !supported.has(name))
+      if (missing.length === 0) continue
+      missing.forEach(name => names.add(name))
+      cellsBySheet.set(sheet.name, (cellsBySheet.get(sheet.name) ?? 0) + 1)
+    }
+  }
+
+  const construct = `Unsupported formula functions: ${[...names].sort().join(', ')}`
+  return [...cellsBySheet].map(([location, count]) => ({ construct, severity: 'degraded', location, count, unit: 'cells' }))
 }
 
 interface CellContext {
@@ -272,13 +302,9 @@ function readCellStyle(cell: ExcelJS.Cell, context: CellContext): CellStyle {
   let style: CellStyle = defaultCellStyle
 
   if (source.numFmt !== undefined) {
-    const parsed = parseNumberFormat(source.numFmt)
-    style = { ...style, numberFormat: parsed.numberFormat, decimalPlaces: parsed.decimalPlaces }
-    // Keep the file's pattern only when it says more than the one this app would write for the same style.
-    if (source.numFmt !== numberFormatPattern(style) && !(parsed.mapped && parsed.numberFormat === 'general')) {
-      style = { ...style, formatCode: source.numFmt }
-    }
-    if (!parsed.mapped) cellEvent(context, 'Unmapped number formats')
+    const format = numberFormatStyle(source.numFmt)
+    style = format.style
+    if (!format.mapped) cellEvent(context, 'Unmapped number formats')
   }
   if (source.font !== undefined) style = readFont(source.font, context, style)
   if (source.fill !== undefined) style = readFill(source.fill, context, style)
@@ -299,10 +325,7 @@ function readLayout(sheet: ExcelJS.Worksheet, events: FindingEvent[]): SheetData
 
   ;(sheet.columns ?? []).forEach((column, index) => {
     if (column === undefined || column === null) return
-    if (typeof column.width === 'number') {
-      const pixels = Math.round(column.width * 7 + 5)
-      columnWidths.push([index, Math.max(minimumColumnWidth, Math.min(maximumColumnWidth, pixels))])
-    }
+    if (typeof column.width === 'number') columnWidths.push([index, columnWidthPixels(column.width)])
     if (column.hidden === true) hiddenColumns.push(index)
   })
 
@@ -392,14 +415,14 @@ function readNamedRange(name: string, reference: string, sheetNames: ReadonlySet
   return { name, sheetName, range: { x, y, width: endX - x + 1, height: endY - y + 1 } }
 }
 
-function readDefinedNames(
-  workbook: ExcelJS.Workbook,
+export function readDefinedNames(
+  entries: readonly DefinedNameEntry[],
   sheetNames: ReadonlySet<string>,
   events: FindingEvent[],
 ): NamedRange[] {
   const namedRanges: NamedRange[] = []
 
-  for (const entry of workbook.definedNames.model) {
+  for (const entry of entries) {
     if (entry.name.startsWith('_xlnm.')) {
       events.push({ construct: 'Print areas and titles', severity: 'degraded', location: entry.name })
       continue
@@ -445,9 +468,6 @@ export async function readXlsx(bytes: Uint8Array): Promise<XlsxImport> {
 
   const { parts, defaultFont } = readWorkbookPackage(bytes)
   const events: FindingEvent[] = [...packageFindings(parts)]
-  const unsupportedNames = new Set<string>()
-  const unsupportedCells = new Map<string, number>()
-  const supported = supportedFunctions()
   const sheets: SheetData[] = []
 
   for (const sheet of workbook.worksheets) {
@@ -466,14 +486,6 @@ export async function readXlsx(bytes: Uint8Array): Promise<XlsxImport> {
 
         const style = readCellStyle(cell, context)
         if (!isDefaultStyle(style)) styles.push([columnNumber - 1, rowNumber - 1, style])
-
-        if (typeof imported?.input === 'string' && imported.input.startsWith('=')) {
-          const missing = calledFunctions(imported.input).filter(name => !supported.has(name))
-          if (missing.length > 0) {
-            missing.forEach(name => unsupportedNames.add(name))
-            unsupportedCells.set(sheet.name, (unsupportedCells.get(sheet.name) ?? 0) + 1)
-          }
-        }
       })
     })
 
@@ -482,15 +494,9 @@ export async function readXlsx(bytes: Uint8Array): Promise<XlsxImport> {
     sheets.push({ name: sheet.name, cells, values, styles, layout: readLayout(sheet, events) })
   }
 
-  if (unsupportedNames.size > 0) {
-    const construct = `Unsupported formula functions: ${[...unsupportedNames].sort().join(', ')}`
-    unsupportedCells.forEach((count, location) => {
-      events.push({ construct, severity: 'degraded', location, count, unit: 'cells' })
-    })
-  }
-
+  events.push(...unsupportedFunctionEvents(sheets))
   const sheetNames = new Set(sheets.map(sheet => sheet.name))
-  const namedRanges = readDefinedNames(workbook, sheetNames, events)
+  const namedRanges = readDefinedNames(workbook.definedNames.model, sheetNames, events)
 
   return { data: { sheets, namedRanges }, findings: aggregateFindings(events) }
 }

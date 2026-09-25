@@ -45,6 +45,15 @@ fileAssociations:
   - ext: xlsm
     name: Macro-enabled workbook
     role: Viewer
+  - ext: xls
+    name: Excel 97-2003 workbook
+    role: Viewer
+  - ext: ods
+    name: OpenDocument spreadsheet
+    role: Viewer
+  - ext: numbers
+    name: Numbers spreadsheet
+    role: Viewer
   - ext: pdf
     name: PDF document
     role: Editor

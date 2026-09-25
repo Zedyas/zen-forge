@@ -8,7 +8,7 @@ import { fileService } from '../../services/file/IpcFileService'
 import { useFidelityStore } from '../../services/fidelity/fidelity-store'
 import { recordPreview, recordRecent } from '../../services/index/document-index'
 import { openPrintDialog, printToPdf } from '../../services/print/print'
-import { isDelimitedFormat, readDelimited, readXlsx, writeDelimited, writeXlsx } from './io'
+import { isDelimitedFormat, isSheetJsFormat, readDelimited, readSheetJs, readXlsx, writeDelimited, writeXlsx } from './io'
 import { formatCellValue } from './model/format'
 import { Workbook } from './model/Workbook'
 import { renderPreview } from './preview'
@@ -49,6 +49,14 @@ function setReady(cached: CachedWorkbook, workbook: Workbook): void {
   emit()
 }
 
+/** Reads a file with its format's importer; everything that is not delimited text or SheetJS's is xlsx. */
+async function importFile(bytes: Uint8Array, document: OpenDocument) {
+  const { extension } = document
+  if (isDelimitedFormat(extension)) return readDelimited(bytes, document.name, extension)
+  if (isSheetJsFormat(extension)) return readSheetJs(bytes, extension)
+  return readXlsx(bytes)
+}
+
 async function load(document: OpenDocument, cached: CachedWorkbook): Promise<void> {
   if (document.path === undefined) {
     setReady(cached, new Workbook())
@@ -56,9 +64,7 @@ async function load(document: OpenDocument, cached: CachedWorkbook): Promise<voi
   }
   try {
     const bytes = await fileService.read(document.path)
-    const imported = isDelimitedFormat(document.extension)
-      ? readDelimited(bytes, document.name, document.extension)
-      : await readXlsx(bytes)
+    const imported = await importFile(bytes, document)
     const findings = document.extension === 'xlsm'
       ? [...imported.findings, { construct: 'Macro-enabled file format (.xlsm)', severity: 'dropped' as const, suggestedAlternative: 'Saved as a new .xlsx file; macros are not kept' }]
       : imported.findings
@@ -114,9 +120,9 @@ async function encode(workbook: Workbook, format: string): Promise<Uint8Array> {
 
 /**
  * Saves a workbook tab. In-place saves go straight to disk; a dialog opens for Save As, for untitled
- * documents, for formats this app cannot write (.xlsm), for multi-sheet workbooks kept as delimited
- * text (.csv, .tsv), and when the import report says a save would drop content, so the original is
- * never silently overwritten.
+ * documents, for formats this app cannot write (.xlsm, .xls, .ods, .numbers), for multi-sheet workbooks
+ * kept as delimited text (.csv, .tsv), and when the import report says a save would drop content, so
+ * the original is never silently overwritten.
  */
 export async function saveWorkbook(documentId: string, saveAs: boolean): Promise<boolean> {
   const document = useDocumentsStore.getState().documents.find(candidate => candidate.id === documentId)
@@ -131,7 +137,8 @@ export async function saveWorkbook(documentId: string, saveAs: boolean): Promise
   let path = document.path
   if (needsDialog) {
     const format = isDelimitedFormat(document.extension) && !multiSheetText ? document.extension : 'xlsx'
-    const suffix = losesContent && !saveAs ? ' (edited)' : ''
+    // The copy needs a new name only when it would otherwise replace the original.
+    const suffix = losesContent && !saveAs && format === document.extension ? ' (edited)' : ''
     path = await fileService.chooseSavePath({
       defaultName: `${document.name}${suffix}.${format}`,
       // Delimited text holds one sheet; a multi-sheet workbook is only offered .xlsx (Export Sheet as CSV covers one sheet).

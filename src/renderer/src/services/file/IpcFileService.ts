@@ -12,10 +12,23 @@ export function requireBridge(action: string): ShellBridge {
   return bridge
 }
 
+/**
+ * Electron prefixes an error thrown in the main process with "Error invoking remote method '<channel>':
+ * Error: ". What follows is the message written for people, so that is what the renderer shows.
+ */
+async function mainProcessMessage<T>(call: Promise<T>): Promise<T> {
+  try {
+    return await call
+  } catch (error) {
+    if (!(error instanceof Error)) throw error
+    throw new Error(error.message.replace(/^Error invoking remote method '[^']*': (?:\w*Error: )?/, ''), { cause: error })
+  }
+}
+
 /** Renderer filesystem adapter backed by typed IPC calls to the main process. */
 export class IpcFileService implements FileService {
   chooseFiles(options: OpenFileOptions = {}): Promise<readonly FileReference[]> {
-    return requireBridge('Opening files').showOpenDialog(options)
+    return mainProcessMessage(requireBridge('Opening files').showOpenDialog(options))
   }
 
   chooseSavePath(options: SaveFileOptions): Promise<string | undefined> {
@@ -23,20 +36,20 @@ export class IpcFileService implements FileService {
   }
 
   describe(path: string): Promise<FileReference> {
-    return requireBridge('Reading files').describeFile(path)
+    return mainProcessMessage(requireBridge('Reading files').describeFile(path))
   }
 
   describeDroppedFiles(files: FileList): Promise<readonly FileReference[]> {
     const bridge = requireBridge('Dropped files')
-    return Promise.all(Array.from(files).map(file => bridge.describeFile(bridge.pathForDroppedFile(file))))
+    return mainProcessMessage(Promise.all(Array.from(files).map(file => bridge.describeFile(bridge.pathForDroppedFile(file)))))
   }
 
   read(path: string): Promise<Uint8Array> {
-    return requireBridge('Reading files').readFile(path)
+    return mainProcessMessage(requireBridge('Reading files').readFile(path))
   }
 
   write(path: string, contents: Uint8Array): Promise<void> {
-    return requireBridge('Writing files').writeFile(path, contents)
+    return mainProcessMessage(requireBridge('Writing files').writeFile(path, contents))
   }
 }
 

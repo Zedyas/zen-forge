@@ -38,6 +38,13 @@ describe('NodeFileService contract', () => {
     await expect(service.describeFile(path)).rejects.toThrow('not a file')
   })
 
+  it('explains how to open a Numbers document saved as a package folder', async () => {
+    const path = join(temporaryDirectory, 'Budget.numbers')
+    await mkdir(path)
+
+    await expect(service.describeFile(path)).rejects.toThrow('Change File Type > Single File')
+  })
+
   it('leaves no temporary files behind after an atomic write', async () => {
     const path = join(temporaryDirectory, 'atomic.csv')
     await service.writeFile(path, Uint8Array.from([1, 2, 3]))

@@ -17,6 +17,10 @@ function requireExtension(path: string, allowed: (extension: string) => boolean)
 export class NodeFileService {
   async describeFile(path: string): Promise<FileReference> {
     const metadata = await stat(path)
+    if (metadata.isDirectory() && extensionOf(path) === 'numbers') {
+      // Older Numbers versions could save a document as a package: a folder that Finder shows as one file.
+      throw new Error('This Numbers document is saved as a package. In Numbers, choose File > Advanced > Change File Type > Single File, then open it again.')
+    }
     if (!metadata.isFile()) throw new Error('The selected path is not a file.')
 
     return {

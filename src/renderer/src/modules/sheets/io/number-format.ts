@@ -1,6 +1,6 @@
 /** Translation between Excel number format patterns and the workbook's five formats. */
 
-import type { CellStyle, NumberFormat } from '../model/workbook-data'
+import { defaultCellStyle, type CellStyle, type NumberFormat } from '../model/workbook-data'
 
 export interface ParsedNumberFormat {
   readonly numberFormat: NumberFormat
@@ -65,6 +65,18 @@ export function parseNumberFormat(pattern: string): ParsedNumberFormat {
   }
 
   return unmapped
+}
+
+/**
+ * A file's number format pattern as a cell style: the nearest of the five formats, plus the pattern
+ * itself when it says more than the one this app would write for that style. `mapped` is false when
+ * the model can only approximate the pattern.
+ */
+export function numberFormatStyle(pattern: string): { readonly style: CellStyle; readonly mapped: boolean } {
+  const parsed = parseNumberFormat(pattern)
+  const style: CellStyle = { ...defaultCellStyle, numberFormat: parsed.numberFormat, decimalPlaces: parsed.decimalPlaces }
+  const keepsPattern = pattern !== numberFormatPattern(style) && !(parsed.mapped && parsed.numberFormat === 'general')
+  return { style: keepsPattern ? { ...style, formatCode: pattern } : style, mapped: parsed.mapped }
 }
 
 /** The pattern written for a style, or undefined when Excel's General format already matches. */

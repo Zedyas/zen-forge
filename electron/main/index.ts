@@ -1,5 +1,5 @@
-import { app, BrowserWindow, Menu, nativeTheme, type IpcMainInvokeEvent, type MenuItemConstructorOptions } from 'electron'
-import { extname, join } from 'node:path'
+import { app, BrowserWindow, dialog, Menu, nativeTheme, type IpcMainInvokeEvent, type MenuItemConstructorOptions } from 'electron'
+import { basename, extname, join } from 'node:path'
 import { applicationForExtension, findApplication, suiteName } from '../../src/shared/applications'
 import { commandApplies, commandDefinitions, type CommandDefinition, type MenuId } from '../../src/shared/commands'
 import type { Appearance, FileReference, ViewState, WindowSession, WindowState } from '../../src/shared/shell'
@@ -258,9 +258,20 @@ function openDocument(file: FileReference): void {
   send(targetWindow(), 'shell:document-opened', file)
 }
 
+/** Finder has no window to show a toast in, so a file it hands over that cannot be read is reported in a message box. */
 async function openPath(path: string): Promise<void> {
   if (applicationForExtension(extname(path).slice(1)) === undefined) return
-  openDocument(await fileService.describeFile(path))
+  try {
+    openDocument(await fileService.describeFile(path))
+  } catch (error) {
+    const settings = {
+      type: 'warning' as const,
+      message: `“${basename(path)}” could not be opened.`,
+      detail: error instanceof Error ? error.message : undefined,
+    }
+    const owner = BrowserWindow.getFocusedWindow()
+    await (owner === null ? dialog.showMessageBox(settings) : dialog.showMessageBox(owner, settings))
+  }
 }
 
 function senderRecord(event: IpcMainInvokeEvent): WindowRecord | undefined {
