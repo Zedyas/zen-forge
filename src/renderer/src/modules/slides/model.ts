@@ -179,11 +179,12 @@ export function newId(): string {
   return crypto.randomUUID()
 }
 
-export function textRun(text: string, style: Partial<RunStyle> = {}): TextRun {
-  return { text, bold: false, italic: false, underline: false, color: defaultTheme.text, size: bodySize, font: defaultTheme.font, ...style }
+/** A run of `text`; `style` may be a whole run, whose own text is ignored. */
+export function textRun(text: string, style: Partial<TextRun> = {}): TextRun {
+  return { bold: false, italic: false, underline: false, color: defaultTheme.text, size: bodySize, font: defaultTheme.font, ...style, text }
 }
 
-export function paragraphOf(text: string, style: Partial<RunStyle> = {}, options: Partial<Omit<Paragraph, 'runs'>> = {}): Paragraph {
+export function paragraphOf(text: string, style: Partial<TextRun> = {}, options: Partial<Omit<Paragraph, 'runs'>> = {}): Paragraph {
   return { runs: [textRun(text, style)], align: 'left', list: 'none', level: 0, lineSpacing: 1, ...options }
 }
 
@@ -372,6 +373,19 @@ export function allRuns(paragraphs: readonly Paragraph[]): readonly TextRun[] {
 function sameStyle(a: TextRun, b: TextRun): boolean {
   return a.bold === b.bold && a.italic === b.italic && a.underline === b.underline && a.color === b.color
     && a.highlight === b.highlight && a.size === b.size && a.font === b.font
+}
+
+/** Whether two text bodies hold the same paragraphs and runs, field by field. */
+export function sameParagraphs(a: readonly Paragraph[], b: readonly Paragraph[]): boolean {
+  return a.length === b.length && a.every((paragraph, index) => {
+    const other = b[index]
+    return other !== undefined && paragraph.align === other.align && paragraph.list === other.list && paragraph.level === other.level
+      && paragraph.lineSpacing === other.lineSpacing && paragraph.runs.length === other.runs.length
+      && paragraph.runs.every((run, position) => {
+        const otherRun = other.runs[position]
+        return otherRun !== undefined && run.text === otherRun.text && sameStyle(run, otherRun)
+      })
+  })
 }
 
 /** Joins neighbouring runs that look the same. */

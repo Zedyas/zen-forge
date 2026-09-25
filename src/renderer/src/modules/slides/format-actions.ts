@@ -51,12 +51,12 @@ function changeParagraphs(id: string, ids: readonly string[], change: (paragraph
 }
 
 export function applyRunStyle(id: string, change: Partial<RunStyle>): void {
-  const editor = activeEditor(id)
-  if (editor !== undefined) {
-    if (change.color !== undefined) editor.format({ kind: 'color', value: change.color })
-    if (change.size !== undefined) editor.format({ kind: 'size', value: change.size })
-    if (change.font !== undefined) editor.format({ kind: 'font', value: change.font })
-    if ('highlight' in change) editor.format({ kind: 'highlight', value: change.highlight })
+  const format = activeEditor(id)?.format
+  if (format !== undefined) {
+    if (change.color !== undefined) format({ kind: 'color', value: change.color })
+    if (change.size !== undefined) format({ kind: 'size', value: change.size })
+    if (change.font !== undefined) format({ kind: 'font', value: change.font })
+    if ('highlight' in change) format({ kind: 'highlight', value: change.highlight })
     return
   }
   const current = selection(id)
@@ -82,9 +82,9 @@ function everyHas(document: ReadySlides, elements: readonly SlideElement[], styl
 }
 
 export function toggleRunStyle(id: string, style: 'bold' | 'italic' | 'underline'): void {
-  const editor = activeEditor(id)
-  if (editor !== undefined) {
-    editor.format({ kind: 'toggle', style })
+  const format = activeEditor(id)?.format
+  if (format !== undefined) {
+    format({ kind: 'toggle', style })
     return
   }
   const current = selection(id)
@@ -92,9 +92,9 @@ export function toggleRunStyle(id: string, style: 'bold' | 'italic' | 'underline
 }
 
 export function setAlign(id: string, align: HorizontalAlign): void {
-  const editor = activeEditor(id)
-  if (editor !== undefined) {
-    editor.format({ kind: 'align', value: align })
+  const format = activeEditor(id)?.format
+  if (format !== undefined) {
+    format({ kind: 'align', value: align })
     return
   }
   const current = selection(id)
@@ -107,9 +107,9 @@ export function setAlign(id: string, align: HorizontalAlign): void {
 
 /** Turns bullets or numbering on for the selected paragraphs, or off when they all have it already. */
 export function toggleList(id: string, list: Exclude<ListStyle, 'none'>): void {
-  const editor = activeEditor(id)
-  if (editor !== undefined) {
-    editor.format({ kind: 'list', value: list })
+  const format = activeEditor(id)?.format
+  if (format !== undefined) {
+    format({ kind: 'list', value: list })
     return
   }
   const current = selection(id)
@@ -120,9 +120,9 @@ export function toggleList(id: string, list: Exclude<ListStyle, 'none'>): void {
 }
 
 export function changeIndent(id: string, step: 1 | -1): void {
-  const editor = activeEditor(id)
-  if (editor !== undefined) {
-    editor.format({ kind: 'indent', step })
+  const format = activeEditor(id)?.format
+  if (format !== undefined) {
+    format({ kind: 'indent', step })
     return
   }
   const document = readySlides(id)

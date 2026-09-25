@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
 import { ContextMenu } from '@base-ui/react/context-menu'
 import {
   boundsOf,
@@ -31,6 +31,7 @@ import {
 } from './slides-actions'
 import { currentSlide, selectedElements, updateSlides, type ReadySlides, type TableCellAddress } from './slides-store'
 import { fontStack, SlideView } from './SlideView'
+import { registerEditor } from './text-editing'
 import { TextEditor } from './TextEditor'
 
 type Drag =
@@ -185,17 +186,41 @@ interface CellEditorProps {
 
 /**
  * Types one table cell's text; Tab and Shift-Tab move to the next and previous cell, Escape closes.
- * The field grows with its text, and so does the row, as in PowerPoint.
+ * The field grows with its text, and so does the row, as in PowerPoint. What was typed is written
+ * when the field closes, when another editor action commits it, and when it goes away.
  */
 function CellEditor({ documentId, table, cell, rect, scale }: CellEditorProps) {
   const source = table.rows[cell.row]?.cells[cell.column]
   const [text, setText] = useState(source?.text ?? '')
   const [height, setHeight] = useState(rect.height)
-  // The field is drawn at the slide's scale, so its height in points is its pixel height over the scale.
-  // It only asks for a taller row once the text outgrew the cell.
-  const write = (): void => setCellText(documentId, table.id, cell, text, height > rect.height + 1 ? height / scale : 0)
+  const typed = useRef({ text, height })
+  const write = useRef<() => void>(() => undefined)
+  const close = useRef<() => void>(() => undefined)
+
+  useLayoutEffect(() => {
+    let written = false
+    write.current = () => {
+      if (written) return
+      written = true
+      // The field is drawn at the slide's scale, so its height in points is its pixel height over the
+      // scale. It only asks for a taller row once the text outgrew the cell.
+      const { text: value, height: needed } = typed.current
+      setCellText(documentId, table.id, cell, value, needed > rect.height + 1 ? needed / scale : 0)
+    }
+    close.current = () => {
+      write.current()
+      // Moving to another cell has already opened that one; only this cell's editor closes.
+      updateSlides(documentId, current => current.editingId === table.id && current.cell?.row === cell.row && current.cell.column === cell.column ? { editingId: undefined } : {})
+    }
+    const unregister = registerEditor({ documentId, elementId: table.id, commit: () => close.current() })
+    return () => {
+      unregister()
+      write.current()
+    }
+  }, [])
+
   const go = (step: 1 | -1): void => {
-    write()
+    write.current()
     const columns = table.columns.length
     const index = Math.min(table.rows.length * columns - 1, Math.max(0, cell.row * columns + cell.column + step))
     startEditing(documentId, table.id, { row: Math.floor(index / columns), column: index % columns })
@@ -218,17 +243,15 @@ function CellEditor({ documentId, table, cell, rect, scale }: CellEditorProps) {
       }}
       onChange={event => {
         const field = event.currentTarget
-        setText(field.value)
         field.style.height = '0px'
-        setHeight(Math.max(rect.height, field.scrollHeight))
+        const grown = Math.max(rect.height, field.scrollHeight)
         field.style.height = ''
+        typed.current = { text: field.value, height: grown }
+        setText(field.value)
+        setHeight(grown)
       }}
       onPointerDown={event => event.stopPropagation()}
-      onBlur={() => {
-        write()
-        // Moving to another cell has already opened that one; only a click elsewhere closes the editor.
-        updateSlides(documentId, current => current.editingId === table.id && current.cell?.row === cell.row && current.cell.column === cell.column ? { editingId: undefined } : {})
-      }}
+      onBlur={() => close.current()}
       onKeyDown={event => {
         event.stopPropagation()
         if (event.key === 'Tab') {

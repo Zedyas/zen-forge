@@ -487,12 +487,21 @@ export function runSlideCommand(id: string, command: CommandId): void | Promise<
   switch (command) {
     case 'edit.undo':
       // A focused field keeps its own text undo; the menu accelerator would otherwise swallow it.
-      if (isTextEntry(window.document.activeElement)) window.document.execCommand('undo')
-      else undoSlides(id)
+      if (isTextEntry(window.document.activeElement)) {
+        window.document.execCommand('undo')
+        return
+      }
+      // A text box still open (focus on the toolbar) first records its typing, so Undo reverts that.
+      activeEditor(id)?.commit()
+      undoSlides(id)
       return
     case 'edit.redo':
-      if (isTextEntry(window.document.activeElement)) window.document.execCommand('redo')
-      else redoSlides(id)
+      if (isTextEntry(window.document.activeElement)) {
+        window.document.execCommand('redo')
+        return
+      }
+      activeEditor(id)?.commit()
+      redoSlides(id)
       return
     case 'slide.new':
       return addSlide(id, 'titleContent')

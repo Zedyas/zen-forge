@@ -56,8 +56,15 @@ export async function saveDocument(id: string, saveAs: boolean): Promise<boolean
   }
 }
 
+/** Writes whatever is still being typed in a document's editor, so its unsaved state is up to date. */
+function flushTyping(id: string): void {
+  const document = findDocument(id)
+  if (document !== undefined) editorFor(document.kind)?.flush?.(id)
+}
+
 /** Closes a tab, asking Save / Don't Save / Cancel first when it has unsaved changes. */
 export async function closeDocument(id: string): Promise<boolean> {
+  flushTyping(id)
   const document = findDocument(id)
   if (document === undefined) return true
   if (document.dirty) {
@@ -76,6 +83,7 @@ export async function closeDocument(id: string): Promise<boolean> {
  * document with changes has to be saved first.
  */
 export async function moveToNewWindow(id: string): Promise<void> {
+  flushTyping(id)
   const document = findDocument(id)
   if (document === undefined) return
   if (document.path === undefined || document.dirty) {
@@ -88,6 +96,7 @@ export async function moveToNewWindow(id: string): Promise<void> {
 
 /** Resolves every unsaved document before the window closes or the app quits. */
 export async function resolveWindowClose(): Promise<void> {
+  useDocumentsStore.getState().documents.forEach(document => flushTyping(document.id))
   const unsaved = useDocumentsStore.getState().documents.filter(document => document.dirty)
   for (const document of unsaved) {
     if (!(await closeDocument(document.id))) {

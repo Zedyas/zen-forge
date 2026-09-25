@@ -13,6 +13,11 @@ export interface EditorHandler {
   save(documentId: string, saveAs: boolean): Promise<boolean>
   /** Drops the module's in-memory state for a closed document. */
   release(documentId: string): void
+  /**
+   * Writes text still being typed (an open text box or field) into the document, so closing it
+   * sees those changes as unsaved. Editors that keep typing in the document as it happens omit it.
+   */
+  flush?(documentId: string): void
 }
 
 /** The module that owns a document kind. Resolved at call time, so the import cycle with the modules is harmless. */

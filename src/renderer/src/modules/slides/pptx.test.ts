@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 import PptxGenJS from 'pptxgenjs'
 import { describe, expect, it } from 'vitest'
 import { createImportReport } from '@shared/fidelity'
@@ -96,5 +97,27 @@ describe('.pptx import report', () => {
     expect(findings).toEqual([expect.objectContaining({ construct: 'Charts', severity: 'dropped', location: 'Slide 1', suggestedAlternative: expect.stringContaining('removed when saved') })])
     expect(createImportReport('Results.pptx', findings).severity).toBe('dropped')
     expect(imported.slides[0]?.elements.map(element => element.kind)).toEqual(['shape', 'table'])
+  })
+})
+
+describe('.pptx slide order', () => {
+  it('follows the presentation\'s slide list, not the slide file numbers', async () => {
+    const two: Presentation = {
+      ...presentation,
+      slides: [
+        { id: newId(), background: '#ffffff', elements: [{ ...title, paragraphs: [paragraphOf('First')] }], notes: '' },
+        { id: newId(), background: '#ffffff', elements: [{ ...title, paragraphs: [paragraphOf('Second')] }], notes: '' },
+      ],
+    }
+    const parts = unzipSync(await writePptx(two))
+    const xml = strFromU8(parts['ppt/presentation.xml'] ?? new Uint8Array())
+    // Swap the two entries of the slide list, as reordering in PowerPoint can leave the files as they were.
+    const [first, second] = xml.match(/<p:sldId\b[^>]*\/>/g) ?? []
+    if (first === undefined || second === undefined) throw new Error('No slide list written')
+    parts['ppt/presentation.xml'] = strToU8(xml.replace(first, '@first@').replace(second, first).replace('@first@', second))
+
+    const { presentation: reopened } = await readPptx(zipSync(parts))
+
+    expect(reopened.slides.map(slide => slide.elements[0]?.kind === 'text' ? slide.elements[0].paragraphs[0]?.runs[0]?.text : undefined)).toEqual(['Second', 'First'])
   })
 })

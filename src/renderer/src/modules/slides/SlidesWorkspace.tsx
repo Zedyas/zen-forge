@@ -11,6 +11,7 @@ import {
   copySelection,
   deleteSlide,
   duplicateSelection,
+  finishTyping,
   isTextEntry,
   loadSlidesDocument,
   nudgeSelection,
@@ -43,7 +44,10 @@ function useSlideKeys(documentId: string | undefined): void {
     if (documentId === undefined) return
     const handleKeyDown = (event: KeyboardEvent): void => {
       const document = readySlides(documentId)
-      if (document === undefined || document.playing !== undefined || isTextEntry(event.target)) return
+      if (document === undefined || document.playing !== undefined || event.defaultPrevented || isTextEntry(event.target)) return
+      // Return and Space press a focused button or menu item rather than editing the selection.
+      const control = event.target instanceof Element && event.target.closest('button, [role="menuitem"], [role="menu"], select, a') !== null
+      if (control && (event.key === 'Enter' || event.key === ' ')) return
       const inRail = event.target instanceof Element && event.target.closest('.slides-rail') !== null
       if (event.metaKey && !event.shiftKey && !event.altKey && event.key.toLowerCase() === 'd') {
         event.preventDefault()
@@ -157,7 +161,7 @@ function StatusBar({ documentId, document }: { readonly documentId: string; read
   )
 }
 
-export const slidesEditor: EditorHandler = { run: runSlidesCommand, save: saveSlidesDocument, release: releaseSlidesDocument }
+export const slidesEditor: EditorHandler = { run: runSlidesCommand, save: saveSlidesDocument, release: releaseSlidesDocument, flush: finishTyping }
 
 /** Slides: the presentation tab's content below the title bar. */
 export function SlidesWorkspace({ document }: { readonly document: OpenDocument }) {

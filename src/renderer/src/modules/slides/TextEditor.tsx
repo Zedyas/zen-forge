@@ -6,6 +6,7 @@ import {
   mergeRuns,
   parseColor,
   paragraphOf,
+  sameParagraphs,
   textColorOn,
   type HorizontalAlign,
   type ListStyle,
@@ -266,21 +267,21 @@ function placeCaret(root: HTMLElement, point: { readonly x: number; readonly y: 
 }
 
 /**
- * Writes typed text into the element, unless nothing changed. An emptied new text box is removed,
- * as in Keynote, and a text box grows to hold its text, as PowerPoint's do; `height` is the height
- * the text needs.
+ * Writes typed text into the element, unless nothing changed. A text box grows to hold its text, as
+ * PowerPoint's do; `height` is the height the text needs. Closing (`closing`) an emptied new text
+ * box removes it, as in Keynote.
  */
-function writeText(documentId: string, elementId: string, paragraphs: readonly Paragraph[], height: number): void {
+function writeText(documentId: string, elementId: string, paragraphs: readonly Paragraph[], height: number, closing: boolean): void {
   const element = readySlides(documentId)?.present.slides.flatMap(slide => slide.elements).find(candidate => candidate.id === elementId)
   if (element === undefined || !holdsText(element)) return
   const empty = paragraphs.every(paragraph => paragraph.runs.every(run => run.text === ''))
-  if (empty && element.kind === 'text' && element.prompt === undefined && element.fill === undefined && element.border === undefined) {
+  if (closing && empty && element.kind === 'text' && element.prompt === undefined && element.fill === undefined && element.border === undefined) {
     removeElements(documentId, [elementId])
     return
   }
   const next = element.kind === 'shape' && empty ? [] : paragraphs
   const grow = element.kind === 'text' && height > element.height + 0.5
-  if (!grow && JSON.stringify(next) === JSON.stringify(element.paragraphs)) return
+  if (!grow && sameParagraphs(next, element.paragraphs)) return
   changeElement(documentId, elementId, current => holdsText(current)
     ? { ...current, paragraphs: next, height: grow ? height : current.height }
     : current)
@@ -308,20 +309,22 @@ export function TextEditor({ documentId, element, caret }: TextEditorProps) {
     return [paragraphOf('', { size: 18, color: textColorOn(element.fill, theme), font: theme.font }, { align: 'center' })]
   })
   const close = useRef<() => void>(() => undefined)
+  // Set once anything was typed or formatted, so an editor removed without closing only writes real changes.
+  const changed = useRef(false)
 
   useLayoutEffect(() => {
     const root = rootRef.current
     const first = initial[0]
     if (root === null || first === undefined) return
     let written = false
-    const write = (): void => {
+    const write = (closing: boolean): void => {
       if (written) return
       written = true
       // The editor is laid out at one CSS pixel per point, so its layout height is in points.
-      writeText(documentId, element.id, readEditor(root, first), root.offsetHeight + element.inset.top + element.inset.bottom)
+      writeText(documentId, element.id, readEditor(root, first), root.offsetHeight + element.inset.top + element.inset.bottom, closing)
     }
     close.current = () => {
-      write()
+      write(true)
       updateSlides(documentId, document => document.editingId === element.id ? { editingId: undefined } : {})
     }
     document.execCommand('defaultParagraphSeparator', false, 'p')
@@ -335,14 +338,17 @@ export function TextEditor({ documentId, element, caret }: TextEditorProps) {
     const unregister = registerEditor({
       documentId,
       elementId: element.id,
-      format: change => applyFormat(root, saved.current, change),
+      format: change => {
+        changed.current = true
+        applyFormat(root, saved.current, change)
+      },
       commit: () => close.current(),
     })
     // Switching tabs or slides unmounts the editor without a blur; what was typed is kept.
     return () => {
       document.removeEventListener('selectionchange', remember)
       unregister()
-      write()
+      if (changed.current) write(false)
     }
   }, [])
 
@@ -367,6 +373,7 @@ export function TextEditor({ documentId, element, caret }: TextEditorProps) {
             close.current()
           }}
           onInput={() => {
+            changed.current = true
             if (rootRef.current !== null) renumber(rootRef.current)
           }}
           onPaste={event => {
@@ -382,6 +389,7 @@ export function TextEditor({ documentId, element, caret }: TextEditorProps) {
               // Tab moves list paragraphs a level in or out; in other text it types a tab.
               event.preventDefault()
               const root = rootRef.current
+              changed.current = true
               if (selectedBlocks(root).some(block => listOf(block) !== 'none')) indent(root, event.shiftKey ? -1 : 1)
               else if (!event.shiftKey) document.execCommand('insertText', false, '\t')
             }

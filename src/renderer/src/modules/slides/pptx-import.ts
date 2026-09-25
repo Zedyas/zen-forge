@@ -595,6 +595,24 @@ function slideNumber(name: string): number {
   return Number(/(\d+)\.xml$/.exec(name)?.[1] ?? 0)
 }
 
+/**
+ * The slide files in the order the presentation shows them (its slide list), when that list names
+ * exactly these files; otherwise undefined. pptxtojson reads slides in file-number order, which a
+ * file edited by some tools does not keep.
+ */
+function presentationOrder(parts: Readonly<Record<string, Uint8Array>>, files: readonly string[]): string[] | undefined {
+  const presentation = parts['ppt/presentation.xml']
+  const relations = parts['ppt/_rels/presentation.xml.rels']
+  if (presentation === undefined || relations === undefined) return undefined
+  const targets = new Map(Array.from(strFromU8(relations).matchAll(/<Relationship\b[^>]*>/g), ([tag]) => [
+    /\bId="([^"]+)"/.exec(tag)?.[1] ?? '',
+    `ppt/${(/\bTarget="([^"]+)"/.exec(tag)?.[1] ?? '').replace(/^\/?ppt\//, '')}`,
+  ]))
+  const order = Array.from(strFromU8(presentation).matchAll(/<p:sldId\b[^>]*\br:id="([^"]+)"/g), ([, id]) => targets.get(id ?? '') ?? '')
+  const same = order.length === files.length && [...order].sort().join() === [...files].sort().join()
+  return same ? order : undefined
+}
+
 /** The built-in theme whose background most slides use, so a deck made with a theme keeps following it. */
 function matchingTheme(slides: readonly Slide[]): string {
   const counts = new Map<string, number>()
@@ -618,9 +636,14 @@ export async function readPptx(bytes: Uint8Array): Promise<ImportedPresentation>
   const slideFiles = Object.keys(parts).filter(name => /^ppt\/slides\/slide\d+\.xml$/.test(name)).sort((a, b) => slideNumber(a) - slideNumber(b))
   const findings = new Findings()
 
-  const slides = source.slides.map((sourceSlide, index): Slide => {
+  // Pair each pptxtojson slide with its file, then put them in the presentation's own order.
+  const order = presentationOrder(parts, slideFiles)
+  const paired = source.slides.map((slide, index) => ({ slide, file: slideFiles[index] }))
+  const inOrder = order === undefined ? paired : order.map(file => paired.find(pair => pair.file === file) ?? { slide: undefined, file })
+
+  const slides = inOrder.flatMap(({ slide: sourceSlide, file }, index): Slide[] => {
+    if (sourceSlide === undefined) return []
     const number = index + 1
-    const file = slideFiles[index]
     const xml = readSlideXml(file === undefined ? '<p:sld/>' : strFromU8(parts[file] ?? new Uint8Array()))
     const context: ElementContext = { findings, slide: number, place: onSlide, paragraphs: xml.paragraphs }
     if (xml.animated) findings.add('animations', number)
@@ -639,7 +662,7 @@ export async function readPptx(bytes: Uint8Array): Promise<ImportedPresentation>
     const designs = ordered(sourceSlide.layoutElements).flatMap(element => convert(element, { ...context, paragraphs: new Map() }))
     if (designs.length > 0) findings.add('masters', number)
     const elements = ordered(sourceSlide.elements).flatMap(element => convert(element, context))
-    return { id: newId(), background, backgroundImage, elements: [...designs, ...elements], notes: notesText(sourceSlide.note) }
+    return [{ id: newId(), background, backgroundImage, elements: [...designs, ...elements], notes: notesText(sourceSlide.note) }]
   })
 
   if (source.usedFonts.length > 0) findings.add('embeddedFonts')

@@ -11,11 +11,14 @@ export type InlineFormat =
   | { readonly kind: 'list'; readonly value: Exclude<ListStyle, 'none'> }
   | { readonly kind: 'indent'; readonly step: 1 | -1 }
 
-/** The open inline text editor. Toolbar and menu formatting goes to its selection instead of the whole box. */
+/**
+ * The open text editor: a text box's, whose selection toolbar and menu formatting goes to, or a
+ * table cell's, which has no `format` (formatting then goes to the cell).
+ */
 export interface ActiveEditor {
   readonly documentId: string
   readonly elementId: string
-  format(change: InlineFormat): void
+  readonly format?: (change: InlineFormat) => void
   /** Writes the typed text into the presentation and closes the editor. */
   commit(): void
 }
