@@ -3,6 +3,7 @@ import type { CommandId } from '@shared/commands'
 import { docsEditor } from '../modules/docs/DocsWorkspace'
 import { pdfEditor } from '../modules/pdf/PdfWorkspace'
 import { sheetsEditor } from '../modules/sheets/SheetsWorkspace'
+import { slidesEditor } from '../modules/slides/SlidesWorkspace'
 
 /** What the shell needs from an editor module, for any of its documents, mounted or not. */
 export interface EditorHandler {
@@ -23,6 +24,8 @@ export function editorFor(kind: EditorApplicationId): EditorHandler | undefined 
       return pdfEditor
     case 'docs':
       return docsEditor
+    case 'slides':
+      return slidesEditor
     default:
       return undefined
   }

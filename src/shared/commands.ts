@@ -3,6 +3,7 @@ import type { ApplicationId, EditorApplicationId } from './applications'
 export const commandIds = [
   'file.new',
   'file.newDocument',
+  'file.newPresentation',
   'window.new',
   'file.open',
   'file.save',
@@ -28,6 +29,9 @@ export const commandIds = [
   'page.delete',
   'page.insert',
   'page.extract',
+  'slide.new',
+  'slide.duplicate',
+  'slide.delete',
   'tab.previous',
   'tab.next',
   'tab.moveToNewWindow',
@@ -39,7 +43,7 @@ export const commandIds = [
 export type CommandId = (typeof commandIds)[number]
 
 /** `app` is the menu named after the app, which holds About and Quit. */
-export type MenuId = 'app' | 'file' | 'edit' | 'format' | 'view' | 'page' | 'window' | 'none'
+export type MenuId = 'app' | 'file' | 'edit' | 'format' | 'view' | 'page' | 'slide' | 'window' | 'none'
 
 export interface CommandDefinition {
   readonly id: CommandId
@@ -62,6 +66,7 @@ export interface CommandDefinition {
 export const commandDefinitions: readonly CommandDefinition[] = [
   { id: 'file.new', label: 'New Spreadsheet', menu: 'file', accelerator: 'CmdOrCtrl+N', scope: 'all', target: 'renderer' },
   { id: 'file.newDocument', label: 'New Document', menu: 'file', scope: 'all', target: 'renderer' },
+  { id: 'file.newPresentation', label: 'New Presentation', menu: 'file', scope: 'all', target: 'renderer' },
   { id: 'window.new', label: 'New Window', menu: 'file', accelerator: 'Shift+CmdOrCtrl+N', scope: 'all', target: 'main' },
   { id: 'file.open', label: 'Open…', menu: 'file', accelerator: 'CmdOrCtrl+O', scope: 'all', target: 'renderer' },
   { id: 'file.save', label: 'Save', menu: 'file', accelerator: 'CmdOrCtrl+S', scope: 'editors', target: 'renderer', separatorBefore: true },
@@ -73,9 +78,9 @@ export const commandDefinitions: readonly CommandDefinition[] = [
   { id: 'edit.undo', label: 'Undo', menu: 'edit', accelerator: 'CmdOrCtrl+Z', scope: 'editors', target: 'renderer' },
   { id: 'edit.redo', label: 'Redo', menu: 'edit', accelerator: 'Shift+CmdOrCtrl+Z', scope: 'editors', target: 'renderer' },
   { id: 'edit.find', label: 'Find…', menu: 'edit', accelerator: 'CmdOrCtrl+F', scope: ['sheets', 'pdf', 'docs'], target: 'renderer', separatorBefore: true },
-  { id: 'format.bold', label: 'Bold', menu: 'format', accelerator: 'CmdOrCtrl+B', scope: ['sheets', 'docs'], target: 'renderer' },
-  { id: 'format.italic', label: 'Italic', menu: 'format', accelerator: 'CmdOrCtrl+I', scope: ['sheets', 'docs'], target: 'renderer' },
-  { id: 'format.underline', label: 'Underline', menu: 'format', accelerator: 'CmdOrCtrl+U', scope: ['sheets', 'docs'], target: 'renderer' },
+  { id: 'format.bold', label: 'Bold', menu: 'format', accelerator: 'CmdOrCtrl+B', scope: ['sheets', 'docs', 'slides'], target: 'renderer' },
+  { id: 'format.italic', label: 'Italic', menu: 'format', accelerator: 'CmdOrCtrl+I', scope: ['sheets', 'docs', 'slides'], target: 'renderer' },
+  { id: 'format.underline', label: 'Underline', menu: 'format', accelerator: 'CmdOrCtrl+U', scope: ['sheets', 'docs', 'slides'], target: 'renderer' },
   { id: 'format.clear', label: 'Clear Formatting', menu: 'format', scope: ['sheets', 'docs'], target: 'renderer', separatorBefore: true },
   { id: 'view.toolbar', label: 'Toolbar', menu: 'view', accelerator: 'Alt+CmdOrCtrl+T', scope: 'editors', target: 'renderer', toggle: 'toolbar' },
   { id: 'view.inspector', label: 'Inspector', menu: 'view', accelerator: 'Alt+CmdOrCtrl+I', scope: 'editors', target: 'renderer', toggle: 'inspector' },
@@ -87,6 +92,9 @@ export const commandDefinitions: readonly CommandDefinition[] = [
   { id: 'page.delete', label: 'Delete Page', menu: 'page', accelerator: 'CmdOrCtrl+Backspace', scope: ['pdf'], target: 'renderer' },
   { id: 'page.insert', label: 'Insert Pages from File…', menu: 'page', scope: ['pdf'], target: 'renderer', separatorBefore: true },
   { id: 'page.extract', label: 'Extract Page…', menu: 'page', scope: ['pdf'], target: 'renderer' },
+  { id: 'slide.new', label: 'New Slide', menu: 'slide', accelerator: 'Alt+CmdOrCtrl+N', scope: ['slides'], target: 'renderer' },
+  { id: 'slide.duplicate', label: 'Duplicate Slide', menu: 'slide', scope: ['slides'], target: 'renderer' },
+  { id: 'slide.delete', label: 'Delete Slide', menu: 'slide', scope: ['slides'], target: 'renderer' },
   { id: 'tab.previous', label: 'Show Previous Tab', menu: 'window', accelerator: 'Shift+CmdOrCtrl+[', scope: 'all', target: 'renderer' },
   { id: 'tab.next', label: 'Show Next Tab', menu: 'window', accelerator: 'Shift+CmdOrCtrl+]', scope: 'all', target: 'renderer' },
   { id: 'tab.moveToNewWindow', label: 'Move Tab to New Window', menu: 'window', scope: 'editors', target: 'renderer' },

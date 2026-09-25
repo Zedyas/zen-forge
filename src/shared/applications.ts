@@ -25,7 +25,7 @@ export const applications: readonly ApplicationDefinition[] = [
   { id: 'sheets', name: 'Ledger', kind: 'Spreadsheets', available: true, opens: ['xlsx', 'xlsm', 'csv', 'tsv', 'xls', 'ods', 'numbers'], saves: ['xlsx', 'csv', 'tsv'] },
   { id: 'pdf', name: 'Hanko', kind: 'PDF editor', available: true, opens: ['pdf'], saves: ['pdf'] },
   { id: 'docs', name: 'Sumi', kind: 'Documents', available: true, opens: ['docx', 'md', 'markdown'], saves: ['docx', 'md', 'markdown'] },
-  { id: 'slides', name: 'Slides', kind: 'Presentations', available: false, opens: ['pptx'], saves: [] },
+  { id: 'slides', name: 'Slides', kind: 'Presentations', available: true, opens: ['pptx'], saves: ['pptx'] },
 ]
 
 /** Images are read (never written) so they can be combined into a PDF. */

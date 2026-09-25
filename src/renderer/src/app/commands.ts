@@ -31,6 +31,9 @@ export async function executeCommand(id: CommandId): Promise<void> {
     case 'file.newDocument':
       documents.openUntitled('docs')
       return
+    case 'file.newPresentation':
+      documents.openUntitled('slides')
+      return
     case 'file.open':
       return chooseAndOpenFiles()
     case 'file.closeTab':

@@ -14,6 +14,7 @@ const formatNames: Record<string, string> = {
   docx: 'Word Document',
   md: 'Markdown',
   markdown: 'Markdown',
+  pptx: 'PowerPoint Presentation',
 }
 
 function ownerOf(event: IpcMainInvokeEvent): BrowserWindow | undefined {

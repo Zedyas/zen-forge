@@ -1,0 +1,112 @@
+/* Slides layout. Colours, radii and shadows come from the shared tokens in styles.css. */
+
+
+/* ─── The static slide (SlideView) ───
+   Laid out at one CSS pixel per point and scaled as a whole. It keeps its own colours in dark mode:
+   a slide is a document, like a PDF page. */
+
+.slide-view { position: relative; flex: none; overflow: hidden; }
+.slide-surface {
+  position: absolute; left: 0; top: 0; overflow: hidden;
+  transform-origin: 0 0;
+  color: #222222;
+  font: 18px/1.2 Arial, Helvetica, sans-serif;
+  font-variant-numeric: normal;
+  -webkit-font-smoothing: antialiased;
+}
+.slide-element { position: absolute; }
+.slide-geometry { position: absolute; left: 0; top: 0; overflow: visible; }
+.slide-image { display: block; width: 100%; height: 100%; object-fit: fill; }
+.slide-text-frame {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column;
+  white-space: pre-wrap; overflow-wrap: break-word;
+}
+.slide-text { flex: none; min-height: 1em; }
+.slide-paragraph { margin: 0; }
+/* The bullet hangs in the paragraph's left padding (27 pt per level, the model's bulletIndent). */
+.slide-paragraph.is-bullet::before { content: "•"; display: inline-block; width: 27px; margin-left: -27px; }
+
+/* ─── Slide rail ─── */
+
+.slides-rail {
+  flex: none; width: 196px;
+  display: flex; flex-direction: column; gap: 12px;
+  padding: 14px 12px 24px 8px;
+  border-right: 1px solid var(--line);
+  background: var(--chrome);
+  overflow-y: auto;
+}
+.slides-thumb { display: flex; align-items: flex-start; gap: 6px; outline: none; touch-action: none; }
+.slides-thumb-number { width: 20px; padding-top: 2px; color: var(--dim); font-size: 11px; text-align: right; }
+.slides-thumb-page { display: block; border-radius: 3px; overflow: hidden; box-shadow: 0 0 0 0.5px rgb(0 0 0 / 16%), 0 1px 3px rgb(0 0 0 / 10%); }
+.slides-thumb.is-current .slides-thumb-page { box-shadow: 0 0 0 2.5px var(--accent); }
+.slides-thumb.is-current .slides-thumb-number { color: var(--ink); font-weight: 600; }
+.slides-thumb:focus-visible .slides-thumb-page { box-shadow: 0 0 0 2.5px var(--accent), 0 0 0 5px color-mix(in srgb, var(--accent) 25%, transparent); }
+.slides-thumb.is-dragging { z-index: 2; opacity: 0.85; }
+
+/* ─── Canvas ─── */
+
+.slides-main { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.slides-desk { position: relative; flex: 1; min-height: 0; display: grid; place-items: center; overflow: hidden; background: var(--desk); }
+.slides-stage { position: relative; box-shadow: var(--shadow-page); }
+.slides-hits, .slides-editor-layer { position: absolute; left: 0; top: 0; }
+.slides-hits { inset: 0; }
+.slides-editor-layer { transform-origin: 0 0; pointer-events: none; }
+.slides-editor-layer .slide-text-frame { pointer-events: auto; cursor: text; }
+
+.slides-hit { position: absolute; cursor: move; }
+.slides-hit.is-empty { outline: 1px dashed color-mix(in srgb, var(--dim) 55%, transparent); outline-offset: -1px; }
+.slides-prompt {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  padding: 4px 8px; overflow: hidden;
+  color: #9aa0a8; font-family: Arial, Helvetica, sans-serif; line-height: 1.15; text-align: center;
+  pointer-events: none;
+}
+.slides-line-hit { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
+.slides-line-hit line { stroke: transparent; stroke-width: 12; pointer-events: stroke; cursor: move; }
+
+.slides-selection { position: absolute; outline: 1.5px solid var(--accent); pointer-events: none; }
+.slides-handle {
+  position: absolute; width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px;
+  border: 1.5px solid var(--accent); border-radius: 2px;
+  background: #fff;
+  pointer-events: auto;
+}
+.slides-handle.is-end { border-radius: 50%; cursor: crosshair; }
+
+.slide-text-editor { outline: none; cursor: text; user-select: text; caret-color: auto; }
+.slides-editor-layer .slide-element { outline: 1.5px solid var(--accent); outline-offset: 1px; }
+
+/* ─── Speaker notes ─── */
+
+.slides-notes {
+  flex: none; height: 92px;
+  padding: 10px 16px;
+  border: 0; border-top: 1px solid var(--line); border-radius: 0;
+  background: var(--surface);
+  resize: none; outline: none;
+  font-size: 13px; line-height: 1.45;
+}
+.slides-notes::placeholder { color: var(--faint); }
+
+/* ─── Toolbar and inspector ─── */
+
+.tool.slides-size { min-width: 46px; justify-content: space-between; }
+.slides-size-menu { min-width: 120px; max-height: 360px; overflow-y: auto; }
+
+.slides-number-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; }
+.slides-number { display: flex; align-items: center; gap: 5px; color: var(--dim); }
+.slides-number > span { min-width: 12px; }
+.slides-number input { width: 100%; text-align: right; }
+.slides-number small { color: var(--faint); font-size: 11px; }
+.slides-swatches { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px; max-width: 150px; }
+.slides-swatches .swatch { width: 16px; height: 16px; }
+.slides-stepper { display: inline-flex; align-items: center; gap: 2px; }
+.slides-stepper span { min-width: 44px; text-align: center; }
+.slides-inline-tools { display: inline-flex; gap: 1px; }
+.slides-actions { display: flex; flex-direction: column; gap: 2px; }
+.slides-actions .button { justify-content: flex-start; padding: 0 6px; }
+.slides-actions kbd { margin-left: auto; }
+.button.slides-inspector-action { width: 100%; justify-content: flex-start; margin-top: 4px; padding: 0 6px; }
+.slides-file-name { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

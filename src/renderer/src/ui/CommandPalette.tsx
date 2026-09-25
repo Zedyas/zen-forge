@@ -14,6 +14,7 @@ const groups: ReadonlyArray<readonly [MenuId, string]> = [
   ['edit', 'Edit'],
   ['format', 'Format'],
   ['page', 'Page'],
+  ['slide', 'Slide'],
   ['view', 'View'],
   ['window', 'Window'],
   ['app', suiteName],

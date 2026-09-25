@@ -106,12 +106,13 @@ function appearanceItems(): MenuItemConstructorOptions[] {
   }))
 }
 
-/** The menu bar follows the focused window's active tab: Format appears for a spreadsheet, Page for a PDF. */
+/** The menu bar follows the focused window's active tab: Format appears for a spreadsheet, Page for a PDF, Slide for a presentation. */
 function buildMenu(record: WindowRecord | undefined): Menu {
   const edit = menuItems('edit', record)
   const find = edit.filter(item => item.id === 'edit.find')
   const format = menuItems('format', record)
   const page = menuItems('page', record)
+  const slide = menuItems('slide', record)
   const view = menuItems('view', record)
   const toggles = view.filter(item => item.type === 'checkbox')
   const zoom = view.filter(item => item.type !== 'checkbox')
@@ -155,6 +156,7 @@ function buildMenu(record: WindowRecord | undefined): Menu {
     },
     ...(format.length > 0 ? [{ label: 'Format', submenu: format }] : []),
     ...(page.length > 0 ? [{ label: 'Page', submenu: page }] : []),
+    ...(slide.length > 0 ? [{ label: 'Slide', submenu: slide }] : []),
     {
       label: 'View',
       submenu: [

@@ -18,6 +18,7 @@ import { DocsWorkspace } from '../modules/docs/DocsWorkspace'
 import { PdfWorkspace } from '../modules/pdf/PdfWorkspace'
 import { combinePdfs, createPdfFromImages } from '../modules/pdf/workflows'
 import { SheetsWorkspace } from '../modules/sheets/SheetsWorkspace'
+import { SlidesWorkspace } from '../modules/slides/SlidesWorkspace'
 import { executeCommand } from './commands'
 import { openDroppedFiles, resolveWindowClose } from './document-actions'
 import { activeDocument, homeTabId, useDocumentsStore } from './documents-store'
@@ -128,6 +129,9 @@ function NewTabMenu() {
             <Menu.Item className="menu-item" onClick={() => runCommand('file.newDocument')}>
               <AppIcon application="docs" size={20} /><span>New document</span>
             </Menu.Item>
+            <Menu.Item className="menu-item" onClick={() => runCommand('file.newPresentation')}>
+              <AppIcon application="slides" size={20} /><span>New presentation</span>
+            </Menu.Item>
             <Menu.Item className="menu-item" onClick={() => runCommand('file.open')}>
               <FolderOpen {...icon} /><span>Open…</span><kbd>{commandShortcut('file.open')}</kbd>
             </Menu.Item>
@@ -228,6 +232,7 @@ export function WindowScreen() {
         {active?.kind === 'sheets' && <SheetsWorkspace document={active} />}
         {active?.kind === 'pdf' && <PdfWorkspace document={active} />}
         {active?.kind === 'docs' && <DocsWorkspace document={active} />}
+        {active?.kind === 'slides' && <SlidesWorkspace document={active} />}
 
         {dragging && <div className="drop-overlay"><FilePlus2 size={28} aria-hidden="true" />Drop to open</div>}
       </main>
