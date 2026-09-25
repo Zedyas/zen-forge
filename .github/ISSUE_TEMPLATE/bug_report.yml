@@ -1,0 +1,31 @@
+name: Bug report
+description: Something doesn't work as expected.
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: dropdown
+    id: app
+    attributes:
+      label: Where?
+      options: [Ledger (spreadsheets), Hanko (PDF), Home or tabs, Installing or opening Zendo]
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Zendo and macOS versions
+      description: Zendo → About Zendo shows the version.
+      placeholder: Zendo 0.1.0, macOS 26.0
+    validations:
+      required: true
+  - type: textarea
+    id: file
+    attributes:
+      label: File
+      description: Attach the file if you can share it, or describe what's in it (formulas, form fields, redactions). Remove anything private first.

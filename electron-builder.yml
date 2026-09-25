@@ -29,6 +29,15 @@ mac:
   hardenedRuntime: false
   extendInfo:
     NSHumanReadableCopyright: Copyright © 2026 Zed Y. Licensed under GPL-3.0.
+# Electron fuses: switches written into the app binary. They stop the signed app from being reused
+# as a general Node.js runtime and make it load only its own, integrity-checked app.asar.
+electronFuses:
+  runAsNode: false
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
+  grantFileProtocolExtraPrivileges: false
 fileAssociations:
   - ext: [xlsx, csv]
     name: Spreadsheet

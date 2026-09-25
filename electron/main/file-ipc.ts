@@ -1,7 +1,8 @@
-import { BrowserWindow, dialog, ipcMain, shell, type IpcMainInvokeEvent } from 'electron'
+import { BrowserWindow, dialog, shell, type IpcMainInvokeEvent } from 'electron'
 import { basename } from 'node:path'
 import type { CloseChoice, OpenFileOptions, SaveFileOptions } from '../../src/shared/shell'
 import { NodeFileService } from './node-file-service'
+import { handle } from './security'
 
 const fileService = new NodeFileService()
 
@@ -17,7 +18,7 @@ function ownerOf(event: IpcMainInvokeEvent): BrowserWindow | undefined {
 
 /** Registers the only main-process filesystem operations exposed to the renderer. */
 export function registerFileIpc(): void {
-  ipcMain.handle('file:show-open-dialog', async (event, options: OpenFileOptions) => {
+  handle('file:show-open-dialog', async (event, options: OpenFileOptions) => {
     const properties: Array<'openFile' | 'multiSelections'> = ['openFile']
     if (options.allowMultiple === true) properties.push('multiSelections')
 
@@ -34,7 +35,7 @@ export function registerFileIpc(): void {
     return Promise.all(result.filePaths.map(path => fileService.describeFile(path)))
   })
 
-  ipcMain.handle('file:show-save-dialog', async (event, options: SaveFileOptions) => {
+  handle('file:show-save-dialog', async (event, options: SaveFileOptions) => {
     const filters = options.extensions.map(extension => ({
       name: formatNames[extension] ?? extension.toUpperCase(),
       extensions: [extension],
@@ -47,7 +48,7 @@ export function registerFileIpc(): void {
     return result.canceled ? undefined : result.filePath
   })
 
-  ipcMain.handle('file:confirm-close', async (event, documentName: string): Promise<CloseChoice> => {
+  handle('file:confirm-close', async (event, documentName: string): Promise<CloseChoice> => {
     const settings = {
       type: 'warning' as const,
       message: `Do you want to save the changes you made to “${basename(documentName)}”?`,
@@ -63,10 +64,10 @@ export function registerFileIpc(): void {
     return response === 0 ? 'save' : response === 1 ? 'discard' : 'cancel'
   })
 
-  ipcMain.handle('file:describe', (_event, path: string) => fileService.describeFile(path))
-  ipcMain.handle('file:read', (_event, path: string) => fileService.readFile(path))
-  ipcMain.handle('file:write', (_event, path: string, contents: Uint8Array) =>
+  handle('file:describe', (_event, path: string) => fileService.describeFile(path))
+  handle('file:read', (_event, path: string) => fileService.readFile(path))
+  handle('file:write', (_event, path: string, contents: Uint8Array) =>
     fileService.writeFile(path, contents),
   )
-  ipcMain.handle('file:reveal', (_event, path: string) => shell.showItemInFolder(path))
+  handle('file:reveal', (_event, path: string) => shell.showItemInFolder(path))
 }

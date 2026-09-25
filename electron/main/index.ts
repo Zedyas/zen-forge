@@ -1,10 +1,11 @@
-import { app, BrowserWindow, ipcMain, Menu, nativeTheme, type IpcMainInvokeEvent, type MenuItemConstructorOptions } from 'electron'
+import { app, BrowserWindow, Menu, nativeTheme, type IpcMainInvokeEvent, type MenuItemConstructorOptions } from 'electron'
 import { extname, join } from 'node:path'
 import { applicationForExtension, findApplication, suiteName } from '../../src/shared/applications'
 import { commandApplies, commandDefinitions, type CommandDefinition, type MenuId } from '../../src/shared/commands'
 import type { Appearance, FileReference, ViewState, WindowSession, WindowState } from '../../src/shared/shell'
 import { registerFileIpc } from './file-ipc'
 import { NodeFileService } from './node-file-service'
+import { applySecurity, appPageUrl, handle, registerAppScheme } from './security'
 import { applyStoredAppearance, getAppearance, readSession, setAppearance, writeSession } from './settings'
 
 /** Every window is the same kind: a row of tabs that starts on Home. */
@@ -26,6 +27,7 @@ let lastFocused: WindowRecord | undefined
 let quitting = false
 
 app.setName(suiteName)
+registerAppScheme()
 
 function recordFor(window: BrowserWindow | null | undefined): WindowRecord | undefined {
   return records.find(record => record.window === window)
@@ -177,8 +179,7 @@ function refreshMenu(): void {
 
 function loadRenderer(window: BrowserWindow): void {
   const developmentUrl = process.env['ELECTRON_RENDERER_URL']
-  if (developmentUrl !== undefined) void window.loadURL(developmentUrl)
-  else void window.loadFile(join(__dirname, '../renderer/index.html'))
+  void window.loadURL(developmentUrl ?? appPageUrl)
 }
 
 function createWindow(restore?: WindowSession): WindowRecord {
@@ -197,6 +198,7 @@ function createWindow(restore?: WindowSession): WindowRecord {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      devTools: !app.isPackaged,
     },
   })
 
@@ -250,24 +252,24 @@ function senderRecord(event: IpcMainInvokeEvent): WindowRecord | undefined {
   return recordFor(BrowserWindow.fromWebContents(event.sender))
 }
 
-ipcMain.handle('shell:new-window', () => {
+handle('shell:new-window', () => {
   createWindow()
 })
-ipcMain.handle('shell:open-in-new-window', (_event, file: FileReference) => {
+handle('shell:open-in-new-window', (_event, file: FileReference) => {
   send(createWindow(), 'shell:document-opened', file)
 })
-ipcMain.handle('shell:take-session', event => {
+handle('shell:take-session', event => {
   const record = senderRecord(event)
   const restore = record?.restore
   if (record !== undefined) record.restore = undefined
   return restore
 })
-ipcMain.handle('shell:get-appearance', () => getAppearance())
-ipcMain.handle('shell:set-appearance', (_event, appearance: Appearance) => {
+handle('shell:get-appearance', () => getAppearance())
+handle('shell:set-appearance', (_event, appearance: Appearance) => {
   setAppearance(appearance)
   refreshMenu()
 })
-ipcMain.handle('shell:set-window-state', (event, state: WindowState) => {
+handle('shell:set-window-state', (event, state: WindowState) => {
   const record = senderRecord(event)
   if (record === undefined) return
   const activeChanged = record.state.active !== state.active
@@ -281,13 +283,13 @@ ipcMain.handle('shell:set-window-state', (event, state: WindowState) => {
   saveSession()
   if (activeChanged && record === currentWindow()) refreshMenu()
 })
-ipcMain.handle('shell:set-view-state', (event, view: ViewState) => {
+handle('shell:set-view-state', (event, view: ViewState) => {
   const record = senderRecord(event)
   if (record === undefined) return
   record.view = view
   refreshMenu()
 })
-ipcMain.handle('shell:resolve-close', (event, approved: boolean) => {
+handle('shell:resolve-close', (event, approved: boolean) => {
   const record = senderRecord(event)
   if (record === undefined) return
   if (!approved) {
@@ -313,6 +315,7 @@ app.on('before-quit', () => {
 app.whenReady().then(() => {
   // A packaged app takes its icon from the bundle; in development the Dock would show Electron's.
   if (!app.isPackaged) app.dock?.setIcon(join(__dirname, '../../build/icon.png'))
+  applySecurity()
   applyStoredAppearance()
   registerFileIpc()
   const sessions = readSession()

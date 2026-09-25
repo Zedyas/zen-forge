@@ -124,6 +124,7 @@ pnpm package:mac  # build and package Zendo.app into dist/
 
 - **Electron** runs the app. The main process (`electron/main`) owns windows, the native menu bar, file dialogs, file reads and writes, and the saved session. Every window loads the same React page; a window is a row of tabs that starts on Home.
 - **The renderer** (`src/renderer/src`) is React 19 with Zustand stores. One store holds the window's tabs; each tab records which application edits it. The renderer reaches the file system only through the `window.desktop` bridge defined in `electron/preload`, and a lint rule keeps that bridge inside `services/file`.
+- **Security.** The page loads from a private `app://` address under a strict Content Security Policy (no network, no eval), cannot navigate away or open windows, and gets no permissions beyond writing to the clipboard. The main process answers only that page. Electron fuses lock the packaged app to its own integrity-checked code. See `electron/main/security.ts`.
 - **Commands** are defined once in `src/shared/commands.ts`. The native menu, the command palette, keyboard shortcuts and toolbar tooltips all read from that list, and each command says which kind of tab it applies to.
 - **Editors** (`modules/sheets`, `modules/pdf`) each export a handler with `run`, `save` and `release`. The shell finds the handler by the tab's kind, so saving or closing a tab works whether or not its editor is on screen.
 - **Ledger** uses [HyperFormula](https://hyperformula.handsontable.com) for formulas, [Glide Data Grid](https://grid.glideapps.com) to draw the grid, [ExcelJS](https://github.com/exceljs/exceljs) for `.xlsx`, and [Papa Parse](https://www.papaparse.com) for `.csv`.
@@ -151,11 +152,7 @@ The patch in `patches/` makes Glide Data Grid load its cell editor up front inst
 
 ## Contributing
 
-Zendo is maintained by its owner. Anyone can suggest changes; the maintainer reviews every suggestion and makes the final call.
-
-- **Ideas and bugs:** open an [issue](https://github.com/Zedyas/zen-forge/issues). For a bug, say what you did, what you expected and what happened, and attach the file if you can share it.
-- **Code:** pull requests are welcome as suggestions. They need to pass the checks (`pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm build`) and the maintainer's review before anything is merged. For anything large, open an issue first.
-- **Security problems:** report them privately, as described in [SECURITY.md](SECURITY.md).
+Suggestions are welcome as issues and pull requests; the maintainer reviews everything and makes the final call. See [CONTRIBUTING.md](CONTRIBUTING.md), and report security problems privately as described in [SECURITY.md](SECURITY.md).
 
 ## License
 

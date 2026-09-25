@@ -59,14 +59,5 @@
     "vite": "^7.3.6",
     "vitest": "4.1.11"
   },
-  "packageManager": "pnpm@10.28.2",
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "electron",
-      "esbuild"
-    ],
-    "patchedDependencies": {
-      "@glideapps/glide-data-grid@6.0.3": "patches/@glideapps__glide-data-grid@6.0.3.patch"
-    }
-  }
+  "packageManager": "pnpm@10.28.2"
 }

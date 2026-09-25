@@ -1,11 +1,14 @@
 # Monthly dependency update pull requests, grouped so there is one to review per ecosystem.
-# Security fixes arrive separately as soon as an advisory is published.
+# A new version is proposed only after it has been public for 7 days (a hijacked release is
+# usually pulled by then). Security fixes skip the wait and arrive as soon as an advisory is published.
 version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: monthly
+    cooldown:
+      default-days: 7
     groups:
       actions:
         patterns: ["*"]
@@ -14,6 +17,8 @@ updates:
     directory: /
     schedule:
       interval: monthly
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     groups:
       minor-and-patch:

@@ -1,3 +1,20 @@
-# pnpm settings. electron-winstaller builds Squirrel installers for Windows, which this project does not use.
+# pnpm settings for this repository.
+
+# Only these dependencies may run install scripts. electron-winstaller builds Windows installers,
+# which this project does not use.
+onlyBuiltDependencies:
+  - electron
+  - esbuild
 ignoredBuiltDependencies:
   - electron-winstaller
+
+# Wait three days before installing a newly published version, so a hijacked release is usually
+# caught and pulled before it reaches this project.
+minimumReleaseAge: 4320
+
+# Security fixes for dependencies of dependencies, until their parents require them.
+overrides:
+  lodash: ^4.18.1
+
+patchedDependencies:
+  "@glideapps/glide-data-grid@6.0.3": patches/@glideapps__glide-data-grid@6.0.3.patch
