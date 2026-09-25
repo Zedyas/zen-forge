@@ -50,7 +50,7 @@ In order, with the next item first:
 4. Search in PDFs
 5. iPhone photos (`.heic`) in PDF from images
 6. Sumi, for documents
-7. Signed builds, so Zendo runs on other Macs without building it
+7. Notarized builds, so Zendo opens without the Open Anyway step
 8. Slides, for presentations
 9. Windows support: the same app, adjusted to run and fit on Windows
 
@@ -118,7 +118,10 @@ pnpm typecheck    # TypeScript, strict mode
 pnpm lint         # ESLint, zero warnings allowed
 pnpm build        # production build into out/
 pnpm package:mac  # build and package Zendo.app into dist/
+pnpm release:mac  # build the downloadable .dmg into dist/
 ```
+
+**Releasing:** update `version` in `package.json` and `.github/release-notes.md`, then push a tag such as `v0.2.0`. The Release workflow builds the `.dmg` on GitHub, records where it came from (checksum and build attestation) and creates a draft release to publish.
 
 ### How it is built
 
@@ -143,7 +146,8 @@ src/
     modules/
       sheets/  Ledger: workbook model, file formats, grid, toolbar
       pdf/     Hanko: PDF engine, pages, markup, signatures, forms
-scripts/       suite-icon.mjs generates the app icon (pnpm icon:generate)
+scripts/       the app icon generator (pnpm icon:generate) and the license notices for releases
+.github/       checks and release workflows, Dependabot, issue forms
 patches/       a fix for Glide Data Grid, applied by pnpm install
 build/         the app icon used for packaging
 ```
@@ -152,7 +156,7 @@ The patch in `patches/` makes Glide Data Grid load its cell editor up front inst
 
 ## Contributing
 
-Suggestions are welcome as issues and pull requests; the maintainer reviews everything and makes the final call. See [CONTRIBUTING.md](CONTRIBUTING.md), and report security problems privately as described in [SECURITY.md](SECURITY.md).
+Suggestions are welcome as [issues](https://github.com/Zedyas/zen-forge/issues); code changes are made by the maintainer. See [CONTRIBUTING.md](CONTRIBUTING.md), and report security problems privately as described in [SECURITY.md](SECURITY.md).
 
 ## License
 
