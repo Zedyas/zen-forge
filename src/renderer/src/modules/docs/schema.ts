@@ -1,4 +1,5 @@
 import { Extension, mergeAttributes, Node, type Attribute, type Extensions } from '@tiptap/core'
+import CodeBlock from '@tiptap/extension-code-block'
 import Image from '@tiptap/extension-image'
 import { TaskItem, TaskList } from '@tiptap/extension-list'
 import { Subscript } from '@tiptap/extension-subscript'
@@ -57,6 +58,20 @@ export const PageBreak = Node.create({
   },
   renderHTML({ HTMLAttributes }) {
     return ['div', mergeAttributes(HTMLAttributes, { 'data-type': 'page-break', class: 'sumi-page-break' })]
+  },
+})
+
+/**
+ * A code block whose Markdown fence is longer than any run of backticks inside it, so code that
+ * shows a fenced block is written back intact.
+ */
+const FencedCodeBlock = CodeBlock.extend({
+  renderMarkdown: (node, helpers) => {
+    const text = helpers.renderChildren(node.content ?? [])
+    const longest = Math.max(2, ...[...text.matchAll(/`+/g)].map(match => match[0].length))
+    const fence = '`'.repeat(longest + 1)
+    const language: unknown = node.attrs?.['language']
+    return `${fence}${typeof language === 'string' ? language : ''}\n${text}\n${fence}`
   },
 })
 
@@ -134,12 +149,14 @@ export const documentExtensions: Extensions = [
   SumiDocument,
   StarterKit.configure({
     document: false,
+    codeBlock: false,
     heading: { levels: [1, 2, 3] },
     // Clicks place the caret; ⌘-click opens a link (see DocEditor).
     link: { openOnClick: false, defaultProtocol: 'https' },
     // It appends a paragraph on the first transaction, which would mark an untouched document as edited.
     trailingNode: false,
   }),
+  FencedCodeBlock,
   Title,
   ParagraphFormat,
   TextAlign.configure({ types: ['heading', 'paragraph', 'title'] }),
