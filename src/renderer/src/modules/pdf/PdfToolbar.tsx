@@ -9,6 +9,7 @@ import {
   Redo2,
   RotateCcw,
   RotateCw,
+  Search,
   Square,
   SquareDashed,
   Trash2,
@@ -21,6 +22,7 @@ import {
 import type { CommandId } from '@shared/commands'
 import { ColorTool, ToolButton, Toolbar, ToolSeparator } from '../../ui/Toolbar'
 import type { PdfColor } from './engine'
+import { useFindStore } from './find-store'
 import { findMarkup, updateMarkup } from './markup-actions'
 import type { Markup } from './model'
 import { runPdfCommand, setZoom } from './pdf-actions'
@@ -124,6 +126,7 @@ function ZoomLabel({ documentId, document }: { readonly documentId: string; read
 export function PdfToolbar({ documentId, document }: { readonly documentId: string; readonly document: ReadyPdf }) {
   const canUndo = document.past.length > 0
   const canRedo = document.future.length > 0
+  const findOpen = useFindStore(find => find.open)
   return (
     <Toolbar label="PDF tools">
       <ToolButton icon={Undo2} label="Undo" command="edit.undo" disabled={!canUndo} onClick={() => run('edit.undo')} />
@@ -141,6 +144,8 @@ export function PdfToolbar({ documentId, document }: { readonly documentId: stri
       <ToolButton icon={FileOutput} label="Extract page…" onClick={() => run('page.extract')} />
       <ToolButton icon={Trash2} label="Delete page" command="page.delete" onClick={() => run('page.delete')} />
       <span className="toolbar-grow" />
+      <ToolButton icon={Search} label="Find" command="edit.find" pressed={findOpen} onClick={() => run('edit.find')} />
+      <ToolSeparator />
       <ToolButton icon={ZoomOut} label="Zoom out" command="view.zoomOut" onClick={() => run('view.zoomOut')} />
       <ZoomLabel documentId={documentId} document={document} />
       <ToolButton icon={ZoomIn} label="Zoom in" command="view.zoomIn" onClick={() => run('view.zoomIn')} />

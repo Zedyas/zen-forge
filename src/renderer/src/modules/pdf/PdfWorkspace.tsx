@@ -6,6 +6,8 @@ import { FidelitySurface } from '../../ui/FidelitySurface'
 import { TitleEssentials } from '../../ui/TitleSlot'
 import { WindowEmpty } from '../../ui/WindowEmpty'
 import { ConfirmHost } from './ConfirmDialog'
+import { closeFind, useFindStore } from './find-store'
+import { FindBar } from './FindBar'
 import { removeMarkup, findMarkup, updateMarkup } from './markup-actions'
 import { translateMarkup } from './model'
 import { PageRail } from './PageRail'
@@ -18,7 +20,7 @@ import { SignatureDialog } from './SignatureDialog'
 import { setTool, toolIds, toolKeys, useToolStore } from './tool-store'
 import './pdf.css'
 
-/** Single-letter tool keys, Delete, arrow nudges and Escape; ignored while typing. */
+/** Single-letter tool keys, Delete, arrow nudges and Escape (which also closes find); ignored while typing. */
 function useToolKeys(documentId: string | undefined): void {
   useEffect(() => {
     if (documentId === undefined) return
@@ -29,6 +31,7 @@ function useToolKeys(documentId: string | undefined): void {
       if (key === 'escape') {
         setTool('select')
         useToolStore.setState({ selection: undefined })
+        closeFind()
         return
       }
       if ((key === 'delete' || key === 'backspace') && selection !== undefined) {
@@ -75,6 +78,7 @@ export function PdfWorkspace({ document }: { readonly document: OpenDocument }) 
   const state = usePdfStore(store => store.documents[documentId])
   const toolbar = useViewStore(view => view.toolbar)
   const inspector = useViewStore(view => view.inspector)
+  const findOpen = useFindStore(find => find.open)
   useToolKeys(state?.status === 'ready' ? documentId : undefined)
 
   useEffect(() => {
@@ -83,9 +87,10 @@ export function PdfWorkspace({ document }: { readonly document: OpenDocument }) 
     void loadPdfDocument(document.id, document.path, `${document.name}.${document.extension}`)
   }, [document])
 
-  // Tool state is shared by every PDF tab; a different document starts with nothing selected.
+  // Tool and find state are shared by every PDF tab; a different document starts with nothing selected and find closed.
   useEffect(() => {
     useToolStore.setState({ selection: undefined, textDraft: undefined })
+    closeFind()
   }, [documentId])
 
   if (state === undefined || state.status === 'loading') {
@@ -102,6 +107,7 @@ export function PdfWorkspace({ document }: { readonly document: OpenDocument }) 
       <SignatureDialog />
       <TitleEssentials><PdfEssentials /></TitleEssentials>
       {toolbar && <PdfToolbar documentId={documentId} document={state} />}
+      {findOpen && <FindBar documentId={documentId} document={state} />}
       <div className="window-body">
         <PageRail documentId={documentId} document={state} />
         <div className="window-main">

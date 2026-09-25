@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormField } from './engine'
+import { FindHighlights } from './FindBar'
 import { FormLayer } from './FormLayer'
 import { MarkupLayer } from './MarkupLayer'
 import { PageCanvas } from './PageCanvas'
@@ -87,6 +88,7 @@ export function PdfDesk({ documentId, document }: PdfDeskProps) {
                 root={desk}
                 margin={900}
               />
+              <FindHighlights pageKey={item.key} zoom={zoom} />
               {fields !== undefined && (
                 <FormLayer
                   documentId={documentId}

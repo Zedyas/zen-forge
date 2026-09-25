@@ -108,6 +108,13 @@ select.pdf-field { appearance: auto; }
 .pdf-draft--whiteout { background: #fff; box-shadow: 0 0 0 1px var(--line); }
 .pdf-draft--redact { background: rgb(0 0 0 / 70%); outline: 1.5px dashed var(--bad); }
 
+/* ─── Find ─── */
+
+/* Pages are always white, so the match colours are fixed rather than themed. */
+.pdf-find-layer { position: absolute; inset: 0; pointer-events: none; }
+.pdf-find-hit { position: absolute; border-radius: 2px; background: rgb(255 200 0 / 40%); mix-blend-mode: multiply; }
+.pdf-find-hit.is-current { background: rgb(255 140 0 / 55%); box-shadow: 0 0 0 1.5px rgb(214 100 0); }
+
 /* ─── Signatures ─── */
 
 .pdf-signature-menu { width: 236px; padding-bottom: 6px; }

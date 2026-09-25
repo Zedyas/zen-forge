@@ -8,6 +8,7 @@ import { useFidelityStore } from '../../services/fidelity/fidelity-store'
 import { recordPreview, recordRecent } from '../../services/index/document-index'
 import { askConfirm } from './ConfirmDialog'
 import { inspectPdf, listFormFields, redactPages, savePdf, type RedactOptions } from './engine'
+import { openFind } from './find-store'
 import { isRedaction, newId, toPageRef, turnPage, type PageItem, type Size, type Snapshot } from './model'
 import { closePdfJs, openPdfJs, renderPage } from './pdfjs'
 import { printPdfDocument } from './print'
@@ -317,6 +318,8 @@ export async function runPdfCommand(command: CommandId): Promise<void> {
         if (isTextEntry(window.document.activeElement)) window.document.execCommand('redo')
         else redoPdf(id)
         return
+      case 'edit.find':
+        return openFind()
       case 'view.zoomIn':
         return stepZoom(id, 1)
       case 'view.zoomOut':

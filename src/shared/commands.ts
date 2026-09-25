@@ -70,7 +70,7 @@ export const commandDefinitions: readonly CommandDefinition[] = [
   { id: 'file.closeTab', label: 'Close Tab', menu: 'file', accelerator: 'CmdOrCtrl+W', scope: 'all', target: 'renderer', separatorBefore: true },
   { id: 'edit.undo', label: 'Undo', menu: 'edit', accelerator: 'CmdOrCtrl+Z', scope: 'editors', target: 'renderer' },
   { id: 'edit.redo', label: 'Redo', menu: 'edit', accelerator: 'Shift+CmdOrCtrl+Z', scope: 'editors', target: 'renderer' },
-  { id: 'edit.find', label: 'Find…', menu: 'edit', accelerator: 'CmdOrCtrl+F', scope: ['sheets'], target: 'renderer', separatorBefore: true },
+  { id: 'edit.find', label: 'Find…', menu: 'edit', accelerator: 'CmdOrCtrl+F', scope: ['sheets', 'pdf'], target: 'renderer', separatorBefore: true },
   { id: 'format.bold', label: 'Bold', menu: 'format', accelerator: 'CmdOrCtrl+B', scope: ['sheets'], target: 'renderer' },
   { id: 'format.italic', label: 'Italic', menu: 'format', accelerator: 'CmdOrCtrl+I', scope: ['sheets'], target: 'renderer' },
   { id: 'format.underline', label: 'Underline', menu: 'format', accelerator: 'CmdOrCtrl+U', scope: ['sheets'], target: 'renderer' },
