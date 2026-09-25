@@ -46,6 +46,24 @@ export interface ViewState {
   readonly inspector: boolean
 }
 
+/**
+ * The update offer as every window shows it. The main process keeps the release itself (its URLs
+ * and files); the renderer only asks it to check, download or open the release notes.
+ */
+export type UpdateStatus =
+  | { readonly state: 'none' }
+  | { readonly state: 'available'; readonly version: string }
+  | { readonly state: 'downloading'; readonly version: string; readonly percent: number }
+  /** Verified and opened in Finder; installing is dragging the app into Applications. */
+  | { readonly state: 'downloaded'; readonly version: string }
+  | { readonly state: 'failed'; readonly version: string; readonly message: string }
+
+/** The answer to Check for Updates. `available` also reaches every window as the offer. */
+export type UpdateCheckResult =
+  | { readonly outcome: 'available'; readonly version: string }
+  | { readonly outcome: 'current'; readonly version: string }
+  | { readonly outcome: 'failed'; readonly message: string }
+
 export interface ShellBridge {
   readonly platform: string
   newWindow(): Promise<void>
@@ -71,8 +89,16 @@ export interface ShellBridge {
    * unsaved document), `false` keeps it open and cancels a pending quit.
    */
   resolveClose(approved: boolean): Promise<void>
+  checkForUpdates(): Promise<UpdateCheckResult>
+  /** Downloads the offered release to Downloads, verifies it and opens it; progress arrives as status. */
+  downloadUpdate(): Promise<void>
+  openReleaseNotes(): Promise<void>
   onDocumentOpened(listener: (file: FileReference) => void): () => void
   onCommand(listener: (command: CommandId) => void): () => void
   /** Fires when the user closes the window or quits while documents are unsaved. */
   onCloseRequested(listener: () => void): () => void
+  /** Receives the latest status at once, then each change. */
+  onUpdateStatus(listener: (status: UpdateStatus) => void): () => void
+  /** Fires once per check that finds a release, to show the offer as a toast. */
+  onUpdateOffered(listener: () => void): () => void
 }

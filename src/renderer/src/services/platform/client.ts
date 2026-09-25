@@ -1,5 +1,5 @@
 import type { CommandId } from '@shared/commands'
-import type { Appearance, CloseChoice, FileReference, ViewState, WindowSession, WindowState } from '@shared/shell'
+import type { Appearance, CloseChoice, FileReference, UpdateCheckResult, UpdateStatus, ViewState, WindowSession, WindowState } from '@shared/shell'
 import { getBridge, requireBridge } from '../file/IpcFileService'
 
 /** Keeps renderer components independent from the preload bridge and its browser fallback. */
@@ -46,6 +46,18 @@ export const platformClient = {
     await getBridge()?.resolveClose(approved)
   },
 
+  checkForUpdates(): Promise<UpdateCheckResult> {
+    return requireBridge('Checking for updates').checkForUpdates()
+  },
+
+  async downloadUpdate(): Promise<void> {
+    await getBridge()?.downloadUpdate()
+  },
+
+  async openReleaseNotes(): Promise<void> {
+    await getBridge()?.openReleaseNotes()
+  },
+
   onDocumentOpened(listener: (file: FileReference) => void): () => void {
     return getBridge()?.onDocumentOpened(listener) ?? (() => undefined)
   },
@@ -56,5 +68,13 @@ export const platformClient = {
 
   onCloseRequested(listener: () => void): () => void {
     return getBridge()?.onCloseRequested(listener) ?? (() => undefined)
+  },
+
+  onUpdateStatus(listener: (status: UpdateStatus) => void): () => void {
+    return getBridge()?.onUpdateStatus(listener) ?? (() => undefined)
+  },
+
+  onUpdateOffered(listener: () => void): () => void {
+    return getBridge()?.onUpdateOffered(listener) ?? (() => undefined)
   },
 }

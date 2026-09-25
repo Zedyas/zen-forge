@@ -11,6 +11,7 @@ import { AppIcon } from '../ui/AppIcon'
 import { commandShortcut, Tip } from '../ui/Tip'
 import { chooseAndOpenFiles, openFiles } from './document-actions'
 import { useDocumentsStore } from './documents-store'
+import { UpdateOffer } from './updates'
 
 
 function reportFailure(title: string) {
@@ -121,6 +122,7 @@ export function HomeScreen() {
   return (
     <main className="home">
       <div className="home-body">
+        <UpdateOffer />
         <h1>{suiteName}</h1>
         <p className="home-lede">Spreadsheets and PDFs, kept on this Mac.</p>
 
@@ -182,7 +184,7 @@ export function HomeScreen() {
       </div>
 
       <footer className="home-footer">
-        <span>Files stay on this Mac. No account, no network.</span>
+        <span>Files stay on this Mac. No account. {suiteName} checks GitHub for updates.</span>
         <AppearanceControl />
       </footer>
     </main>

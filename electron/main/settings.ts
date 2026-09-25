@@ -5,9 +5,13 @@ import type { Appearance, WindowSession } from '../../src/shared/shell'
 
 interface Settings {
   readonly appearance: Appearance
+  /** Check GitHub for a newer release a few seconds after launch, at most once a day. */
+  readonly checkForUpdates: boolean
+  /** When a check last reached GitHub, in milliseconds since 1970; 0 before the first. */
+  readonly lastUpdateCheck: number
 }
 
-const defaults: Settings = { appearance: 'system' }
+const defaults: Settings = { appearance: 'system', checkForUpdates: true, lastUpdateCheck: 0 }
 
 function settingsPath(): string {
   return join(app.getPath('userData'), 'settings.json')
@@ -17,16 +21,28 @@ function isAppearance(value: unknown): value is Appearance {
   return value === 'system' || value === 'light' || value === 'dark'
 }
 
-function readSettings(): Settings {
+/** Each field is checked on its own; a missing or invalid one falls back to its default. */
+export function readSettings(): Settings {
   try {
     const parsed: unknown = JSON.parse(readFileSync(settingsPath(), 'utf8'))
-    if (typeof parsed === 'object' && parsed !== null && 'appearance' in parsed && isAppearance(parsed.appearance)) {
-      return { appearance: parsed.appearance }
+    if (typeof parsed !== 'object' || parsed === null) return defaults
+    return {
+      appearance: 'appearance' in parsed && isAppearance(parsed.appearance) ? parsed.appearance : defaults.appearance,
+      checkForUpdates: 'checkForUpdates' in parsed && typeof parsed.checkForUpdates === 'boolean'
+        ? parsed.checkForUpdates
+        : defaults.checkForUpdates,
+      lastUpdateCheck: 'lastUpdateCheck' in parsed && typeof parsed.lastUpdateCheck === 'number' && Number.isFinite(parsed.lastUpdateCheck)
+        ? parsed.lastUpdateCheck
+        : defaults.lastUpdateCheck,
     }
   } catch {
     // A missing or unreadable settings file means defaults; it is rewritten on the next change.
+    return defaults
   }
-  return defaults
+}
+
+function writeSettings(change: Partial<Settings>): void {
+  writeFileSync(settingsPath(), JSON.stringify({ ...readSettings(), ...change }, null, 2))
 }
 
 /** Appearance drives `nativeTheme`, so CSS `prefers-color-scheme`, menus and window chrome all follow it. */
@@ -41,7 +57,19 @@ export function getAppearance(): Appearance {
 export function setAppearance(appearance: Appearance): void {
   if (!isAppearance(appearance)) throw new Error('Unknown appearance.')
   nativeTheme.themeSource = appearance
-  writeFileSync(settingsPath(), JSON.stringify({ ...readSettings(), appearance }, null, 2))
+  writeSettings({ appearance })
+}
+
+export function setCheckForUpdates(enabled: boolean): void {
+  writeSettings({ checkForUpdates: enabled })
+}
+
+export function setLastUpdateCheck(time: number): void {
+  try {
+    writeSettings({ lastUpdateCheck: time })
+  } catch {
+    // Not persisting only means the next launch checks again.
+  }
 }
 
 function sessionPath(): string {

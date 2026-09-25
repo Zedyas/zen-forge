@@ -4,6 +4,7 @@ import { chooseAndOpenFiles, closeDocument, moveToNewWindow, saveDocument } from
 import { activeDocument, homeTabId, useDocumentsStore } from './documents-store'
 import { editorFor } from './editors'
 import { useShellUiStore } from './shell-ui-store'
+import { checkForUpdates } from './updates'
 import { useViewStore } from './view-store'
 
 /** Runs a command from the native menu, the keyboard, the palette or a toolbar button. */
@@ -22,6 +23,8 @@ export async function executeCommand(id: CommandId): Promise<void> {
       return
     case 'window.new':
       return platformClient.newWindow()
+    case 'app.checkForUpdates':
+      return checkForUpdates()
     case 'file.new':
       documents.openUntitled('sheets')
       return

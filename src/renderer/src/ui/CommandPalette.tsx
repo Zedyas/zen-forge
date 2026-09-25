@@ -2,6 +2,7 @@ import { Dialog } from '@base-ui/react/dialog'
 import { Command } from 'cmdk'
 import { Search } from 'lucide-react'
 import { toast } from 'sonner'
+import { suiteName } from '@shared/applications'
 import { acceleratorLabel, commandApplies, commandDefinitions, type MenuId } from '@shared/commands'
 import { executeCommand } from '../app/commands'
 import { activeDocument, useDocumentsStore } from '../app/documents-store'
@@ -14,6 +15,7 @@ const groups: ReadonlyArray<readonly [MenuId, string]> = [
   ['page', 'Page'],
   ['view', 'View'],
   ['window', 'Window'],
+  ['app', suiteName],
 ]
 
 /** Every command that applies to the active tab, searchable by name, with its shortcut. */

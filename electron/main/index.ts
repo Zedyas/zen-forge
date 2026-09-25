@@ -6,7 +6,8 @@ import type { Appearance, FileReference, ViewState, WindowSession, WindowState }
 import { registerFileIpc } from './file-ipc'
 import { NodeFileService } from './node-file-service'
 import { applySecurity, appPageUrl, handle, registerAppScheme } from './security'
-import { applyStoredAppearance, getAppearance, readSession, setAppearance, writeSession } from './settings'
+import { applyStoredAppearance, getAppearance, readSession, readSettings, setAppearance, setCheckForUpdates, writeSession } from './settings'
+import { currentUpdateStatus, registerUpdates, scheduleUpdateCheck } from './updates'
 
 /** Every window is the same kind: a row of tabs that starts on Home. */
 interface WindowRecord {
@@ -38,6 +39,10 @@ function send(record: WindowRecord, channel: string, payload?: unknown): void {
   const deliver = (): void => record.window.webContents.send(channel, payload)
   if (record.window.webContents.isLoading()) record.window.webContents.once('did-finish-load', deliver)
   else deliver()
+}
+
+function broadcast(channel: string, payload?: unknown): void {
+  records.forEach(record => send(record, channel, payload))
 }
 
 /** The window the menu bar describes: the focused one, else the last focused, else the newest. */
@@ -113,6 +118,13 @@ function buildMenu(record: WindowRecord | undefined): Menu {
       label: suiteName,
       submenu: [
         { role: 'about', label: `About ${suiteName}` },
+        ...menuItems('app', record),
+        {
+          label: 'Check for Updates Automatically',
+          type: 'checkbox',
+          checked: readSettings().checkForUpdates,
+          click: item => setCheckForUpdates(item.checked),
+        },
         { type: 'separator' },
         { role: 'services' },
         { type: 'separator' },
@@ -211,6 +223,8 @@ function createWindow(restore?: WindowSession): WindowRecord {
   }
   records.push(record)
   loadRenderer(window)
+  const update = currentUpdateStatus()
+  if (update.state !== 'none') send(record, 'update:status', update)
 
   window.once('ready-to-show', () => window.show())
   window.on('focus', () => {
@@ -318,11 +332,13 @@ app.whenReady().then(() => {
   applySecurity()
   applyStoredAppearance()
   registerFileIpc()
+  registerUpdates(broadcast)
   const sessions = readSession()
   if (sessions.length === 0) createWindow()
   else sessions.forEach(session => createWindow(session))
   refreshMenu()
   pendingOpenPaths.splice(0).forEach(path => void openPath(path))
+  scheduleUpdateCheck()
 
   app.on('activate', () => {
     if (records.length === 0) createWindow()

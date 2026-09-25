@@ -390,6 +390,22 @@ kbd { color: var(--faint); font: 500 11px var(--font-ui); letter-spacing: 0.02em
   pointer-events: none;
 }
 
+/* ─── Update offer: a banner on Home and a toast ──────────────────────── */
+
+.update-offer {
+  display: flex; align-items: center; gap: 10px;
+  max-width: 1040px; margin-bottom: 26px; padding: 7px 7px 7px 12px;
+  border-radius: 10px; background: var(--surface); box-shadow: var(--shadow-float);
+}
+.update-offer > svg { flex: none; color: var(--accent); }
+.update-offer-text { flex: 1; min-width: 0; }
+.update-offer-actions { display: flex; gap: 4px; }
+.update-offer .button { height: 28px; }
+/* Inside the toast, which draws its own card: the actions wrap under the text. */
+.update-offer.is-toast { flex-wrap: wrap; width: var(--width); margin: 0; padding: 12px 10px 12px 14px; background: none; box-shadow: none; }
+.update-offer.is-toast .update-offer-actions { order: 1; width: 100%; padding-left: 26px; }
+.update-offer-close { align-self: flex-start; margin: -4px -2px 0 0; color: var(--dim); }
+
 /* ─── Menus ───────────────────────────────────────────────────────────── */
 
 .menu-popup { min-width: 260px; padding: 5px; border-radius: var(--radius-large); background: var(--surface); box-shadow: var(--shadow-pop); outline: none; }

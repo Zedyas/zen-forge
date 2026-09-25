@@ -30,11 +30,13 @@ export const commandIds = [
   'tab.moveToNewWindow',
   'shell.home',
   'palette.open',
+  'app.checkForUpdates',
 ] as const
 
 export type CommandId = (typeof commandIds)[number]
 
-export type MenuId = 'file' | 'edit' | 'format' | 'view' | 'page' | 'window' | 'none'
+/** `app` is the menu named after the app, which holds About and Quit. */
+export type MenuId = 'app' | 'file' | 'edit' | 'format' | 'view' | 'page' | 'window' | 'none'
 
 export interface CommandDefinition {
   readonly id: CommandId
@@ -84,6 +86,7 @@ export const commandDefinitions: readonly CommandDefinition[] = [
   { id: 'tab.moveToNewWindow', label: 'Move Tab to New Window', menu: 'window', scope: 'editors', target: 'renderer' },
   { id: 'shell.home', label: 'Home', menu: 'window', accelerator: 'Shift+CmdOrCtrl+H', scope: 'all', target: 'renderer', separatorBefore: true },
   { id: 'palette.open', label: 'Command Palette…', menu: 'none', accelerator: 'CmdOrCtrl+K', scope: 'all', target: 'renderer' },
+  { id: 'app.checkForUpdates', label: 'Check for Updates…', menu: 'app', scope: 'all', target: 'renderer' },
 ]
 
 export function findCommand(id: CommandId): CommandDefinition {

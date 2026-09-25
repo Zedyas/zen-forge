@@ -1,12 +1,16 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { CommandId } from '../../src/shared/commands'
-import type { FileReference, ShellBridge } from '../../src/shared/shell'
+import type { FileReference, ShellBridge, UpdateStatus } from '../../src/shared/shell'
 
 const documentListeners = new Set<(file: FileReference) => void>()
 const pendingDocuments: FileReference[] = []
 const commandListeners = new Set<(command: CommandId) => void>()
 const pendingCommands: CommandId[] = []
 const closeListeners = new Set<() => void>()
+const updateStatusListeners = new Set<(status: UpdateStatus) => void>()
+let latestUpdateStatus: UpdateStatus | undefined
+const updateOfferListeners = new Set<() => void>()
+let pendingUpdateOffer = false
 
 // Documents can arrive before React subscribes (a Finder open launches the window); hold them until then.
 ipcRenderer.on('shell:document-opened', (_event, file: FileReference) => {
@@ -31,6 +35,21 @@ ipcRenderer.on('shell:close-requested', () => {
   closeListeners.forEach(listener => listener())
 })
 
+// The main process sends the update status when a window opens and on every change; the latest
+// is kept for React to read when it subscribes.
+ipcRenderer.on('update:status', (_event, status: UpdateStatus) => {
+  latestUpdateStatus = status
+  updateStatusListeners.forEach(listener => listener(status))
+})
+
+ipcRenderer.on('update:offered', () => {
+  if (updateOfferListeners.size === 0) {
+    pendingUpdateOffer = true
+    return
+  }
+  updateOfferListeners.forEach(listener => listener())
+})
+
 const shellBridge: ShellBridge = {
   platform: process.platform,
   newWindow: () => ipcRenderer.invoke('shell:new-window'),
@@ -49,6 +68,9 @@ const shellBridge: ShellBridge = {
   setWindowState: state => ipcRenderer.invoke('shell:set-window-state', state),
   setViewState: state => ipcRenderer.invoke('shell:set-view-state', state),
   resolveClose: approved => ipcRenderer.invoke('shell:resolve-close', approved),
+  checkForUpdates: () => ipcRenderer.invoke('update:check'),
+  downloadUpdate: () => ipcRenderer.invoke('update:download'),
+  openReleaseNotes: () => ipcRenderer.invoke('update:open-notes'),
   onDocumentOpened: listener => {
     documentListeners.add(listener)
     pendingDocuments.splice(0).forEach(file => listener(file))
@@ -62,6 +84,19 @@ const shellBridge: ShellBridge = {
   onCloseRequested: listener => {
     closeListeners.add(listener)
     return () => closeListeners.delete(listener)
+  },
+  onUpdateStatus: listener => {
+    updateStatusListeners.add(listener)
+    if (latestUpdateStatus !== undefined) listener(latestUpdateStatus)
+    return () => updateStatusListeners.delete(listener)
+  },
+  onUpdateOffered: listener => {
+    updateOfferListeners.add(listener)
+    if (pendingUpdateOffer) {
+      pendingUpdateOffer = false
+      listener()
+    }
+    return () => updateOfferListeners.delete(listener)
   },
 }
 
