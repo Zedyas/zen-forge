@@ -109,6 +109,15 @@ function selectionFromRows(selection: GridSelection, rowOffset: number): GridSel
   }
 }
 
+/**
+ * Glide sizes the row-number column from its own row count, so the frozen grid (a few rows) would get a
+ * narrower one than the grid below it and their columns would not line up. Both use the width Glide
+ * picks for the largest row number shown.
+ */
+function rowMarkerWidth(largestRowNumber: number): number {
+  return largestRowNumber > 10_000 ? 48 : largestRowNumber > 1_000 ? 44 : largestRowNumber > 100 ? 36 : 32
+}
+
 /** Glide has no underline; draw it under the rendered text using the cell's own font. */
 const drawUnderline: DrawCellCallback = (args, drawContent) => {
   drawContent()
@@ -210,6 +219,10 @@ export function SheetEditor({ document, workbook }: SheetEditorProps) {
   const getFrozenCell = useCallback((cell: Item) => getCell(cell, frozenRows), [frozenRows, getCell])
   const editScrollingCell = useCallback((cell: Item, value: EditableGridCell) => editCell(cell, value, scrollingRows), [editCell, scrollingRows])
   const editFrozenCell = useCallback((cell: Item, value: EditableGridCell) => editCell(cell, value, frozenRows), [editCell, frozenRows])
+  // Row markers show workbook row numbers, so a hidden row leaves a gap (1, 2, 4) as in Excel and Numbers.
+  const scrollingRowNumber = useCallback((row: number) => (scrollingRows[row] ?? 0) + 1, [scrollingRows])
+  const frozenRowNumber = useCallback((row: number) => (frozenRows[row] ?? 0) + 1, [frozenRows])
+  const markerWidth = rowMarkerWidth((visibleRows.at(-1) ?? 0) + 1)
 
   const selectedRows = selection.rows.toArray()
   const selectedColumns = selection.columns.toArray()
@@ -321,7 +334,7 @@ export function SheetEditor({ document, workbook }: SheetEditorProps) {
                   event.preventDefault()
                   workbook.fillRange(sheetId, mapRange(event.patternSource, visibleColumns, frozenRows), mapRange(event.fillDestination, visibleColumns, frozenRows))
                 }}
-                rowMarkers={{ kind: 'number', startIndex: (frozenRows[0] ?? 0) + 1 }}
+                rowMarkers={{ kind: 'number', rowNumber: frozenRowNumber, width: markerWidth }}
                 onCellContextMenu={cell => selectOnContextMenu(cell, 0)}
               />
             </div>
@@ -343,7 +356,7 @@ export function SheetEditor({ document, workbook }: SheetEditorProps) {
                 event.preventDefault()
                 workbook.fillRange(sheetId, mapRange(event.patternSource, visibleColumns, scrollingRows), mapRange(event.fillDestination, visibleColumns, scrollingRows))
               }}
-              rowMarkers={{ kind: 'number', startIndex: (scrollingRows[0] ?? 0) + 1 }}
+              rowMarkers={{ kind: 'number', rowNumber: scrollingRowNumber, width: markerWidth }}
               onCellContextMenu={cell => selectOnContextMenu(cell, frozenRowCount)}
               smoothScrollY
               onVisibleRegionChanged={region => {

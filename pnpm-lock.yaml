@@ -9,7 +9,7 @@ overrides:
 
 patchedDependencies:
   '@glideapps/glide-data-grid@6.0.3':
-    hash: 8ec771f7234323450409431c2491b0040c03abdd1df2547b6c223335082ffbb0
+    hash: 99f9cf369e8166ad804612bf19a0b58623bdf69d8ff0690c48322c064ecaa467
     path: patches/@glideapps__glide-data-grid@6.0.3.patch
 
 importers:
@@ -30,7 +30,7 @@ importers:
         version: 10.0.0(@dnd-kit/core@6.3.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)
       '@glideapps/glide-data-grid':
         specifier: 6.0.3
-        version: 6.0.3(patch_hash=8ec771f7234323450409431c2491b0040c03abdd1df2547b6c223335082ffbb0)(lodash@4.18.1)(marked@4.3.0)(react-dom@19.2.8(react@19.2.8))(react-responsive-carousel@3.2.23)(react@19.2.8)
+        version: 6.0.3(patch_hash=99f9cf369e8166ad804612bf19a0b58623bdf69d8ff0690c48322c064ecaa467)(lodash@4.18.1)(marked@4.3.0)(react-dom@19.2.8(react@19.2.8))(react-responsive-carousel@3.2.23)(react@19.2.8)
       cmdk:
         specifier: ^1.1.1
         version: 1.1.1(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -3894,7 +3894,7 @@ snapshots:
 
   '@floating-ui/utils@0.2.12': {}
 
-  '@glideapps/glide-data-grid@6.0.3(patch_hash=8ec771f7234323450409431c2491b0040c03abdd1df2547b6c223335082ffbb0)(lodash@4.18.1)(marked@4.3.0)(react-dom@19.2.8(react@19.2.8))(react-responsive-carousel@3.2.23)(react@19.2.8)':
+  '@glideapps/glide-data-grid@6.0.3(patch_hash=99f9cf369e8166ad804612bf19a0b58623bdf69d8ff0690c48322c064ecaa467)(lodash@4.18.1)(marked@4.3.0)(react-dom@19.2.8(react@19.2.8))(react-responsive-carousel@3.2.23)(react@19.2.8)':
     dependencies:
       '@linaria/react': 4.5.4(react@19.2.8)
       canvas-hypertxt: 1.0.3

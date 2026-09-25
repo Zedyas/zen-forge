@@ -1,5 +1,18 @@
+diff --git a/dist/dts/data-editor/data-editor.d.ts b/dist/dts/data-editor/data-editor.d.ts
+index 6194a163cf221484e448b1bdb792fec1eb389299..da3c1b57cc611e2b0f6602961cc4571d79b3d9b9 100644
+--- a/dist/dts/data-editor/data-editor.d.ts
++++ b/dist/dts/data-editor/data-editor.d.ts
+@@ -11,6 +11,8 @@ export interface RowMarkerOptions {
+     kind: "checkbox" | "number" | "clickable-number" | "checkbox-visible" | "both" | "none";
+     checkboxStyle?: "circle" | "square";
+     startIndex?: number;
++    /** Patched: the number shown for a row, which replaces `startIndex + row`. */
++    rowNumber?: (row: number) => number;
+     width?: number;
+     theme?: Partial<Theme>;
+ }
 diff --git a/dist/esm/data-editor/data-editor.js b/dist/esm/data-editor/data-editor.js
-index ec05aa9866c70032fc5509ff557cb8c542e384ed..302fcbfc668faed9192ec1d44aba55830d7b1e4d 100644
+index ec05aa9866c70032fc5509ff557cb8c542e384ed..5467d1c87be56fb7b6698b86c2d05b886cfb9bb2 100644
 --- a/dist/esm/data-editor/data-editor.js
 +++ b/dist/esm/data-editor/data-editor.js
 @@ -26,7 +26,9 @@ import { withAlpha } from "../internal/data-grid/color-parser.js";
@@ -13,3 +26,29 @@ index ec05aa9866c70032fc5509ff557cb8c542e384ed..302fcbfc668faed9192ec1d44aba5583
  // There must be a better way
  let idCounter = 0;
  function getSpanStops(cells) {
+@@ -78,6 +80,8 @@ const DataEditorImpl = (p, forwardedRef) => {
+     const rowMarkers = rowMarkersObj?.kind ?? p.rowMarkers ?? "none";
+     const rowMarkerWidthRaw = rowMarkersObj?.width ?? p.rowMarkerWidth;
+     const rowMarkerStartIndex = rowMarkersObj?.startIndex ?? p.rowMarkerStartIndex ?? 1;
++    // Patched: an optional number per row, for grids that leave rows out (hidden rows) and so are not numbered consecutively.
++    const rowMarkerNumber = rowMarkersObj?.rowNumber;
+     const rowMarkerTheme = rowMarkersObj?.theme ?? p.rowMarkerTheme;
+     const rowMarkerCheckboxStyle = rowMarkersObj?.checkboxStyle ?? "square";
+     const minColumnWidth = Math.max(minColumnWidthIn, 20);
+@@ -372,7 +376,7 @@ const DataEditorImpl = (p, forwardedRef) => {
+                 checkboxStyle: rowMarkerCheckboxStyle,
+                 checked: gridSelection?.rows.hasIndex(row) === true,
+                 markerKind: rowMarkers === "clickable-number" ? "number" : rowMarkers,
+-                row: rowMarkerStartIndex + row,
++                row: rowMarkerNumber?.(row) ?? rowMarkerStartIndex + row,
+                 drawHandle: onRowMoved !== undefined,
+                 cursor: rowMarkers === "clickable-number" ? "pointer" : undefined,
+             };
+@@ -436,6 +440,7 @@ const DataEditorImpl = (p, forwardedRef) => {
+         gridSelection?.rows,
+         rowMarkers,
+         rowMarkerStartIndex,
++        rowMarkerNumber,
+         onRowMoved,
+         rowMarkerOffset,
+         trailingRowOptions?.hint,
