@@ -1,6 +1,6 @@
 import { decodePDFRawStream, PDFArray, PDFDict, PDFName, PDFRawStream, PDFRef, type PDFDocument, type PDFObject } from '@cantoo/pdf-lib'
 import { zlibSync } from 'fflate'
-import { scanContent } from './content-stream'
+import { scanContent, type Instruction } from './content-stream'
 
 /*
  * Optional content, which viewers call layers: content shown or hidden as a group. Acrobat's
@@ -77,11 +77,12 @@ function hiddenTest(doc: PDFDocument, properties: PDFDict): (content: PDFObject 
 }
 
 function decodeContent(stream: PDFObject | undefined): Uint8Array {
-  if (!(stream instanceof PDFRawStream)) throw new Error('A page has content that could not be read, so its hidden layers could not be removed.')
+  const unreadable = (): Error => unsafe('A page has content Zendo can’t read, so it can’t remove the hidden layers.')
+  if (!(stream instanceof PDFRawStream)) throw unreadable()
   try {
     return decodePDFRawStream(stream).decode()
   } catch {
-    throw new Error('A page has content in an encoding that could not be read, so its hidden layers could not be removed.')
+    throw unreadable()
   }
 }
 
@@ -130,6 +131,102 @@ interface XObjectUse {
   readonly dropped: Set<string>
 }
 
+/** An error that says what to do instead, for content this cannot clean without changing what shows. */
+function unsafe(reason: string): Error {
+  return new Error(`${reason} Save without “Also remove hidden information”, or remove the layer in Adobe Acrobat.`)
+}
+
+function scan(content: Uint8Array): Instruction[] {
+  try {
+    return scanContent(content)
+  } catch {
+    throw unsafe('This PDF has an image in its page content that Zendo can’t read past, so it can’t remove the hidden layers safely.')
+  }
+}
+
+/*
+ * Hidden content still changes state that visible content after it relies on: viewers skip only
+ * its painting. Its `cm`, colours, line and text settings and clip (`W n`) stay in effect, and its
+ * text shows move the text position. A hidden block goes whole only when none of that reaches past
+ * it; otherwise it keeps every state change and loses only what paints.
+ */
+
+/** Operators whose effect lasts until a `Q` restores the graphics state: the CTM, colours, line and text settings, and the clip. */
+const stateOperators = new Set(['cm', 'w', 'J', 'j', 'M', 'd', 'ri', 'i', 'gs', 'CS', 'cs', 'SC', 'SCN', 'sc', 'scn', 'G', 'g', 'RG', 'rg', 'K', 'k', 'Tc', 'Tw', 'Tz', 'TL', 'Tf', 'Tr', 'Ts', '"', 'W', 'W*'])
+/** Operators that set or advance the text position, which lasts until the text object's `ET`. */
+const textOperators = new Set(['Td', 'TD', 'Tm', 'T*', 'Tj', 'TJ', "'", '"'])
+const textShows = new Set(['Tj', 'TJ', "'", '"'])
+/** Operators after which text is placed from the start of a line, so a show removed before them moves nothing. */
+const lineStarts = new Set(['BT', 'ET', 'Td', 'TD', 'Tm', 'T*', "'", '"'])
+const pathPainting = new Set(['S', 's', 'f', 'F', 'f*', 'B', 'B*', 'b', 'b*'])
+/** What a hidden block that cannot go whole keeps as written: everything that changes state and paints nothing. */
+const kept = new Set([
+  ...stateOperators, 'q', 'Q', 'BT', 'ET', 'Td', 'TD', 'Tm', 'T*',
+  'm', 'l', 'c', 'v', 'y', 'h', 're', 'n', 'BMC', 'EMC', 'MP', 'BX', 'EX', 'd0', 'd1',
+])
+
+/** The index of the `EMC` that closes the marked content opened at `open`, or the end when none does. */
+function closingIndex(instructions: readonly Instruction[], open: number): number {
+  let depth = 0
+  for (let index = open; index < instructions.length; index += 1) {
+    const { operator } = instructions[index]
+    if (operator === 'BDC' || operator === 'BMC') depth += 1
+    if (operator === 'EMC') depth -= 1
+    if (depth === 0) return index
+  }
+  return instructions.length
+}
+
+/**
+ * Whether a hidden block can go whole: `q`/`Q` and `BT`/`ET` balance inside it, every state change
+ * sits inside a `q … Q` of its own, and it moves the text position only inside a text object of its
+ * own. Text settings such as the font are graphics state, so a `Tf` outlasts `ET`; only the text
+ * position ends there.
+ */
+function selfContained(block: readonly Instruction[], insideText: boolean): boolean {
+  let saves = 0
+  let text = false
+  for (const { operator } of block) {
+    if (operator === 'q') saves += 1
+    if (operator === 'Q' && --saves < 0) return false
+    // A text object inside another is not valid PDF, and its `BT` would reset the outer one's position.
+    if (operator === 'BT' && (text || insideText)) return false
+    if (operator === 'BT') text = true
+    if (operator === 'ET' && !text) return false
+    if (operator === 'ET') text = false
+    if (textOperators.has(operator) && !text) return false
+    if (saves === 0 && stateOperators.has(operator)) return false
+  }
+  return saves === 0 && !text
+}
+
+/**
+ * An instruction of a hidden block that cannot go whole, without its painting: `undefined` keeps it
+ * as written, a string replaces it. Paths end unpainted (`n` still applies a pending clip), `'` and
+ * `"` still move to the next line, and marked content loses its property list, which can quote the
+ * hidden text as /ActualText. Text shows, images, shadings, XObjects and unknown operators go.
+ */
+function withoutPainting({ operator, operands: [first, second] }: Instruction): string | undefined {
+  if (operator === "'") return 'T*'
+  if (operator === '"') return `${first ?? '0'} Tw ${second ?? '0'} Tc T*`
+  if (kept.has(operator)) return undefined
+  if (pathPainting.has(operator)) return 'n'
+  const tag = first !== undefined && /^\/[\w.-]+$/.test(first) ? first : '/Span'
+  if (operator === 'BDC') return `${tag} BMC`
+  if (operator === 'DP') return `${tag} MP`
+  return ' '
+}
+
+/** Whether every opening operator has its closing one after it, as in `q … Q`. */
+function balanced(instructions: readonly Instruction[], opens: readonly string[], close: string): boolean {
+  let depth = 0
+  for (const { operator } of instructions) {
+    if (opens.includes(operator)) depth += 1
+    if (operator === close && --depth < 0) return false
+  }
+  return depth === 0
+}
+
 /** Removes hidden optional content and flattens the rest; see the comment at the top of this file. */
 export function removeHiddenLayers(doc: PDFDocument): void {
   const properties = doc.catalog.lookupMaybe(PDFName.of('OCProperties'), PDFDict)
@@ -140,8 +237,9 @@ export function removeHiddenLayers(doc: PDFDocument): void {
 
   /**
    * The edits for one content stream: a hidden `/OC … BDC` block goes with everything up to its
-   * matching EMC (or the end of the stream), a `Do` of a hidden XObject goes, and a visible
-   * `/OC … BDC` becomes a plain `/OC BMC` so nothing points to its layer any more.
+   * matching EMC (or the end of the stream), or when that would change what follows it, loses only
+   * its painting (see `selfContained` and `withoutPainting`). A `Do` of a hidden XObject goes, and
+   * an `/OC … BDC` that stays becomes a plain `/OC BMC`, so nothing points to its layer any more.
    */
   const rewrite = (content: Uint8Array, resources: PDFDict | undefined): Uint8Array | undefined => {
     const named = (category: PDFName, name: string | undefined): PDFObject | undefined =>
@@ -149,26 +247,39 @@ export function removeHiddenLayers(doc: PDFDocument): void {
     const use = uses.get(resources) ?? { painted: new Set<string>(), dropped: new Set<string>() }
     uses.set(resources, use)
 
+    const instructions = scan(content)
     const edits: Edit[] = []
-    let hiddenFrom: number | undefined
-    let depth = 0
-    for (const { operator, operands, start, end } of scanContent(content)) {
-      const [first, second] = operands
-      if (hiddenFrom !== undefined) {
-        if (operator === 'BDC' || operator === 'BMC') depth += 1
-        if (operator === 'EMC') depth -= 1
+    /** Instructions before this index are in a hidden block that loses its painting. */
+    let hiddenEnd = -1
+    let inText = false
+    /** A hidden text show was removed and nothing has placed text since: visible text shown now would move. */
+    let shifted = false
+    for (let index = 0; index < instructions.length; index += 1) {
+      const instruction = instructions[index]
+      const { operator, operands: [first, second], start, end } = instruction
+      if (operator === 'BT') inText = true
+      if (operator === 'ET') inText = false
+      if (lineStarts.has(operator)) shifted = false
+      if (index < hiddenEnd) {
+        const replacement = withoutPainting(instruction)
+        if (replacement !== undefined) edits.push({ start, end, replacement })
+        if (textShows.has(operator)) shifted = true
         if (operator === 'Do' && first !== undefined) use.dropped.add(first)
-        if (depth === 0) {
-          edits.push({ start: hiddenFrom, end, replacement: ' ' })
-          hiddenFrom = undefined
-        }
+      } else if (shifted && (operator === 'Tj' || operator === 'TJ')) {
+        throw unsafe('This PDF mixes a hidden layer into visible text in a way Zendo can’t remove safely.')
       } else if (operator === 'BDC' && first === '/OC') {
         if (isHidden(named(Properties, second))) {
-          hiddenFrom = start
-          depth = 1
-        } else {
-          edits.push({ start, end, replacement: '/OC BMC' })
+          const close = closingIndex(instructions, index)
+          const block = instructions.slice(index + 1, close)
+          if (selfContained(block, inText)) {
+            edits.push({ start, end: instructions[close]?.end ?? content.length, replacement: ' ' })
+            for (const { operator: inner, operands: [name] } of block) if (inner === 'Do' && name !== undefined) use.dropped.add(name)
+            index = close
+            continue
+          }
+          hiddenEnd = close
         }
+        edits.push({ start, end, replacement: '/OC BMC' })
       } else if (operator === 'Do' && first !== undefined) {
         const xobject = doc.context.lookup(named(XObject, first))
         if (xobject instanceof PDFRawStream && isHidden(xobject.dict.get(OC))) {
@@ -179,8 +290,16 @@ export function removeHiddenLayers(doc: PDFDocument): void {
         }
       }
     }
-    if (hiddenFrom !== undefined) edits.push({ start: hiddenFrom, end: content.length, replacement: ' ' })
-    return edits.length === 0 ? undefined : applyEdits(content, edits)
+    if (edits.length === 0) return undefined
+    const output = applyEdits(content, edits)
+    // A check on the above: emptying a block keeps its `q`/`Q` and marked-content pairs, so their balance must not change.
+    const after = scanContent(output)
+    for (const [opens, close] of [[['q'], 'Q'], [['BDC', 'BMC'], 'EMC']] as const) {
+      if (balanced(instructions, opens, close) && !balanced(after, opens, close)) {
+        throw unsafe('Zendo couldn’t remove this PDF’s hidden layers without changing what its pages show.')
+      }
+    }
+    return output
   }
 
   /** Rewrites the form XObjects a resource dictionary names, and the forms inside those, once each. */
