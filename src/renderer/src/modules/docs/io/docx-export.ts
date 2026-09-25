@@ -1,8 +1,11 @@
 /**
- * Writes a Sumi document (TipTap JSON) as .docx with the `docx` library. Structure uses Word's
- * built-in styles (Heading 1–3, numbered and bulleted lists), so Word's navigation pane and list
- * tools work; the few block types Word has no style for (quote, code, rule, checklist) get named
- * paragraph styles that the importer maps back.
+ * Writes a Sumi document (TipTap JSON) as .docx with the `docx` library. It writes everything the
+ * reader (docx-read.ts) reads, so a file Zendo saves opens again unchanged:
+ * - the theme as Word's styles (Normal, Title, Heading 1–3, Quote), so Word's navigation pane,
+ *   style gallery and list tools work;
+ * - direct formatting (fonts, sizes, colours, highlights, spacing, indents, alignment);
+ * - the page setup as the section's page size and margins, and page numbers as a footer field.
+ * Blocks Word has no style for (code, rule, checklist) get named styles the reader maps back.
  */
 
 import type { JSONContent } from '@tiptap/core'
@@ -11,13 +14,18 @@ import {
   BorderStyle,
   Document,
   ExternalHyperlink,
+  Footer,
   HeadingLevel,
+  HighlightColor,
   ImageRun,
   LevelFormat,
+  LineRuleType,
   Packer,
   PageBreak,
+  PageNumber,
   Paragraph,
   ShadingType,
+  Tab,
   Table,
   TableCell,
   TableRow,
@@ -26,10 +34,12 @@ import {
   WidthType,
   type ILevelsOptions,
   type IParagraphOptions,
+  type IParagraphStyleOptions,
+  type IRunOptions,
   type ParagraphChild,
 } from 'docx'
-import { contentWidthPixels, type PageFormat } from '../page'
-import { checklistMarks, docxStyleNames, type DocxStyleId } from './docx-styles'
+import { contentWidthPixels, documentPage, documentTheme, type BlockStyle, type PageSetup } from '../theme'
+import { checklistMarks, docxStyleNames, hexColor, highlightColors, type DocxStyleId } from './docx-styles'
 import { fromDataUrl, imageSize, type PixelSize } from './images'
 
 export interface DocxExport {
@@ -38,11 +48,11 @@ export interface DocxExport {
   readonly skippedImages: number
 }
 
-
 type Block = Paragraph | Table
+type Alignment = (typeof AlignmentType)[keyof typeof AlignmentType]
 
 interface ExportContext {
-  readonly page: PageFormat
+  readonly page: PageSetup
   /** Start values of the numbered lists, one numbering definition each. */
   readonly listStarts: Set<number>
   /** Each numbered list restarts at its start value, so each gets its own numbering instance. */
@@ -57,30 +67,43 @@ function textAttr(node: JSONContent, name: string): string | undefined {
 
 function numberAttr(node: JSONContent, name: string): number | undefined {
   const value: unknown = node.attrs?.[name]
-  const number = typeof value === 'string' ? Number(value) : value
-  return typeof number === 'number' && Number.isFinite(number) && number > 0 ? number : undefined
+  const parsed = typeof value === 'string' ? Number(value) : value
+  return typeof parsed === 'number' && Number.isFinite(parsed) ? parsed : undefined
 }
 
-function hasMark(node: JSONContent, type: string): boolean {
-  return node.marks?.some(mark => mark.type === type) ?? false
+function mark(node: JSONContent, type: string): Readonly<Record<string, unknown>> | undefined {
+  const found = node.marks?.find(candidate => candidate.type === type)
+  return found === undefined ? undefined : found.attrs ?? {}
 }
 
-function linkHref(node: JSONContent): string | undefined {
-  const link = node.marks?.find(mark => mark.type === 'link')
-  const href: unknown = link?.attrs?.['href']
-  return typeof href === 'string' && href !== '' ? href : undefined
+function twips(points: number): number {
+  return Math.round(points * 20)
 }
 
-const alignments = {
+/** A colour as Word writes it: six hex digits, no `#`. */
+function wordColor(value: unknown): string | undefined {
+  return typeof value === 'string' ? hexColor(value)?.slice(1).toUpperCase() : undefined
+}
+
+/** `14pt`, `18.67px` or a plain number of points. */
+function fontPoints(value: unknown): number | undefined {
+  if (typeof value === 'number') return value
+  if (typeof value !== 'string') return undefined
+  const match = /^([\d.]+)(pt|px)?$/.exec(value.trim())
+  if (match === null) return undefined
+  return match[2] === 'px' ? Number(match[1]) * 0.75 : Number(match[1])
+}
+
+const alignments: Readonly<Record<string, Alignment>> = {
   left: AlignmentType.LEFT,
   center: AlignmentType.CENTER,
   right: AlignmentType.RIGHT,
   justify: AlignmentType.JUSTIFIED,
-} as const
+}
 
-function alignmentOf(node: JSONContent): (typeof AlignmentType)[keyof typeof AlignmentType] | undefined {
-  const align = textAttr(node, 'textAlign')
-  return align === 'left' || align === 'center' || align === 'right' || align === 'justify' ? alignments[align] : undefined
+function alignment(node: JSONContent): IParagraphOptions {
+  const align = alignments[textAttr(node, 'textAlign') ?? '']
+  return align === undefined ? {} : { alignment: align }
 }
 
 /**
@@ -118,19 +141,45 @@ function imageRun(node: JSONContent, context: ExportContext): ImageRun | undefin
   })
 }
 
+type Highlight = (typeof HighlightColor)[keyof typeof HighlightColor]
+
+/** Word's highlight name for a colour that is one of its highlight colours. */
+const highlightNames = new Map<string, Highlight>(Object.values(HighlightColor).flatMap(name => {
+  const color = highlightColors[name]
+  return color === undefined ? [] : [[color, name] as const]
+}))
+
+/** Character formatting from a text node's marks. Styles supply the rest. */
+function runOptions(node: JSONContent, inLink: boolean): IRunOptions {
+  if (mark(node, 'code') !== undefined) return { style: 'InlineCode' }
+  const style = mark(node, 'textStyle') ?? {}
+  const size = fontPoints(style['fontSize'])
+  const font = style['fontFamily']
+  const color = wordColor(style['color'])
+  const background = wordColor(style['backgroundColor'])
+  const highlight = background === undefined ? undefined : highlightNames.get(`#${background.toLowerCase()}`)
+  return {
+    ...(mark(node, 'bold') === undefined ? {} : { bold: true }),
+    ...(mark(node, 'italic') === undefined ? {} : { italics: true }),
+    ...(mark(node, 'strike') === undefined ? {} : { strike: true }),
+    ...(mark(node, 'underline') === undefined ? {} : { underline: { type: UnderlineType.SINGLE } }),
+    ...(mark(node, 'superscript') === undefined ? {} : { superScript: true }),
+    ...(mark(node, 'subscript') === undefined ? {} : { subScript: true }),
+    ...(typeof font === 'string' && font !== '' ? { font } : {}),
+    ...(size === undefined ? {} : { size: Math.round(size * 2) }),
+    ...(color === undefined ? {} : { color }),
+    ...(highlight !== undefined ? { highlight } : background !== undefined ? { shading: { type: ShadingType.CLEAR, fill: background, color: 'auto' } } : {}),
+    ...(inLink ? { style: 'Hyperlink' } : {}),
+  }
+}
+
 function inlineRun(node: JSONContent, context: ExportContext, inLink: boolean): TextRun | ImageRun | undefined {
   if (node.type === 'hardBreak') return new TextRun({ break: 1 })
   if (node.type === 'image') return imageRun(node, context)
   if (node.type !== 'text' || node.text === undefined) return undefined
-  const style = hasMark(node, 'code') ? 'InlineCode' : inLink ? 'Hyperlink' : undefined
-  return new TextRun({
-    text: node.text,
-    bold: hasMark(node, 'bold') || undefined,
-    italics: hasMark(node, 'italic') || undefined,
-    strike: hasMark(node, 'strike') || undefined,
-    ...(hasMark(node, 'underline') ? { underline: { type: UnderlineType.SINGLE } } : {}),
-    ...(style === undefined ? {} : { style }),
-  })
+  // Tabs are their own element in Word; inside w:t they would show as a space.
+  const children = node.text.split('\t').flatMap((part, index) => [...(index > 0 ? [new Tab()] : []), ...(part === '' ? [] : [part])])
+  return new TextRun({ ...runOptions(node, inLink), children })
 }
 
 /** Inline content as runs; neighbouring runs with the same web link share one hyperlink. */
@@ -143,8 +192,8 @@ function runs(nodes: readonly JSONContent[], context: ExportContext): ParagraphC
   }
   for (const node of nodes) {
     // Links inside the document (#anchors) have no bookmark to point at in Word, so they stay plain text.
-    const href = linkHref(node)
-    const external = href !== undefined && !href.startsWith('#') ? href : undefined
+    const href = mark(node, 'link')?.['href']
+    const external = typeof href === 'string' && href !== '' && !href.startsWith('#') ? href : undefined
     const run = inlineRun(node, context, external !== undefined)
     if (run === undefined) continue
     if (external === undefined) {
@@ -162,13 +211,31 @@ function runs(nodes: readonly JSONContent[], context: ExportContext): ParagraphC
   return result
 }
 
+/** Direct paragraph formatting: the node's own alignment, spacing and indents, over its style. */
+function paragraphOptions(node: JSONContent): IParagraphOptions {
+  const before = numberAttr(node, 'spaceBefore')
+  const after = numberAttr(node, 'spaceAfter')
+  const line = numberAttr(node, 'lineHeight')
+  const left = numberAttr(node, 'indentLeft')
+  const firstLine = numberAttr(node, 'indentFirstLine')
+  const spacing = {
+    ...(before === undefined ? {} : { before: twips(before) }),
+    ...(after === undefined ? {} : { after: twips(after) }),
+    ...(line === undefined ? {} : { line: Math.round(line * 240), lineRule: LineRuleType.AUTO }),
+  }
+  const indent = {
+    ...(left === undefined ? {} : { left: twips(left) }),
+    ...(firstLine === undefined ? {} : firstLine < 0 ? { hanging: twips(-firstLine) } : { firstLine: twips(firstLine) }),
+  }
+  return {
+    ...alignment(node),
+    ...(Object.keys(spacing).length > 0 ? { spacing } : {}),
+    ...(Object.keys(indent).length > 0 ? { indent } : {}),
+  }
+}
+
 function paragraph(node: JSONContent, context: ExportContext, options: IParagraphOptions = {}): Paragraph {
-  const alignment = alignmentOf(node)
-  return new Paragraph({
-    ...options,
-    ...(alignment === undefined ? {} : { alignment }),
-    children: runs(node.content ?? [], context),
-  })
+  return new Paragraph({ ...paragraphOptions(node), ...options, children: runs(node.content ?? [], context) })
 }
 
 const headingLevels = [HeadingLevel.HEADING_1, HeadingLevel.HEADING_2, HeadingLevel.HEADING_3] as const
@@ -183,7 +250,8 @@ function listBlocks(list: JSONContent, context: ExportContext, level: number): B
   const numbering = { reference: ordered ? `numbered-${start}` : 'bulleted', level: Math.min(level, 8), instance: ordered ? context.listInstances : 0 }
   return (list.content ?? []).flatMap(item => (item.content ?? []).flatMap((child, index) => {
     if (child.type === 'bulletList' || child.type === 'orderedList') return listBlocks(child, context, level + 1)
-    if (index === 0 && child.type === 'paragraph') return [paragraph(child, context, { numbering })]
+    // List paragraphs take their indents from the list level, so only alignment is their own.
+    if (index === 0 && child.type === 'paragraph') return [new Paragraph({ numbering, ...alignment(child), children: runs(child.content ?? [], context) })]
     return blocks([child], context, 'ListContinue')
   }))
 }
@@ -193,35 +261,45 @@ function checklistBlocks(list: JSONContent, context: ExportContext): Block[] {
     if (child.type === 'taskList') return checklistBlocks(child, context)
     if (child.type === 'bulletList' || child.type === 'orderedList') return listBlocks(child, context, 1)
     if (index !== 0 || child.type !== 'paragraph') return blocks([child], context, 'ListContinue')
-    const mark = item.attrs?.['checked'] === true ? checklistMarks.done : checklistMarks.open
-    const alignment = alignmentOf(child)
-    return [new Paragraph({
-      style: 'Checklist',
-      ...(alignment === undefined ? {} : { alignment }),
-      children: [new TextRun(`${mark} `), ...runs(child.content ?? [], context)],
-    })]
+    const box = item.attrs?.['checked'] === true ? checklistMarks.done : checklistMarks.open
+    return [new Paragraph({ style: 'Checklist', ...alignment(child), children: [new TextRun(`${box} `), ...runs(child.content ?? [], context)] })]
   }))
+}
+
+/** Column widths in twips: the widths the first row's cells were given, the rest sharing what is left of the text width. */
+function columnWidths(rows: readonly JSONContent[], page: PageSetup): number[] {
+  const given = (rows[0]?.content ?? []).flatMap(cell => {
+    const widths: unknown = cell.attrs?.['colwidth']
+    const span = numberAttr(cell, 'colspan') ?? 1
+    return Array.isArray(widths) && widths.length === span && widths.every(width => typeof width === 'number' && width > 0)
+      ? widths.map(width => Number(width) * 15)
+      : Array.from({ length: span }, () => 0)
+  })
+  const count = Math.max(1, ...rows.map(row => (row.content ?? []).reduce((sum, cell) => sum + (numberAttr(cell, 'colspan') ?? 1), 0)))
+  const available = page.width - page.marginLeft - page.marginRight
+  const known = given.filter(width => width > 0)
+  const share = count > known.length ? Math.max(360, (available - known.reduce((sum, width) => sum + width, 0)) / (count - known.length)) : 0
+  return Array.from({ length: count }, (_, index) => Math.round((given[index] ?? 0) > 0 ? given[index] ?? 0 : share))
 }
 
 function table(node: JSONContent, context: ExportContext): Table {
   const rows = node.content ?? []
-  const columnCount = Math.max(1, ...rows.map(row => (row.content ?? []).reduce((sum, cell) => sum + (numberAttr(cell, 'colspan') ?? 1), 0)))
-  const tableWidth = context.page.width - 2 * context.page.margin
-  const columnWidth = Math.floor(tableWidth / columnCount)
+  const widths = columnWidths(rows, context.page)
   return new Table({
-    width: { size: tableWidth, type: WidthType.DXA },
-    columnWidths: Array.from({ length: columnCount }, () => columnWidth),
+    width: { size: widths.reduce((sum, width) => sum + width, 0), type: WidthType.DXA },
+    columnWidths: widths,
     rows: rows.map(row => new TableRow({
-      // Written only when set: Word and mammoth read the element's presence, whatever its value.
+      // Written only when set: Word and readers go by the element's presence, whatever its value.
       ...((row.content ?? []).length > 0 && (row.content ?? []).every(cell => cell.type === 'tableHeader') ? { tableHeader: true } : {}),
       children: (row.content ?? []).map(cell => {
         const columnSpan = numberAttr(cell, 'colspan') ?? 1
         const rowSpan = numberAttr(cell, 'rowspan') ?? 1
+        const shading = wordColor(cell.attrs?.['backgroundColor'])
         const children = blocks(cell.content ?? [], context, 'TableText')
         return new TableCell({
-          width: { size: columnWidth * columnSpan, type: WidthType.DXA },
           ...(columnSpan > 1 ? { columnSpan } : {}),
           ...(rowSpan > 1 ? { rowSpan } : {}),
+          ...(shading === undefined ? {} : { shading: { type: ShadingType.CLEAR, fill: shading, color: 'auto' } }),
           // Word requires a paragraph in every cell.
           children: children.length > 0 ? children : [new Paragraph({ style: 'TableText' })],
         })
@@ -236,8 +314,10 @@ function blocks(nodes: readonly JSONContent[], context: ExportContext, style?: D
     switch (node.type) {
       case 'paragraph':
         return [paragraph(node, context, style === undefined ? {} : { style })]
+      case 'title':
+        return [paragraph(node, context, { heading: HeadingLevel.TITLE })]
       case 'heading':
-        return [paragraph(node, context, { heading: headingLevels[Math.min(3, numberAttr(node, 'level') ?? 1) - 1] })]
+        return [paragraph(node, context, { heading: headingLevels[Math.min(3, Math.max(1, numberAttr(node, 'level') ?? 1)) - 1] })]
       case 'bulletList':
       case 'orderedList':
         return listBlocks(node, context, 0)
@@ -247,8 +327,8 @@ function blocks(nodes: readonly JSONContent[], context: ExportContext, style?: D
         return blocks(node.content ?? [], context, 'Quote')
       case 'codeBlock': {
         const text = (node.content ?? []).map(child => child.text ?? '').join('')
-        // One paragraph per line; the importer joins them back. A blank line keeps a space so it survives.
-        return text.split('\n').map(line => new Paragraph({ style: 'Code', children: [new TextRun(line === '' ? ' ' : line)] }))
+        // One paragraph per line; the reader joins them back.
+        return text.split('\n').map(line => new Paragraph({ style: 'Code', children: line === '' ? [] : [new TextRun(line)] }))
       }
       case 'horizontalRule':
         return [new Paragraph({ style: 'HorizontalLine' })]
@@ -276,7 +356,31 @@ function numberingLevels(level: (index: number) => Omit<ILevelsOptions, 'level' 
 const bulletGlyphs = ['•', '◦', '▪'] as const
 const numberFormats = [LevelFormat.DECIMAL, LevelFormat.LOWER_LETTER, LevelFormat.LOWER_ROMAN] as const
 
-export async function writeDocx(content: JSONContent, page: PageFormat): Promise<DocxExport> {
+/** A theme style as Word style properties. */
+function styleProperties(style: BlockStyle, keepNext = false): Required<Pick<IParagraphStyleOptions, 'run' | 'paragraph'>> {
+  return {
+    run: {
+      font: style.fontFamily,
+      size: Math.round(style.fontSize * 2),
+      color: style.color.slice(1).toUpperCase(),
+      ...(style.bold ? { bold: true } : {}),
+      ...(style.italic ? { italics: true } : {}),
+    },
+    paragraph: {
+      spacing: { before: twips(style.spaceBefore), after: twips(style.spaceAfter), line: Math.round(style.lineHeight * 240), lineRule: LineRuleType.AUTO },
+      ...(style.indentLeft === 0 ? {} : { indent: { left: twips(style.indentLeft) } }),
+      ...(keepNext ? { keepNext: true } : {}),
+    },
+  }
+}
+
+function pageNumberFooter(): Footer {
+  return new Footer({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ children: [PageNumber.CURRENT] })] })] })
+}
+
+export async function writeDocx(content: JSONContent): Promise<DocxExport> {
+  const page = documentPage(content.attrs?.['page'])
+  const theme = documentTheme(content.attrs?.['theme'])
   const context: ExportContext = { page, listStarts: new Set(), listInstances: 0, skippedImages: 0 }
   const children = blocks(content.content ?? [], context)
   const document = new Document({
@@ -284,23 +388,20 @@ export async function writeDocx(content: JSONContent, page: PageFormat): Promise
     lastModifiedBy: '',
     styles: {
       default: {
-        document: { run: { font: 'Arial', size: 22 }, paragraph: { spacing: { after: 160, line: 276 } } },
-        heading1: { run: { font: 'Arial', size: 40, bold: true, color: '000000' }, paragraph: { spacing: { before: 360, after: 120 }, keepNext: true } },
-        heading2: { run: { font: 'Arial', size: 32, bold: true, color: '000000' }, paragraph: { spacing: { before: 280, after: 80 }, keepNext: true } },
-        heading3: { run: { font: 'Arial', size: 26, bold: true, color: '000000' }, paragraph: { spacing: { before: 240, after: 80 }, keepNext: true } },
+        document: styleProperties(theme.normal),
+        title: styleProperties(theme.title),
+        heading1: styleProperties(theme.heading1, true),
+        heading2: styleProperties(theme.heading2, true),
+        heading3: styleProperties(theme.heading3, true),
         hyperlink: { run: { color: '1155CC', underline: { type: UnderlineType.SINGLE } } },
         listParagraph: { paragraph: { contextualSpacing: true } },
       },
       paragraphStyles: [
-        {
-          id: 'Quote', name: docxStyleNames.Quote, basedOn: 'Normal', next: 'Normal',
-          run: { color: '555555' },
-          paragraph: { indent: { left: 360 }, border: { left: { style: BorderStyle.SINGLE, size: 18, color: 'CCCCCC', space: 12 } } },
-        },
+        { id: 'Quote', name: docxStyleNames.Quote, basedOn: 'Normal', next: 'Normal', ...styleProperties(theme.quote) },
         {
           id: 'Code', name: docxStyleNames.Code, basedOn: 'Normal', next: 'Normal',
           run: { font: 'Courier New', size: 20 },
-          paragraph: { spacing: { after: 0, line: 240 }, shading: { type: ShadingType.CLEAR, fill: 'F3F3F3', color: 'auto' } },
+          paragraph: { spacing: { before: 0, after: 0, line: 240, lineRule: LineRuleType.AUTO }, shading: { type: ShadingType.CLEAR, fill: 'F3F3F3', color: 'auto' } },
         },
         {
           id: 'HorizontalLine', name: docxStyleNames.HorizontalLine, basedOn: 'Normal', next: 'Normal',
@@ -308,7 +409,7 @@ export async function writeDocx(content: JSONContent, page: PageFormat): Promise
         },
         { id: 'ListContinue', name: docxStyleNames.ListContinue, basedOn: 'Normal', paragraph: { indent: { left: 720 } } },
         { id: 'Checklist', name: docxStyleNames.Checklist, basedOn: 'Normal', paragraph: { contextualSpacing: true } },
-        { id: 'TableText', name: docxStyleNames.TableText, basedOn: 'Normal', paragraph: { spacing: { after: 0 } } },
+        { id: 'TableText', name: docxStyleNames.TableText, basedOn: 'Normal', paragraph: { spacing: { before: 0, after: 0 } } },
       ],
       characterStyles: [
         { id: 'InlineCode', name: docxStyleNames.InlineCode, basedOn: 'DefaultParagraphFont', run: { font: 'Courier New', size: 20 } },
@@ -319,7 +420,7 @@ export async function writeDocx(content: JSONContent, page: PageFormat): Promise
         { reference: 'bulleted', levels: numberingLevels(index => ({ format: LevelFormat.BULLET, text: bulletGlyphs[index % 3] })) },
         ...[...context.listStarts].map(start => ({
           reference: `numbered-${start}`,
-          levels: numberingLevels(index => ({ format: numberFormats[index % 3], text: `%${index + 1}.`, start: index === 0 ? start : 1 })),
+          levels: numberingLevels(index => ({ format: numberFormats[index % 3], text: `%${index + 1}.`, start })),
         })),
       ],
     },
@@ -327,9 +428,10 @@ export async function writeDocx(content: JSONContent, page: PageFormat): Promise
       properties: {
         page: {
           size: { width: page.width, height: page.height },
-          margin: { top: page.margin, right: page.margin, bottom: page.margin, left: page.margin, header: 720, footer: 720 },
+          margin: { top: page.marginTop, right: page.marginRight, bottom: page.marginBottom, left: page.marginLeft, header: 720, footer: 720 },
         },
       },
+      ...(page.pageNumbers ? { footers: { default: pageNumberFooter() } } : {}),
       children: children.length > 0 ? children : [new Paragraph({})],
     }],
   })

@@ -32,7 +32,7 @@ describe('markdown', () => {
     const saved = writeMarkdown({
       type: 'doc',
       content: [
-        { type: 'paragraph', content: [{ type: 'text', text: 'Signed', marks: [{ type: 'underline' }] }] },
+        { type: 'paragraph', content: [{ type: 'text', text: 'Signed', marks: [{ type: 'underline' }, { type: 'textStyle', attrs: { color: '#c00000' } }] }] },
         { type: 'pageBreak' },
         { type: 'table', content: [{ type: 'tableRow', content: [cell('Day'), cell('City')] }, { type: 'tableRow', content: [cell('1'), cell('Kyoto')] }] },
       ],

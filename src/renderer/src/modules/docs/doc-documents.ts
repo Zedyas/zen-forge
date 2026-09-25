@@ -12,7 +12,6 @@ import { askConfirm } from '../pdf/ConfirmDialog'
 import { DocShortcuts } from './doc-commands'
 import { FindHighlight } from './find'
 import { mimeTypeForExtension, toDataUrl } from './io/images'
-import { localPageFormat } from './page'
 import { renderPreview } from './preview'
 import { documentExtensions } from './schema'
 
@@ -30,9 +29,6 @@ interface CachedDoc {
   /** Markdown images shown from data URLs, mapped back to the paths the file had for them. */
   imageSources: Map<string, string>
 }
-
-/** One page format for the whole app run: the one the editor shows is the one .docx files get. */
-export const page = localPageFormat()
 
 // Editors outlive the editor component (tabs remount on switch), so they live here, by document id.
 const cache = new Map<string, CachedDoc>()
@@ -114,9 +110,8 @@ async function loadLocalImages(node: JSONContent, directory: string, sources: Ma
 async function readContent(document: OpenDocument, path: string, cached: CachedDoc): Promise<{ content: Content; findings: readonly ImportFindingInput[] }> {
   const bytes = await fileService.read(path)
   if (document.extension === 'docx') {
-    const { readDocx } = await import('./io/docx-import')
-    const imported = await readDocx(bytes, page)
-    return { content: imported.html, findings: imported.findings }
+    const { readDocx } = await import('./io/docx-read')
+    return readDocx(bytes)
   }
   const { readMarkdown } = await import('./io/markdown')
   const imported = readMarkdown(new TextDecoder().decode(bytes))
@@ -135,7 +130,7 @@ async function load(document: OpenDocument, cached: CachedDoc): Promise<void> {
     useFidelityStore.getState().publish(document.id, createImportReport(`${document.name}.${document.extension}`, findings))
     const editor = createEditor(content)
     setReady(cached, editor)
-    void recordPreview(document.path, renderPreview(editor.state.doc, page))
+    void recordPreview(document.path, renderPreview(editor.state.doc))
   } catch (error) {
     cached.entry = { status: 'error', message: error instanceof Error ? error.message : 'The file could not be read.' }
     emit()
@@ -183,7 +178,7 @@ async function encode(editor: Editor, format: string, imageSources: ReadonlyMap<
     return new TextEncoder().encode(writeMarkdown(editor.getJSON(), imageSources))
   }
   const { writeDocx } = await import('./io/docx-export')
-  const { bytes, skippedImages } = await writeDocx(editor.getJSON(), page)
+  const { bytes, skippedImages } = await writeDocx(editor.getJSON())
   if (skippedImages > 0) {
     toast.warning(`${skippedImages} ${skippedImages === 1 ? 'image was' : 'images were'} not saved`, {
       description: 'Word files can hold PNG, JPEG, GIF and BMP images that are part of the document, not linked from elsewhere.',
@@ -240,10 +235,10 @@ export async function saveDoc(documentId: string, saveAs: boolean): Promise<bool
   useFidelityStore.getState().forget(documentId)
   if (imported !== undefined) useFidelityStore.getState().publish(newId, createImportReport(file.name, []))
   await recordRecent(file)
-  await recordPreview(file.path, renderPreview(snapshot, page))
+  await recordPreview(file.path, renderPreview(snapshot))
   toast.success(`Saved ${file.name}`)
   if (format !== 'docx') {
-    toast.info('Markdown keeps text and structure only', { description: 'Underline, alignment and page breaks are saved in .docx.' })
+    toast.info('Markdown keeps text and structure only', { description: 'Fonts, colours, underline, alignment, spacing, page setup and page breaks are saved in .docx.' })
   }
   return true
 }

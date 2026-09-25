@@ -29,10 +29,11 @@ export function countText(doc: ProseMirrorNode): TextCounts {
   return result
 }
 
-/** The document's headings in order, for the inspector's outline. */
+/** The document's title and headings in order, for the inspector's outline. Titles are level 0. */
 export function outline(doc: ProseMirrorNode): OutlineHeading[] {
   const headings: OutlineHeading[] = []
   doc.descendants((node, position) => {
+    if (node.type.name === 'title') headings.push({ level: 0, text: node.textContent, position: position + 1 })
     if (node.type.name === 'heading') {
       const level: unknown = node.attrs['level']
       headings.push({ level: typeof level === 'number' ? level : 1, text: node.textContent, position: position + 1 })

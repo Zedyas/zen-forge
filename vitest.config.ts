@@ -7,9 +7,6 @@ export default defineConfig({
     alias: {
       '@renderer': resolve('src/renderer/src'),
       '@shared': resolve('src/shared'),
-      // The app bundles mammoth's browser build, which reads an ArrayBuffer; its Node build reads
-      // only Node Buffers, so tests load mammoth's own prebuilt browser bundle instead.
-      mammoth: resolve('node_modules/mammoth/mammoth.browser.js'),
     },
   },
 })

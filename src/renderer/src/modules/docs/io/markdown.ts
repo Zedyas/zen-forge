@@ -37,19 +37,28 @@ function normalize(node: JSONContent): JSONContent {
   return { ...node, ...(attrs === undefined ? {} : { attrs }), ...(content === undefined ? {} : { content }) }
 }
 
+function places(count: number): string {
+  return `${count} ${count === 1 ? 'place' : 'places'}`
+}
+
+/** What Markdown can say that a Sumi document cannot, with what opening and saving does to it. */
 function markdownFindings(text: string): ImportFindingInput[] {
-  const found = new Set<string>()
+  let html = 0
+  let deepHeadings = 0
+  let alignedTables = 0
   markdown().instance.walkTokens(markdown().instance.lexer(text), (token: MarkdownToken) => {
-    if (token.type === 'html') found.add('HTML')
-    if (token.type === 'heading' && token.depth > 3) found.add('Headings below level 3')
-    if (token.type === 'table' && token.align.some((align: unknown) => align !== null)) found.add('Table column alignment')
+    if (token.type === 'html') html += 1
+    if (token.type === 'heading' && token.depth > 3) deepHeadings += 1
+    if (token.type === 'table' && token.align.some((align: unknown) => align !== null)) alignedTables += 1
   })
   const findings: ImportFindingInput[] = []
-  if (found.has('HTML')) findings.push({ construct: 'HTML inside Markdown', suggestedAlternative: 'Shown as its text; saving writes plain Markdown' })
-  if (found.has('Headings below level 3')) findings.push({ construct: 'Headings below level 3', suggestedAlternative: 'Shown as Heading 3' })
-  if (found.has('Table column alignment')) findings.push({ construct: 'Table column alignment' })
-  if (/^---\r?\n[\s\S]*?\r?\n---\r?\n/.test(text)) findings.push({ construct: 'Front matter', suggestedAlternative: 'Shown as text' })
-  if (/^\[\^[^\]]+\]:/m.test(text)) findings.push({ construct: 'Footnotes', suggestedAlternative: 'Shown as text' })
+  if (html > 0) findings.push({ construct: 'HTML', location: places(html), suggestedAlternative: 'Shown as the text it contains; saved as plain Markdown without the HTML.' })
+  if (deepHeadings > 0) findings.push({ construct: 'Headings below level 3', location: places(deepHeadings), suggestedAlternative: 'Shown and saved as level 3 headings.' })
+  if (alignedTables > 0) findings.push({ construct: 'Table column alignment', location: places(alignedTables), suggestedAlternative: 'Columns are shown and saved aligned left.' })
+  if (/^---\r?\n[\s\S]*?\r?\n---\r?\n/.test(text)) {
+    findings.push({ construct: 'Front matter', suggestedAlternative: 'Shown and saved as ordinary text, so tools that read front matter will not find it.' })
+  }
+  if (/^\[\^[^\]]+\]:/m.test(text)) findings.push({ construct: 'Footnotes', suggestedAlternative: 'Shown and saved as plain text.' })
   return findings
 }
 
@@ -65,9 +74,13 @@ function withHeaderRow(table: JSONContent): JSONContent {
   return { ...table, content: [header, ...rest] }
 }
 
+/** The marks Markdown has syntax for; fonts, colours, underline and the rest are left out. */
+const markdownMarks = new Set(['bold', 'italic', 'strike', 'code', 'link'])
+
 /**
- * The document as Markdown can hold it: no underline marks, no page breaks. `imageSources` maps an
- * image shown from a data URL back to the path the file had for it.
+ * The document as Markdown can hold it: no page breaks, no formatting beyond bold, italic,
+ * strikethrough, code and links. `imageSources` maps an image shown from a data URL back to the
+ * path the file had for it.
  */
 function forMarkdown(node: JSONContent, imageSources: ReadonlyMap<string, string>): JSONContent {
   if (node.type === 'table' && node.content !== undefined) {
@@ -78,7 +91,7 @@ function forMarkdown(node: JSONContent, imageSources: ReadonlyMap<string, string
   return {
     ...node,
     ...(original === undefined ? {} : { attrs: { ...node.attrs, src: original } }),
-    ...(node.marks === undefined ? {} : { marks: node.marks.filter(mark => mark.type !== 'underline') }),
+    ...(node.marks === undefined ? {} : { marks: node.marks.filter(mark => markdownMarks.has(mark.type)) }),
     ...(node.content === undefined ? {} : { content: node.content.filter(child => child.type !== 'pageBreak').map(child => forMarkdown(child, imageSources)) }),
   }
 }

@@ -1,78 +1,105 @@
-import { useState, type FormEvent, type MouseEvent, type ReactNode } from 'react'
+import { useState, type MouseEvent, type ReactNode } from 'react'
 import type { Editor } from '@tiptap/core'
 import { useEditorState } from '@tiptap/react'
-import { Menu } from '@base-ui/react/menu'
-import { Popover } from '@base-ui/react/popover'
 import {
-  AlignCenter,
-  AlignJustify,
-  AlignLeft,
-  AlignRight,
+  Baseline,
   Bold,
-  ChevronDown,
-  ExternalLink,
+  Highlighter,
   ImagePlus,
   Italic,
-  Link2,
   List,
+  ListIndentDecrease,
+  ListIndentIncrease,
   ListOrdered,
   ListTodo,
+  Minus,
   RemoveFormatting,
-  Rows3,
   Search,
   SeparatorHorizontal,
-  Strikethrough,
   Table,
   Underline,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { Tip } from '../../ui/Tip'
 import { TitleEssentials } from '../../ui/TitleSlot'
-import { Toolbar, ToolButton, ToolSeparator } from '../../ui/Toolbar'
-import { applyLink, clearFormatting, insertImage, insertPageBreak, openLink, removeLink } from './doc-commands'
+import { ColorTool, Toolbar, ToolButton, ToolSeparator, type ColorOption } from '../../ui/Toolbar'
+import { clearFormatting, currentBlockStyle, currentStyle, indent, insertImage, insertPageBreak } from './doc-commands'
+import { alignments, AlignMenu, FontMenu, LinkTool, MoreFormattingMenu, SizeMenu, SpacingMenu, StyleMenu, TableMenu, type AlignValue } from './DocMenus'
+import type { StyleName } from './theme'
 
-type BlockStyle = 'paragraph' | 1 | 2 | 3
-
-const blockStyles: ReadonlyArray<{ readonly value: BlockStyle; readonly label: string }> = [
-  { value: 'paragraph', label: 'Normal text' },
-  { value: 1, label: 'Heading 1' },
-  { value: 2, label: 'Heading 2' },
-  { value: 3, label: 'Heading 3' },
+const textColors: readonly ColorOption[] = [
+  { label: 'Automatic', value: undefined },
+  { label: 'Black', value: '#000000' },
+  { label: 'Dark red', value: '#c00000' },
+  { label: 'Red', value: '#ff0000' },
+  { label: 'Orange', value: '#e36c09' },
+  { label: 'Green', value: '#00b050' },
+  { label: 'Blue', value: '#0070c0' },
+  { label: 'Purple', value: '#7030a0' },
 ]
 
-const alignments = [
-  { value: 'left', label: 'Align left', icon: AlignLeft },
-  { value: 'center', label: 'Align centre', icon: AlignCenter },
-  { value: 'right', label: 'Align right', icon: AlignRight },
-  { value: 'justify', label: 'Justify', icon: AlignJustify },
-] as const
+/** Word's own highlight colours, so a highlight stays a highlight in Word. */
+const highlightColors: readonly ColorOption[] = [
+  { label: 'No highlight', value: undefined },
+  { label: 'Yellow', value: '#ffff00' },
+  { label: 'Green', value: '#00ff00' },
+  { label: 'Cyan', value: '#00ffff' },
+  { label: 'Pink', value: '#ff00ff' },
+  { label: 'Grey', value: '#c0c0c0' },
+]
 
 interface FormatState {
+  readonly style: StyleName
+  readonly fontFamily: string
+  readonly fontSize: number
+  readonly styleFont: string
+  readonly styleSize: number
+  readonly styleLine: number
+  readonly lineHeight: number
   readonly bold: boolean
   readonly italic: boolean
   readonly underline: boolean
   readonly strike: boolean
+  readonly superscript: boolean
+  readonly subscript: boolean
+  readonly code: boolean
   readonly bulletList: boolean
   readonly orderedList: boolean
   readonly taskList: boolean
   readonly link: boolean
   readonly table: boolean
-  readonly block: BlockStyle
-  readonly align: (typeof alignments)[number]['value']
+  readonly align: AlignValue
+}
+
+function points(value: unknown): number | undefined {
+  const parsed = typeof value === 'string' ? Number.parseFloat(value) : Number.NaN
+  return Number.isFinite(parsed) ? parsed : undefined
 }
 
 function formatState(editor: Editor): FormatState {
+  const base = currentBlockStyle(editor)
+  const textStyle = editor.getAttributes('textStyle')
+  const family: unknown = textStyle['fontFamily']
+  const line: unknown = editor.state.selection.$from.parent.attrs['lineHeight']
   return {
+    style: currentStyle(editor),
+    fontFamily: typeof family === 'string' && family !== '' ? family : base.fontFamily,
+    fontSize: points(textStyle['fontSize']) ?? base.fontSize,
+    styleFont: base.fontFamily,
+    styleSize: base.fontSize,
+    styleLine: base.lineHeight,
+    lineHeight: typeof line === 'number' ? line : base.lineHeight,
     bold: editor.isActive('bold'),
     italic: editor.isActive('italic'),
     underline: editor.isActive('underline'),
     strike: editor.isActive('strike'),
+    superscript: editor.isActive('superscript'),
+    subscript: editor.isActive('subscript'),
+    code: editor.isActive('code'),
     bulletList: editor.isActive('bulletList'),
     orderedList: editor.isActive('orderedList'),
     taskList: editor.isActive('taskList'),
     link: editor.isActive('link'),
     table: editor.isActive('table'),
-    block: ([1, 2, 3] as const).find(level => editor.isActive('heading', { level })) ?? 'paragraph',
     align: alignments.find(alignment => editor.isActive({ textAlign: alignment.value }))?.value ?? 'left',
   }
 }
@@ -80,139 +107,6 @@ function formatState(editor: Editor): FormatState {
 /** What the toolbar shows as on, read once per editor transaction. */
 function useFormatState(editor: Editor): FormatState {
   return useEditorState({ editor, selector: ({ editor: current }) => formatState(current) })
-}
-
-function setBlockStyle(editor: Editor, style: BlockStyle): void {
-  if (style === 'paragraph') editor.chain().focus().setParagraph().run()
-  else editor.chain().focus().setHeading({ level: style }).run()
-}
-
-function BlockStyleMenu({ editor, current }: { readonly editor: Editor; readonly current: BlockStyle }) {
-  const label = blockStyles.find(style => style.value === current)?.label ?? 'Normal text'
-  return (
-    <Menu.Root>
-      <Tip label="Paragraph style">
-        <Menu.Trigger className="tool is-label sumi-style-trigger" aria-label={`Paragraph style: ${label}`}>
-          <span>{label}</span>
-          <ChevronDown aria-hidden="true" size={11} strokeWidth={2.2} />
-        </Menu.Trigger>
-      </Tip>
-      <Menu.Portal>
-        <Menu.Positioner sideOffset={6} align="start">
-          {/* The chosen style focuses the page again; returning focus to the trigger would take it away. */}
-          <Menu.Popup className="menu-popup sumi-style-menu" finalFocus={false}>
-            {blockStyles.map(style => (
-              <Menu.Item
-                key={style.value}
-                className="menu-item"
-                data-style={style.value}
-                data-active={style.value === current ? '' : undefined}
-                onClick={() => setBlockStyle(editor, style.value)}
-              >
-                <span>{style.label}</span>
-              </Menu.Item>
-            ))}
-          </Menu.Popup>
-        </Menu.Positioner>
-      </Menu.Portal>
-    </Menu.Root>
-  )
-}
-
-function TableMenu({ editor, inTable }: { readonly editor: Editor; readonly inTable: boolean }) {
-  const items: ReadonlyArray<readonly [string, () => boolean]> = [
-    ['Add row above', () => editor.chain().focus().addRowBefore().run()],
-    ['Add row below', () => editor.chain().focus().addRowAfter().run()],
-    ['Delete row', () => editor.chain().focus().deleteRow().run()],
-    ['Add column left', () => editor.chain().focus().addColumnBefore().run()],
-    ['Add column right', () => editor.chain().focus().addColumnAfter().run()],
-    ['Delete column', () => editor.chain().focus().deleteColumn().run()],
-    ['Delete table', () => editor.chain().focus().deleteTable().run()],
-  ]
-  return (
-    <Menu.Root>
-      <Tip label={inTable ? 'Rows and columns' : 'Rows and columns: place the cursor in a table'}>
-        <Menu.Trigger className="tool" aria-label="Rows and columns" disabled={!inTable}>
-          <Rows3 aria-hidden="true" size={16} strokeWidth={1.7} />
-          <ChevronDown aria-hidden="true" size={11} strokeWidth={2.2} />
-        </Menu.Trigger>
-      </Tip>
-      <Menu.Portal>
-        <Menu.Positioner sideOffset={6} align="start">
-          <Menu.Popup className="menu-popup" finalFocus={false}>
-            {items.map(([label, action], index) => (
-              <div key={label}>
-                {(index === 3 || index === 6) && <Menu.Separator className="menu-separator" />}
-                <Menu.Item className="menu-item" onClick={action}><span>{label}</span></Menu.Item>
-              </div>
-            ))}
-          </Menu.Popup>
-        </Menu.Positioner>
-      </Menu.Portal>
-    </Menu.Root>
-  )
-}
-
-function LinkTool({ editor, active }: { readonly editor: Editor; readonly active: boolean }) {
-  const [open, setOpen] = useState(false)
-  const [address, setAddress] = useState('')
-  const href: unknown = editor.getAttributes('link')['href']
-  const current = typeof href === 'string' ? href : undefined
-
-  const submit = (event: FormEvent): void => {
-    event.preventDefault()
-    if (address.trim() === '') {
-      if (active) removeLink(editor)
-      setOpen(false)
-      return
-    }
-    if (!applyLink(editor, address)) {
-      toast.error('Use a web or email address', { description: 'For example example.com or name@example.com.' })
-      return
-    }
-    setOpen(false)
-  }
-
-  return (
-    <Popover.Root
-      open={open}
-      onOpenChange={next => {
-        if (next) setAddress(current ?? '')
-        setOpen(next)
-      }}
-    >
-      <Tip label={active ? 'Edit link' : 'Link'}>
-        <Popover.Trigger className="tool" aria-label="Link" aria-pressed={active}>
-          <Link2 aria-hidden="true" size={16} strokeWidth={1.7} />
-        </Popover.Trigger>
-      </Tip>
-      <Popover.Portal>
-        <Popover.Positioner sideOffset={6} align="start">
-          <Popover.Popup className="popover sumi-link-popover" finalFocus={false}>
-            <form onSubmit={submit}>
-              <input
-                className="text-field"
-                value={address}
-                placeholder="Web or email address"
-                aria-label="Link address"
-                onChange={event => setAddress(event.currentTarget.value)}
-              />
-              <button type="submit" className="button is-primary">{active ? 'Update' : 'Link'}</button>
-              {active && (
-                <button type="button" className="button" onClick={() => {
-                  removeLink(editor)
-                  setOpen(false)
-                }}>Remove</button>
-              )}
-              {current !== undefined && (
-                <ToolButton icon={ExternalLink} label="Open in browser (⌘-click a link)" onClick={() => void openLink(current)} />
-              )}
-            </form>
-          </Popover.Popup>
-        </Popover.Positioner>
-      </Popover.Portal>
-    </Popover.Root>
-  )
 }
 
 /**
@@ -227,6 +121,32 @@ function KeepEditorFocus({ children }: { readonly children: ReactNode }) {
   return <div className="sumi-keep-focus" onMouseDown={keepFocus}>{children}</div>
 }
 
+function ColorTools({ editor }: { readonly editor: Editor }) {
+  // The split colour buttons remember the last colour chosen in this window, like Word and Ledger.
+  const [textColor, setTextColor] = useState<string | undefined>('#c00000')
+  const [highlight, setHighlight] = useState<string | undefined>('#ffff00')
+  const color = (value: string | undefined): void => {
+    if (value === undefined) editor.chain().focus().unsetColor().run()
+    else editor.chain().focus().setColor(value).run()
+  }
+  const background = (value: string | undefined): void => {
+    if (value === undefined) editor.chain().focus().unsetBackgroundColor().run()
+    else editor.chain().focus().setBackgroundColor(value).run()
+  }
+  return (
+    <>
+      <ColorTool icon={Baseline} label="Text colour" options={textColors} current={textColor} onApply={color} onChoose={value => {
+        setTextColor(value)
+        color(value)
+      }} />
+      <ColorTool icon={Highlighter} label="Highlight" options={highlightColors} current={highlight} onApply={background} onChoose={value => {
+        setHighlight(value)
+        background(value)
+      }} />
+    </>
+  )
+}
+
 interface DocToolbarProps {
   readonly editor: Editor
   readonly findOpen: boolean
@@ -239,31 +159,30 @@ export function DocToolbar({ editor, findOpen, onFind }: DocToolbarProps) {
   return (
     <KeepEditorFocus>
       <Toolbar label="Document tools">
-        <BlockStyleMenu editor={editor} current={state.block} />
+        <StyleMenu editor={editor} current={state.style} />
+        <FontMenu editor={editor} current={state.fontFamily} styleFont={state.styleFont} />
+        <SizeMenu editor={editor} current={state.fontSize} styleSize={state.styleSize} />
         <ToolSeparator />
         <ToolButton icon={Bold} label="Bold" command="format.bold" pressed={state.bold} onClick={() => chain().toggleBold().run()} />
         <ToolButton icon={Italic} label="Italic" command="format.italic" pressed={state.italic} onClick={() => chain().toggleItalic().run()} />
         <ToolButton icon={Underline} label="Underline" command="format.underline" pressed={state.underline} onClick={() => chain().toggleUnderline().run()} />
-        <ToolButton icon={Strikethrough} label="Strikethrough" shortcut="⇧⌘X" pressed={state.strike} onClick={() => chain().toggleStrike().run()} />
+        <ColorTools editor={editor} />
+        <MoreFormattingMenu editor={editor} state={state} />
         <LinkTool editor={editor} active={state.link} />
         <ToolSeparator />
         <ToolButton icon={List} label="Bulleted list" shortcut="⇧⌘8" pressed={state.bulletList} onClick={() => chain().toggleBulletList().run()} />
         <ToolButton icon={ListOrdered} label="Numbered list" shortcut="⇧⌘7" pressed={state.orderedList} onClick={() => chain().toggleOrderedList().run()} />
         <ToolButton icon={ListTodo} label="Checklist" shortcut="⇧⌘9" pressed={state.taskList} onClick={() => chain().toggleTaskList().run()} />
+        <ToolButton icon={ListIndentDecrease} label="Decrease indent" shortcut="⇧⇥" onClick={() => indent(editor, -1)} />
+        <ToolButton icon={ListIndentIncrease} label="Increase indent" shortcut="⇥" onClick={() => indent(editor, 1)} />
         <ToolSeparator />
-        {alignments.map(alignment => (
-          <ToolButton
-            key={alignment.value}
-            icon={alignment.icon}
-            label={alignment.label}
-            pressed={state.align === alignment.value}
-            onClick={() => chain().setTextAlign(alignment.value).run()}
-          />
-        ))}
+        <AlignMenu editor={editor} current={state.align} />
+        <SpacingMenu editor={editor} current={state.lineHeight} styleLine={state.styleLine} />
         <ToolSeparator />
         <ToolButton icon={ImagePlus} label="Insert image…" onClick={() => void insertImage(editor).catch(() => toast.error('Could not insert the image'))} />
         <ToolButton icon={Table} label="Insert table" onClick={() => chain().insertTable({ rows: 3, cols: 3, withHeaderRow: false }).run()} />
         <TableMenu editor={editor} inTable={state.table} />
+        <ToolButton icon={Minus} label="Horizontal line" onClick={() => chain().setHorizontalRule().run()} />
         <ToolButton icon={SeparatorHorizontal} label="Page break" shortcut="⌘↩" onClick={() => insertPageBreak(editor)} />
         <span className="toolbar-grow" />
         <ToolButton icon={RemoveFormatting} label="Clear formatting" command="format.clear" onClick={() => clearFormatting(editor)} />
@@ -280,6 +199,7 @@ export function DocEssentials({ editor }: { readonly editor: Editor }) {
   return (
     <TitleEssentials>
       <KeepEditorFocus>
+        <StyleMenu editor={editor} current={state.style} />
         <ToolButton icon={Bold} label="Bold" command="format.bold" pressed={state.bold} onClick={() => chain().toggleBold().run()} />
         <ToolButton icon={Italic} label="Italic" command="format.italic" pressed={state.italic} onClick={() => chain().toggleItalic().run()} />
         <ToolButton icon={Underline} label="Underline" command="format.underline" pressed={state.underline} onClick={() => chain().toggleUnderline().run()} />

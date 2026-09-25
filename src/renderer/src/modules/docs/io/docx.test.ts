@@ -1,11 +1,11 @@
 // @vitest-environment happy-dom
-import { generateJSON, getSchema, type JSONContent } from '@tiptap/core'
-import { Document, Header, Packer, Paragraph, TextRun, CommentRangeEnd, CommentRangeStart, CommentReference } from 'docx'
+import { getSchema, type JSONContent } from '@tiptap/core'
+import { CommentRangeEnd, CommentRangeStart, CommentReference, Document, Header, Packer, Paragraph, TextRun } from 'docx'
 import { describe, expect, it } from 'vitest'
-import { letterPage } from '../page'
 import { documentExtensions } from '../schema'
+import { defaultTheme, type DocumentTheme, type PageSetup } from '../theme'
 import { writeDocx } from './docx-export'
-import { readDocx } from './docx-import'
+import { readDocx } from './docx-read'
 
 const schema = getSchema(documentExtensions)
 
@@ -14,20 +14,20 @@ function normalized(content: JSONContent): JSONContent {
   return schema.nodeFromJSON(content).toJSON()
 }
 
-function text(value: string, ...marks: string[]): JSONContent {
-  return { type: 'text', text: value, ...(marks.length > 0 ? { marks: marks.map(type => ({ type })) } : {}) }
+function text(value: string, ...marks: Array<string | { readonly type: string; readonly attrs: Record<string, string> }>): JSONContent {
+  return { type: 'text', text: value, ...(marks.length > 0 ? { marks: marks.map(mark => typeof mark === 'string' ? { type: mark } : mark) } : {}) }
 }
 
 function paragraph(...content: JSONContent[]): JSONContent {
   return { type: 'paragraph', content }
 }
 
-function list(type: string, ...items: string[]): JSONContent {
-  return { type, content: items.map(item => ({ type: 'listItem', content: [paragraph(text(item))] })) }
+function item(...content: JSONContent[]): JSONContent {
+  return { type: 'listItem', content }
 }
 
-function row(...cells: string[]): JSONContent {
-  return { type: 'tableRow', content: cells.map(cell => ({ type: 'tableCell', content: [paragraph(text(cell))] })) }
+function cell(type: string, value: string, attrs: Record<string, unknown> = {}): JSONContent {
+  return { type, attrs, content: [paragraph(text(value))] }
 }
 
 /** A PNG header is all the writer reads: it takes the pixel size from it and embeds the bytes. */
@@ -36,27 +36,39 @@ const png = `data:image/png;base64,${btoa(String.fromCharCode(
   0, 0, 0, 40, 0, 0, 0, 20, 8, 6, 0, 0, 0, 0, 0, 0, 0,
 ))}`
 
+const page: PageSetup = { width: 16_838, height: 11_906, marginTop: 1_080, marginRight: 1_440, marginBottom: 1_080, marginLeft: 1_800, pageNumbers: true }
+const theme: DocumentTheme = { ...defaultTheme, normal: { ...defaultTheme.normal, fontFamily: 'Georgia', fontSize: 12, lineHeight: 1.5 } }
+
+/** Everything the model holds, as Sumi would save it. */
 const document: JSONContent = {
   type: 'doc',
+  attrs: { page, theme },
   content: [
-    { type: 'heading', attrs: { level: 1 }, content: [text('Quarterly report')] },
-    { type: 'heading', attrs: { level: 2 }, content: [text('Summary')] },
+    { type: 'title', attrs: { textAlign: 'center' }, content: [text('Quarterly report')] },
+    { type: 'heading', attrs: { level: 1 }, content: [text('Summary')] },
+    { type: 'heading', attrs: { level: 2 }, content: [text('Regions')] },
+    { type: 'heading', attrs: { level: 3 }, content: [text('North')] },
     {
       type: 'paragraph',
-      attrs: { textAlign: 'center' },
+      attrs: { textAlign: 'justify', spaceBefore: 6, spaceAfter: 12, lineHeight: 2, indentLeft: 36, indentFirstLine: -18 },
       content: [
-        text('Plain, '), text('bold', 'bold'), text(', '), text('italic', 'italic'), text(', '), text('underlined', 'underline'),
-        text(' and '), text('struck', 'strike'), text(' with a '),
-        { type: 'text', text: 'link', marks: [{ type: 'link', attrs: { href: 'https://example.com/' } }] }, text('.'),
+        text('Plain, '), text('bold', 'bold'), text(' '), text('italic', 'italic'), text(' '), text('underlined', 'underline'),
+        text(' '), text('struck', 'strike'), text(' E=mc'), text('2', 'superscript'), text(' H'), text('2', 'subscript'), text('O '),
+        text('x = 1', 'code'), text(' '), text('Verdana', { type: 'textStyle', attrs: { fontFamily: 'Verdana', fontSize: '14pt', color: '#c00000' } }),
+        text(' '), text('highlighted', { type: 'textStyle', attrs: { backgroundColor: '#ffff00' } }),
+        text(' '), text('shaded', { type: 'textStyle', attrs: { backgroundColor: '#dbe8fb' } }),
+        text(' and a '), text('link', { type: 'link', attrs: { href: 'https://example.com/' } }), text('.'),
       ],
     },
-    list('bulletList', 'First point', 'Second point'),
-    list('orderedList', 'Step one', 'Step two'),
-    { type: 'table', content: [row('Region', 'Revenue'), row('North', '42')] },
-    { type: 'pageBreak' },
-    { type: 'paragraph', attrs: { textAlign: 'right' }, content: [text('After the break')] },
-    { type: 'blockquote', content: [paragraph(text('A quotation'))] },
-    { type: 'codeBlock', content: [text('const total = 42\nreturn total')] },
+    paragraph(text('Name\tValue'), { type: 'hardBreak' }, text('Second line')),
+    {
+      type: 'bulletList',
+      content: [
+        item(paragraph(text('First point')), paragraph(text('More about it'))),
+        item(paragraph(text('Second point')), { type: 'orderedList', attrs: { start: 3 }, content: [item(paragraph(text('Step three')))] }),
+      ],
+    },
+    { type: 'orderedList', content: [item(paragraph(text('One'))), item(paragraph(text('Two')))] },
     {
       type: 'taskList',
       content: [
@@ -64,38 +76,46 @@ const document: JSONContent = {
         { type: 'taskItem', attrs: { checked: false }, content: [paragraph(text('Open'))] },
       ],
     },
+    { type: 'blockquote', content: [paragraph(text('A quotation')), paragraph(text('in two paragraphs'))] },
+    { type: 'codeBlock', content: [text('const total = 42\n\nreturn total')] },
     { type: 'horizontalRule' },
-    paragraph(text('Code like '), text('x = 1', 'code'), text(' and a picture '), { type: 'image', attrs: { src: png, width: 40, height: 20 } }),
+    {
+      type: 'table',
+      content: [
+        { type: 'tableRow', content: [cell('tableHeader', 'Region', { colwidth: [160] }), cell('tableHeader', 'Revenue', { colwidth: [120] }), cell('tableHeader', 'Share', { colwidth: [100] })] },
+        { type: 'tableRow', content: [cell('tableCell', 'North', { rowspan: 2, colwidth: [160] }), cell('tableCell', '42', { colspan: 2, colwidth: [120, 100], backgroundColor: '#fde68a' })] },
+        { type: 'tableRow', content: [cell('tableCell', '38', { colwidth: [120] }), cell('tableCell', '48%', { colwidth: [100] })] },
+      ],
+    },
+    paragraph(text('A picture '), { type: 'image', attrs: { src: png, width: 40, height: 20 } }),
+    { type: 'pageBreak' },
+    paragraph(text('After the break')),
   ],
 }
 
 describe('docx', () => {
-  it('keeps structure, formatting, alignment and page breaks through a save and reopen', async () => {
-    const { bytes, skippedImages } = await writeDocx(document, letterPage)
-    const imported = await readDocx(bytes, letterPage)
+  it('opens a file Sumi saved exactly as it was saved', async () => {
+    const { bytes, skippedImages } = await writeDocx(document)
+    const read = readDocx(bytes)
 
     expect(skippedImages).toBe(0)
-    // A file Sumi wrote holds nothing Sumi cannot show, so reopening it reports no loss.
-    expect(imported.findings).toEqual([])
-    expect(normalized(generateJSON(imported.html, documentExtensions))).toEqual(normalized(document))
+    expect(read.findings).toEqual([])
+    expect(normalized(read.content)).toEqual(normalized(document))
   })
 
-  it('reports comments and headers as lost, and colours as approximated', async () => {
+  it('lists comments and header text as lost, with counts and what happens to them', async () => {
     const source = new Document({
-      comments: { children: [{ id: 0, author: 'Reviewer', date: new Date(0), children: [new Paragraph('Check this')] }] },
+      comments: { children: [0, 1].map(id => ({ id, author: 'Reviewer', date: new Date(0), children: [new Paragraph('Check this')] })) },
       sections: [{
         headers: { default: new Header({ children: [new Paragraph('Confidential')] }) },
-        children: [
-          new Paragraph({ children: [new CommentRangeStart(0), new TextRun('Reviewed text'), new CommentRangeEnd(0), new TextRun({ children: [new CommentReference(0)] })] }),
-          new Paragraph({ children: [new TextRun({ text: 'Red text', color: 'C00000' })] }),
-        ],
+        children: [0, 1].map(id => new Paragraph({
+          children: [new CommentRangeStart(id), new TextRun('Reviewed text'), new CommentRangeEnd(id), new TextRun({ children: [new CommentReference(id)] })],
+        })),
       }],
     })
-    const { findings } = await readDocx(new Uint8Array(await Packer.toArrayBuffer(source)), letterPage)
-    const severity = (construct: string): string | undefined => findings.find(finding => finding.construct === construct)?.severity
+    const { findings } = readDocx(new Uint8Array(await Packer.toArrayBuffer(source)))
 
-    expect(severity('Comments')).toBe('dropped')
-    expect(severity('Headers and footers')).toBe('dropped')
-    expect(severity('Text colours')).toBe('degraded')
+    expect(findings).toContainEqual({ construct: 'Comments', severity: 'dropped', location: '2 comments', suggestedAlternative: 'Removed when saved; the original file keeps them.' })
+    expect(findings).toContainEqual(expect.objectContaining({ construct: 'Header and footer text', severity: 'dropped' }))
   })
 })
