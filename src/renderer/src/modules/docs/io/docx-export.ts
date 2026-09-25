@@ -1,11 +1,15 @@
 /**
- * Writes a Sumi document (TipTap JSON) as .docx with the `docx` library. It writes everything the
- * reader (docx-read.ts) reads, so a file Zendo saves opens again unchanged:
+ * Writes a Sumi document (TipTap JSON) as .docx with the `docx` library, in the form the reader
+ * (docx-read.ts) reads back:
  * - the theme as Word's styles (Normal, Title, Heading 1–3, Quote), so Word's navigation pane,
  *   style gallery and list tools work;
- * - direct formatting (fonts, sizes, colours, highlights, spacing, indents, alignment);
- * - the page setup as the section's page size and margins, and page numbers as a footer field.
- * Blocks Word has no style for (code, rule, checklist) get named styles the reader maps back.
+ * - formatting on the text as direct formatting (fonts, sizes, colours, highlights, spacing,
+ *   indents, alignment), and the file properties;
+ * - the page setup as the section's page size and margins, and page numbers as a footer field;
+ * - blocks Word has no style for (code, rule, checklist) as named styles, and a block that
+ *   continues a list item as a list level with no number, so it stays inside the item.
+ * Whatever does not come back the same (a table inside a list item, say) is caught when saving
+ * over a file: the save reads its own output first and asks (doc-documents.ts).
  */
 
 import type { JSONContent } from '@tiptap/core'
@@ -38,8 +42,8 @@ import {
   type IRunOptions,
   type ParagraphChild,
 } from 'docx'
-import { contentWidthPixels, documentPage, documentTheme, type BlockStyle, type PageSetup } from '../theme'
-import { checklistMarks, docxStyleNames, hexColor, highlightColors, type DocxStyleId } from './docx-styles'
+import { contentWidthPixels, documentPage, documentProperties, documentTheme, toPoints, type BlockStyle, type PageSetup } from '../theme'
+import { checklistMarks, docxStyleNames, hexColor, highlightColors, safeHref, type DocxStyleId } from './docx-styles'
 import { fromDataUrl, imageSize, type PixelSize } from './images'
 
 export interface DocxExport {
@@ -60,9 +64,18 @@ interface ExportContext {
   skippedImages: number
 }
 
+/**
+ * Text as XML 1.0 allows it: control characters other than tab and line ends make a file Word
+ * cannot open. Callers turn line and page breaks into Word's own breaks first.
+ */
+export function xmlText(text: string): string {
+  // eslint-disable-next-line no-control-regex
+  return text.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffe\uffff]/g, '')
+}
+
 function textAttr(node: JSONContent, name: string): string | undefined {
   const value: unknown = node.attrs?.[name]
-  return typeof value === 'string' && value !== '' ? value : undefined
+  return typeof value === 'string' && value !== '' ? xmlText(value) : undefined
 }
 
 function numberAttr(node: JSONContent, name: string): number | undefined {
@@ -83,15 +96,6 @@ function twips(points: number): number {
 /** A colour as Word writes it: six hex digits, no `#`. */
 function wordColor(value: unknown): string | undefined {
   return typeof value === 'string' ? hexColor(value)?.slice(1).toUpperCase() : undefined
-}
-
-/** `14pt`, `18.67px` or a plain number of points. */
-function fontPoints(value: unknown): number | undefined {
-  if (typeof value === 'number') return value
-  if (typeof value !== 'string') return undefined
-  const match = /^([\d.]+)(pt|px)?$/.exec(value.trim())
-  if (match === null) return undefined
-  return match[2] === 'px' ? Number(match[1]) * 0.75 : Number(match[1])
 }
 
 const alignments: Readonly<Record<string, Alignment>> = {
@@ -153,7 +157,7 @@ const highlightNames = new Map<string, Highlight>(Object.values(HighlightColor).
 function runOptions(node: JSONContent, inLink: boolean): IRunOptions {
   if (mark(node, 'code') !== undefined) return { style: 'InlineCode' }
   const style = mark(node, 'textStyle') ?? {}
-  const size = fontPoints(style['fontSize'])
+  const size = toPoints(style['fontSize'])
   const font = style['fontFamily']
   const color = wordColor(style['color'])
   const background = wordColor(style['backgroundColor'])
@@ -173,46 +177,64 @@ function runOptions(node: JSONContent, inLink: boolean): IRunOptions {
   }
 }
 
-function inlineRun(node: JSONContent, context: ExportContext, inLink: boolean): TextRun | ImageRun | undefined {
-  if (node.type === 'hardBreak') return new TextRun({ break: 1 })
-  if (node.type === 'image') return imageRun(node, context)
-  if (node.type !== 'text' || node.text === undefined) return undefined
-  // Tabs are their own element in Word; inside w:t they would show as a space.
-  const children = node.text.split('\t').flatMap((part, index) => [...(index > 0 ? [new Tab()] : []), ...(part === '' ? [] : [part])])
-  return new TextRun({ ...runOptions(node, inLink), children })
+/**
+ * A text node as runs. Tabs are their own element in Word (inside w:t they show as a space); a
+ * vertical tab or line end pasted into the text becomes a line break, a form feed a page break.
+ */
+function textRuns(node: JSONContent, text: string, inLink: boolean): Array<TextRun | PageBreak> {
+  return text.split('\f').flatMap((page, pageIndex) => {
+    const lines = page.split(/\r\n|[\v\n\r]/).map((line, lineIndex) => {
+      const children = xmlText(line).split('\t').flatMap((part, index) => [...(index > 0 ? [new Tab()] : []), ...(part === '' ? [] : [part])])
+      return new TextRun({ ...runOptions(node, inLink), ...(lineIndex > 0 ? { break: 1 } : {}), children })
+    })
+    return pageIndex > 0 ? [new PageBreak(), ...lines] : lines
+  })
+}
+
+function inlineRuns(node: JSONContent, context: ExportContext, inLink: boolean): Array<TextRun | ImageRun | PageBreak> {
+  if (node.type === 'hardBreak') return [new TextRun({ break: 1 })]
+  if (node.type === 'image') {
+    const image = imageRun(node, context)
+    return image === undefined ? [] : [image]
+  }
+  if (node.type !== 'text' || node.text === undefined) return []
+  return textRuns(node, node.text, inLink)
 }
 
 /** Inline content as runs; neighbouring runs with the same web link share one hyperlink. */
 function runs(nodes: readonly JSONContent[], context: ExportContext): ParagraphChild[] {
   const result: ParagraphChild[] = []
-  let link: { readonly href: string; readonly children: Array<TextRun | ImageRun> } | undefined
+  let link: { readonly href: string; readonly children: Array<TextRun | ImageRun | PageBreak> } | undefined
   const flush = (): void => {
     if (link !== undefined) result.push(new ExternalHyperlink({ link: link.href, children: link.children }))
     link = undefined
   }
   for (const node of nodes) {
-    // Links inside the document (#anchors) have no bookmark to point at in Word, so they stay plain text.
+    // Only web and mail links are written; links inside the document (#anchors) have no bookmark
+    // to point at in Word, and other schemes are never kept, so those stay plain text.
     const href = mark(node, 'link')?.['href']
-    const external = typeof href === 'string' && href !== '' && !href.startsWith('#') ? href : undefined
-    const run = inlineRun(node, context, external !== undefined)
-    if (run === undefined) continue
+    const external = typeof href === 'string' ? safeHref(xmlText(href)) : undefined
+    const inline = inlineRuns(node, context, external !== undefined)
     if (external === undefined) {
       flush()
-      result.push(run)
+      result.push(...inline)
       continue
     }
     if (link?.href !== external) {
       flush()
       link = { href: external, children: [] }
     }
-    link.children.push(run)
+    link.children.push(...inline)
   }
   flush()
   return result
 }
 
-/** Direct paragraph formatting: the node's own alignment, spacing and indents, over its style. */
-function paragraphOptions(node: JSONContent): IParagraphOptions {
+/**
+ * Direct paragraph formatting: the node's own alignment, spacing and indents, over its style.
+ * A paragraph in a list takes its indent from the list level, so `indents` is off there.
+ */
+function paragraphOptions(node: JSONContent, indents = true): IParagraphOptions {
   const before = numberAttr(node, 'spaceBefore')
   const after = numberAttr(node, 'spaceAfter')
   const line = numberAttr(node, 'lineHeight')
@@ -230,7 +252,7 @@ function paragraphOptions(node: JSONContent): IParagraphOptions {
   return {
     ...alignment(node),
     ...(Object.keys(spacing).length > 0 ? { spacing } : {}),
-    ...(Object.keys(indent).length > 0 ? { indent } : {}),
+    ...(indents && Object.keys(indent).length > 0 ? { indent } : {}),
   }
 }
 
@@ -240,30 +262,52 @@ function paragraph(node: JSONContent, context: ExportContext, options: IParagrap
 
 const headingLevels = [HeadingLevel.HEADING_1, HeadingLevel.HEADING_2, HeadingLevel.HEADING_3] as const
 
-function listBlocks(list: JSONContent, context: ExportContext, level: number): Block[] {
+type Numbering = NonNullable<IParagraphOptions['numbering']>
+
+/** A list level with no number: marks a block that continues the list item it follows, at that level. */
+function placement(level: number): Numbering {
+  return { reference: 'placement', level: Math.min(level, 8), instance: 0 }
+}
+
+/** A paragraph, code block or other block inside a list item, after its first paragraph. */
+function continuation(node: JSONContent, context: ExportContext, level: number, style: DocxStyleId | undefined): Block[] {
+  const numbering = placement(level)
+  if (node.type === 'paragraph') {
+    return [new Paragraph({ ...paragraphOptions(node, false), style: style ?? 'ListContinue', numbering, children: runs(node.content ?? [], context) })]
+  }
+  if (node.type === 'codeBlock') return codeLines(node).map(line => new Paragraph({ style: 'Code', numbering, children: line === '' ? [] : [new TextRun(line)] }))
+  if (node.type === 'bulletList' || node.type === 'orderedList') return listBlocks(node, context, level + 1, style)
+  if (node.type === 'taskList') return checklistBlocks(node, context, level + 1)
+  return blocks([node], context, style)
+}
+
+/** Bulleted and numbered lists; each list is its own Word list, so neighbouring lists stay apart. */
+function listBlocks(list: JSONContent, context: ExportContext, level: number, style?: DocxStyleId): Block[] {
   const ordered = list.type === 'orderedList'
   const start = numberAttr(list, 'start') ?? 1
-  if (ordered) {
-    context.listStarts.add(start)
-    context.listInstances += 1
-  }
-  const numbering = { reference: ordered ? `numbered-${start}` : 'bulleted', level: Math.min(level, 8), instance: ordered ? context.listInstances : 0 }
+  if (ordered) context.listStarts.add(start)
+  context.listInstances += 1
+  const numbering = { reference: ordered ? `numbered-${start}` : 'bulleted', level: Math.min(level, 8), instance: context.listInstances }
   return (list.content ?? []).flatMap(item => (item.content ?? []).flatMap((child, index) => {
-    if (child.type === 'bulletList' || child.type === 'orderedList') return listBlocks(child, context, level + 1)
-    // List paragraphs take their indents from the list level, so only alignment is their own.
-    if (index === 0 && child.type === 'paragraph') return [new Paragraph({ numbering, ...alignment(child), children: runs(child.content ?? [], context) })]
-    return blocks([child], context, 'ListContinue')
+    if (index === 0 && child.type === 'paragraph') {
+      return [new Paragraph({ ...paragraphOptions(child, false), numbering, ...(style === undefined ? {} : { style }), children: runs(child.content ?? [], context) })]
+    }
+    return continuation(child, context, level, style)
   }))
 }
 
-function checklistBlocks(list: JSONContent, context: ExportContext): Block[] {
+/** Word has no checklist; an item is a paragraph that starts with a box, at its level of nesting. */
+function checklistBlocks(list: JSONContent, context: ExportContext, level: number): Block[] {
+  const numbering = { reference: 'checklist', level: Math.min(level, 8), instance: 0 }
   return (list.content ?? []).flatMap(item => (item.content ?? []).flatMap((child, index) => {
-    if (child.type === 'taskList') return checklistBlocks(child, context)
-    if (child.type === 'bulletList' || child.type === 'orderedList') return listBlocks(child, context, 1)
-    if (index !== 0 || child.type !== 'paragraph') return blocks([child], context, 'ListContinue')
+    if (index !== 0 || child.type !== 'paragraph') return continuation(child, context, level, undefined)
     const box = item.attrs?.['checked'] === true ? checklistMarks.done : checklistMarks.open
-    return [new Paragraph({ style: 'Checklist', ...alignment(child), children: [new TextRun(`${box} `), ...runs(child.content ?? [], context)] })]
+    return [new Paragraph({ ...paragraphOptions(child, false), style: 'Checklist', numbering, children: [new TextRun(`${box} `), ...runs(child.content ?? [], context)] })]
   }))
+}
+
+function codeLines(node: JSONContent): string[] {
+  return xmlText((node.content ?? []).map(child => child.text ?? '').join('').replace(/\r\n|[\v\r\f]/g, '\n')).split('\n')
 }
 
 /** Column widths in twips: the widths the first row's cells were given, the rest sharing what is left of the text width. */
@@ -295,7 +339,12 @@ function table(node: JSONContent, context: ExportContext): Table {
         const columnSpan = numberAttr(cell, 'colspan') ?? 1
         const rowSpan = numberAttr(cell, 'rowspan') ?? 1
         const shading = wordColor(cell.attrs?.['backgroundColor'])
-        const children = blocks(cell.content ?? [], context, 'TableText')
+        // A column's alignment (from Markdown) is the alignment of each paragraph in its cells.
+        const align = textAttr(cell, 'align')
+        const content = (cell.content ?? []).map(child => align !== undefined && child.type === 'paragraph' && textAttr(child, 'textAlign') === undefined
+          ? { ...child, attrs: { ...child.attrs, textAlign: align } }
+          : child)
+        const children = blocks(content, context, 'TableText')
         return new TableCell({
           ...(columnSpan > 1 ? { columnSpan } : {}),
           ...(rowSpan > 1 ? { rowSpan } : {}),
@@ -320,16 +369,14 @@ function blocks(nodes: readonly JSONContent[], context: ExportContext, style?: D
         return [paragraph(node, context, { heading: headingLevels[Math.min(3, Math.max(1, numberAttr(node, 'level') ?? 1)) - 1] })]
       case 'bulletList':
       case 'orderedList':
-        return listBlocks(node, context, 0)
+        return listBlocks(node, context, 0, style === 'Quote' ? style : undefined)
       case 'taskList':
-        return checklistBlocks(node, context)
+        return checklistBlocks(node, context, 0)
       case 'blockquote':
         return blocks(node.content ?? [], context, 'Quote')
-      case 'codeBlock': {
-        const text = (node.content ?? []).map(child => child.text ?? '').join('')
+      case 'codeBlock':
         // One paragraph per line; the reader joins them back.
-        return text.split('\n').map(line => new Paragraph({ style: 'Code', children: line === '' ? [] : [new TextRun(line)] }))
-      }
+        return codeLines(node).map(line => new Paragraph({ style: 'Code', children: line === '' ? [] : [new TextRun(line)] }))
       case 'horizontalRule':
         return [new Paragraph({ style: 'HorizontalLine' })]
       case 'pageBreak':
@@ -350,6 +397,17 @@ function numberingLevels(level: (index: number) => Omit<ILevelsOptions, 'level' 
     alignment: AlignmentType.LEFT,
     style: { paragraph: { indent: { left: 720 * (index + 1), hanging: 360 } } },
     ...level(index),
+  }))
+}
+
+/** Levels that only indent: for blocks continuing a list item, and for checklists. */
+function unnumberedLevels(indent: (index: number) => number): ILevelsOptions[] {
+  return Array.from({ length: 9 }, (_, index) => ({
+    level: index,
+    format: LevelFormat.NONE,
+    text: '',
+    alignment: AlignmentType.LEFT,
+    style: { paragraph: { indent: { left: indent(index), hanging: 0 } } },
   }))
 }
 
@@ -381,10 +439,15 @@ function pageNumberFooter(): Footer {
 export async function writeDocx(content: JSONContent): Promise<DocxExport> {
   const page = documentPage(content.attrs?.['page'])
   const theme = documentTheme(content.attrs?.['theme'])
+  const properties = documentProperties(content.attrs?.['properties'])
   const context: ExportContext = { page, listStarts: new Set(), listInstances: 0, skippedImages: 0 }
   const children = blocks(content.content ?? [], context)
   const document = new Document({
-    creator: '',
+    title: xmlText(properties.title),
+    subject: xmlText(properties.subject),
+    creator: xmlText(properties.creator),
+    keywords: xmlText(properties.keywords),
+    description: xmlText(properties.description),
     lastModifiedBy: '',
     styles: {
       default: {
@@ -418,6 +481,8 @@ export async function writeDocx(content: JSONContent): Promise<DocxExport> {
     numbering: {
       config: [
         { reference: 'bulleted', levels: numberingLevels(index => ({ format: LevelFormat.BULLET, text: bulletGlyphs[index % 3] })) },
+        { reference: 'placement', levels: unnumberedLevels(index => 720 * (index + 1)) },
+        { reference: 'checklist', levels: unnumberedLevels(index => 360 * index) },
         ...[...context.listStarts].map(start => ({
           reference: `numbered-${start}`,
           levels: numberingLevels(index => ({ format: numberFormats[index % 3], text: `%${index + 1}.`, start })),

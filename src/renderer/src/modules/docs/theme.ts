@@ -49,6 +49,17 @@ export const defaultTheme: DocumentTheme = {
   quote: { ...normal, color: '#555555', italic: true, indentLeft: 18 },
 }
 
+/** File properties Word shows under File > Info; kept so saving does not erase them. */
+export interface DocumentProperties {
+  readonly title: string
+  readonly subject: string
+  readonly creator: string
+  readonly keywords: string
+  readonly description: string
+}
+
+export const emptyProperties: DocumentProperties = { title: '', subject: '', creator: '', keywords: '', description: '' }
+
 export interface PageSetup {
   readonly width: number
   readonly height: number
@@ -163,4 +174,24 @@ export function documentPage(value: unknown): PageSetup {
 /** The theme from the `doc` node's attributes, or Sumi's default. */
 export function documentTheme(value: unknown): DocumentTheme {
   return isTheme(value) ? value : defaultTheme
+}
+
+function isProperties(value: unknown): value is DocumentProperties {
+  return isRecord(value) && ['title', 'subject', 'creator', 'keywords', 'description'].every(key => typeof value[key] === 'string')
+}
+
+/** The file properties from the `doc` node's attributes. */
+export function documentProperties(value: unknown): DocumentProperties {
+  return isProperties(value) ? value : emptyProperties
+}
+
+/** A length or font size in points, from `11`, `'11pt'` or `'14.67px'` (CSS pixels, 96 per inch). */
+export function toPoints(value: unknown): number | undefined {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : undefined
+  if (typeof value !== 'string') return undefined
+  const match = /^(-?[\d.]+)\s*(pt|px)?$/.exec(value.trim())
+  if (match === null) return undefined
+  const amount = Number(match[1])
+  if (!Number.isFinite(amount)) return undefined
+  return match[2] === 'px' ? Math.round(amount * 0.75 * 100) / 100 : amount
 }

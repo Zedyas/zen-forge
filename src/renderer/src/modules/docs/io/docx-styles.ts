@@ -46,3 +46,9 @@ export function hexColor(value: string): string | undefined {
   if (rgb === null) return undefined
   return `#${rgb.slice(1, 4).map(part => Number(part).toString(16).padStart(2, '0')).join('')}`
 }
+
+/** Web and mail links only: never `javascript:`, files or other apps. */
+export function safeHref(href: string | undefined): string | undefined {
+  const trimmed = href?.trim()
+  return trimmed !== undefined && /^(https?:|mailto:)/i.test(trimmed) ? trimmed : undefined
+}

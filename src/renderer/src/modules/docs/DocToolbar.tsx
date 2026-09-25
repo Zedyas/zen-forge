@@ -24,7 +24,7 @@ import { TitleEssentials } from '../../ui/TitleSlot'
 import { ColorTool, Toolbar, ToolButton, ToolSeparator, type ColorOption } from '../../ui/Toolbar'
 import { clearFormatting, currentBlockStyle, currentStyle, indent, insertImage, insertPageBreak } from './doc-commands'
 import { alignments, AlignMenu, FontMenu, LinkTool, MoreFormattingMenu, SizeMenu, SpacingMenu, StyleMenu, TableMenu, type AlignValue } from './DocMenus'
-import type { StyleName } from './theme'
+import { toPoints, type StyleName } from './theme'
 
 const textColors: readonly ColorOption[] = [
   { label: 'Automatic', value: undefined },
@@ -70,11 +70,6 @@ interface FormatState {
   readonly align: AlignValue
 }
 
-function points(value: unknown): number | undefined {
-  const parsed = typeof value === 'string' ? Number.parseFloat(value) : Number.NaN
-  return Number.isFinite(parsed) ? parsed : undefined
-}
-
 function formatState(editor: Editor): FormatState {
   const base = currentBlockStyle(editor)
   const textStyle = editor.getAttributes('textStyle')
@@ -83,7 +78,7 @@ function formatState(editor: Editor): FormatState {
   return {
     style: currentStyle(editor),
     fontFamily: typeof family === 'string' && family !== '' ? family : base.fontFamily,
-    fontSize: points(textStyle['fontSize']) ?? base.fontSize,
+    fontSize: toPoints(textStyle['fontSize']) ?? base.fontSize,
     styleFont: base.fontFamily,
     styleSize: base.fontSize,
     styleLine: base.lineHeight,

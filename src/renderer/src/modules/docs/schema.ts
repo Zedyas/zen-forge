@@ -7,9 +7,12 @@ import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table
 import TextAlign from '@tiptap/extension-text-align'
 import { BackgroundColor, Color, FontFamily, FontSize, TextStyle } from '@tiptap/extension-text-style'
 import StarterKit from '@tiptap/starter-kit'
-import { defaultPage, defaultTheme, singleLineHeight } from './theme'
+import { defaultPage, defaultTheme, emptyProperties, singleLineHeight, toPoints } from './theme'
 
-/** The root node. Its attributes are the document's page setup and theme (theme.ts). */
+/**
+ * The root node. Its attributes are the document's page setup, theme and file properties
+ * (theme.ts), and a Markdown file's front matter, kept exactly as it was.
+ */
 const SumiDocument = Node.create({
   name: 'doc',
   topNode: true,
@@ -18,6 +21,8 @@ const SumiDocument = Node.create({
     return {
       page: { default: defaultPage, rendered: false },
       theme: { default: defaultTheme, rendered: false },
+      properties: { default: emptyProperties, rendered: false },
+      frontMatter: { default: null, rendered: false },
     }
   },
   renderMarkdown: (node, helpers) => helpers.renderChildren(node.content ?? [], '\n\n'),
@@ -55,16 +60,11 @@ export const PageBreak = Node.create({
   },
 })
 
-function points(value: string): number | null {
-  const match = /^(-?[\d.]+)pt$/.exec(value.trim())
-  return match === null ? null : Number(match[1])
-}
-
 /** A length in points, stored as a number and shown as one CSS property. */
 function pointAttribute(name: string, property: 'margin-top' | 'margin-bottom' | 'margin-left' | 'text-indent'): Attribute {
   return {
     default: null,
-    parseHTML: element => points(element.style.getPropertyValue(property)),
+    parseHTML: element => toPoints(element.style.getPropertyValue(property)) ?? null,
     renderHTML: attributes => {
       const value: unknown = attributes[name]
       return typeof value === 'number' ? { style: `${property}: ${value}pt` } : {}
