@@ -108,4 +108,38 @@ describe('removeHiddenLayers', () => {
     page.node.addAnnot(context.register(link))
     expect(() => removeHiddenLayers(doc)).toThrow('hidden layer in a place Zendo can’t clean')
   })
+
+  it('removes the patterns, shadings and graphics states only hidden content used', async () => {
+    const { doc, page } = await layeredPdf([
+      '/OC /hidden BDC /Pattern cs /P1 scn 0 0 400 400 re f /Sh1 sh q /GS1 gs 0 0 10 10 re f Q EMC',
+      // The visible text sets its own colour, so nothing visible paints with the pattern.
+      'BT 0 g /F1 14 Tf 40 300 Td (SHOWN) Tj ET',
+    ].join('\n'))
+    const { context } = doc
+    const resources = page.node.Resources()
+    const font = resources?.lookup(PDFName.of('Font'), PDFDict).get(PDFName.of('F1'))
+    const text = (marker: string): string => `BT /F1 10 Tf 2 5 Td (${marker}) Tj ET`
+    const pattern = context.register(context.stream(text('PATTERN-ONLY-IN-HIDDEN'), { PatternType: 1, PaintType: 1, TilingType: 1, BBox: [0, 0, 200, 20], XStep: 200, YStep: 20, Resources: { Font: { F1: font } } }))
+    const shading = context.register(context.obj({ ShadingType: 2, ColorSpace: 'DeviceGray', Coords: [0, 0, 100, 0], Function: { FunctionType: 2, Domain: [0, 1], N: 1 }, Note: PDFString.of('SHADING-ONLY-IN-HIDDEN') }))
+    const group = context.register(context.stream(text('MASK-ONLY-IN-HIDDEN'), { Type: 'XObject', Subtype: 'Form', BBox: [0, 0, 200, 20], Group: { S: 'Transparency' }, Resources: { Font: { F1: font } } }))
+    resources?.set(PDFName.of('Pattern'), context.obj({ P1: pattern }))
+    resources?.set(PDFName.of('Shading'), context.obj({ Sh1: shading }))
+    resources?.set(PDFName.of('ExtGState'), context.obj({ GS1: { SMask: { S: 'Luminosity', G: group } } }))
+    removeHiddenLayers(doc)
+
+    const bytes = await doc.save()
+    for (const marker of ['PATTERN', 'SHADING', 'MASK']) expect(await fileContainsText(bytes, `${marker}-ONLY-IN-HIDDEN`)).toBe(false)
+    expect(await extractPageTexts(bytes)).toEqual(['SHOWN'])
+  })
+
+  it('keeps a pattern a hidden block leaves set for visible content to paint with', async () => {
+    const { doc, page } = await layeredPdf('/OC /hidden BDC /Pattern cs /P1 scn EMC 0 0 100 100 re f')
+    const { context } = doc
+    const pattern = context.register(context.stream('0 0 10 10 re f', { PatternType: 1, PaintType: 1, TilingType: 1, BBox: [0, 0, 10, 10], XStep: 10, YStep: 10, Resources: {} }))
+    page.node.Resources()?.set(PDFName.of('Pattern'), context.obj({ P1: pattern }))
+    removeHiddenLayers(doc)
+
+    expect(pageContent(page).operators).toEqual(['BMC', 'cs', 'scn', 'EMC', 're', 'f'])
+    expect(page.node.Resources()?.lookup(PDFName.of('Pattern'), PDFDict).get(PDFName.of('P1'))).toBe(pattern)
+  })
 })

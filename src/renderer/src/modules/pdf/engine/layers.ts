@@ -132,10 +132,38 @@ function applyEdits(content: Uint8Array, edits: readonly Edit[]): Uint8Array {
   return join(parts)
 }
 
-/** XObject names each resource dictionary's content still paints, and names whose painting was removed. */
-interface XObjectUse {
-  readonly painted: Set<string>
+/**
+ * The resources each resource dictionary's content still uses, and those that removed content
+ * used, each as a category and name such as `Pattern /P1`. Something only removed content used
+ * goes with it, so its data leaves the file.
+ */
+interface ResourceUse {
+  readonly used: Set<string>
   readonly dropped: Set<string>
+}
+
+/** The resource categories whose entries go when only removed content used them. */
+const droppable = ['XObject', 'Pattern', 'Shading', 'ExtGState']
+
+/** The resource an instruction names: `Do` an XObject, `sh` a shading, `scn` a pattern to paint with, `gs` a graphics state. */
+function resourceOf({ operator, operands }: Instruction): string | undefined {
+  const name = operands.at(-1)
+  if (name === undefined || !name.startsWith('/')) return undefined
+  if (operator === 'Do') return `XObject ${name}`
+  if (operator === 'sh') return `Shading ${name}`
+  if (operator === 'scn' || operator === 'SCN') return `Pattern ${name}`
+  if (operator === 'gs') return `ExtGState ${name}`
+  return undefined
+}
+
+/**
+ * Of the graphics state, what refers to resources: the instructions that set the current fill and
+ * stroke patterns and the graphics states in effect. Whatever paints next paints with these.
+ */
+interface ResourceState {
+  readonly fill?: number
+  readonly stroke?: number
+  readonly states: readonly number[]
 }
 
 /** An error that says what to do instead, for content this cannot clean without changing what shows. */
@@ -166,6 +194,10 @@ const textShows = new Set(['Tj', 'TJ', "'", '"'])
 /** Operators after which text is placed from the start of a line, so a show removed before them moves nothing. */
 const lineStarts = new Set(['BT', 'ET', 'Td', 'TD', 'Tm', 'T*', "'", '"'])
 const pathPainting = new Set(['S', 's', 'f', 'F', 'f*', 'B', 'B*', 'b', 'b*'])
+/** What paints, and so uses the patterns and graphics states in effect. A form painted by `Do` inherits them. */
+const painting = new Set([...pathPainting, ...textShows, 'Do', 'BI', 'sh'])
+const fillColours = new Set(['cs', 'sc', 'scn', 'g', 'rg', 'k'])
+const strokeColours = new Set(['CS', 'SC', 'SCN', 'G', 'RG', 'K'])
 /** What a hidden block that cannot go whole keeps as written: everything that changes state and paints nothing. */
 const kept = new Set([
   ...stateOperators, 'q', 'Q', 'BT', 'ET', 'Td', 'TD', 'Tm', 'T*',
@@ -239,7 +271,7 @@ export function removeHiddenLayers(doc: PDFDocument): void {
   const properties = doc.catalog.lookupMaybe(PDFName.of('OCProperties'), PDFDict)
   if (properties === undefined) return
   const isHidden = hiddenTest(doc, properties)
-  const uses = new Map<PDFDict | undefined, XObjectUse>()
+  const uses = new Map<PDFDict | undefined, ResourceUse>()
   const visited = new Set<string>()
 
   /**
@@ -251,7 +283,7 @@ export function removeHiddenLayers(doc: PDFDocument): void {
   const rewrite = (content: Uint8Array, resources: PDFDict | undefined): Uint8Array | undefined => {
     const named = (category: PDFName, name: string | undefined): PDFObject | undefined =>
       name === undefined ? undefined : resources?.lookupMaybe(category, PDFDict)?.get(PDFName.of(name.slice(1)))
-    const use = uses.get(resources) ?? { painted: new Set<string>(), dropped: new Set<string>() }
+    const use = uses.get(resources) ?? { used: new Set<string>(), dropped: new Set<string>() }
     uses.set(resources, use)
 
     const instructions = scan(content)
@@ -261,17 +293,35 @@ export function removeHiddenLayers(doc: PDFDocument): void {
     let inText = false
     /** A hidden text show was removed and nothing has placed text since: visible text shown now would move. */
     let shifted = false
+    let state: ResourceState = { states: [] }
+    const saved: ResourceState[] = []
+    /** Instructions that set a pattern or graphics state something visible then painted with. */
+    const paintedWith = new Set<number>()
+    /** Such instructions in emptied hidden blocks: each stays only if something visible painted with it. */
+    const setters: number[] = []
     for (let index = 0; index < instructions.length; index += 1) {
       const instruction = instructions[index]
       const { operator, operands: [first, second], start, end } = instruction
+      const resource = resourceOf(instruction)
+      const hidden = index < hiddenEnd
       if (operator === 'BT') inText = true
       if (operator === 'ET') inText = false
       if (lineStarts.has(operator)) shifted = false
-      if (index < hiddenEnd) {
+      if (operator === 'q') saved.push(state)
+      if (operator === 'Q') state = saved.pop() ?? state
+      if (fillColours.has(operator)) state = { ...state, fill: resource === undefined ? undefined : index }
+      if (strokeColours.has(operator)) state = { ...state, stroke: resource === undefined ? undefined : index }
+      if (operator === 'gs') state = { ...state, states: [...state.states, index] }
+      if (!hidden && painting.has(operator)) {
+        for (const setter of [state.fill, state.stroke, ...state.states]) if (setter !== undefined) paintedWith.add(setter)
+      }
+
+      if (hidden) {
         const replacement = withoutPainting(instruction)
         if (replacement !== undefined) edits.push({ start, end, replacement })
         if (textShows.has(operator)) shifted = true
-        if (operator === 'Do' && first !== undefined) use.dropped.add(first)
+        if (resource !== undefined && replacement !== undefined) use.dropped.add(resource)
+        if (resource !== undefined && replacement === undefined) setters.push(index)
       } else if (shifted && (operator === 'Tj' || operator === 'TJ')) {
         throw unsafe('This PDF mixes a hidden layer into visible text in a way Zendo can’t remove safely.')
       } else if (operator === 'BDC' && first === '/OC') {
@@ -280,24 +330,41 @@ export function removeHiddenLayers(doc: PDFDocument): void {
           const block = instructions.slice(index + 1, close)
           if (selfContained(block, inText)) {
             edits.push({ start, end: instructions[close]?.end ?? content.length, replacement: ' ' })
-            for (const { operator: inner, operands: [name] } of block) if (inner === 'Do' && name !== undefined) use.dropped.add(name)
+            for (const inner of block) {
+              const used = resourceOf(inner)
+              if (used !== undefined) use.dropped.add(used)
+            }
             index = close
             continue
           }
           hiddenEnd = close
         }
         edits.push({ start, end, replacement: '/OC BMC' })
-      } else if (operator === 'Do' && first !== undefined) {
-        const xobject = doc.context.lookup(named(XObject, first))
+      } else if (resource !== undefined) {
+        const xobject = operator === 'Do' ? doc.context.lookup(named(XObject, first)) : undefined
         if (xobject instanceof PDFRawStream && isHidden(xobject.dict.get(OC))) {
           edits.push({ start, end, replacement: ' ' })
-          use.dropped.add(first)
+          use.dropped.add(resource)
         } else {
-          use.painted.add(first)
+          use.used.add(resource)
         }
       }
     }
+    // A pattern or graphics state set in an emptied block, that nothing visible paints with before
+    // it is replaced or restored, changes nothing: it goes, and its resource can go with it.
+    for (const index of setters) {
+      const setter = instructions[index]
+      const resource = resourceOf(setter)
+      if (resource === undefined) continue
+      if (paintedWith.has(index)) {
+        use.used.add(resource)
+      } else {
+        edits.push({ start: setter.start, end: setter.end, replacement: ' ' })
+        use.dropped.add(resource)
+      }
+    }
     if (edits.length === 0) return undefined
+    edits.sort((a, b) => a.start - b.start)
     const output = applyEdits(content, edits)
     // A check on the above: emptying a block keeps its `q`/`Q` and marked-content pairs, so their balance must not change.
     const after = scan(output)
@@ -374,14 +441,20 @@ export function removeHiddenLayers(doc: PDFDocument): void {
     }
   }
 
-  // XObjects painted only by removed content go with it, so their data leaves the file.
-  for (const [resources, { painted, dropped }] of uses) {
+  for (const [resources, { used, dropped }] of uses) {
+    // Resources only removed content used go with it, so their data leaves the file.
+    for (const category of droppable) {
+      const entries = resources?.lookupMaybe(PDFName.of(category), PDFDict)
+      for (const [key] of entries?.entries() ?? []) {
+        const resource = `${category} /${key.decodeText()}`
+        if (dropped.has(resource) && !used.has(resource)) entries?.delete(key)
+      }
+    }
     const xobjects = resources?.lookupMaybe(XObject, PDFDict)
     for (const [key, value] of xobjects?.entries() ?? []) {
       const xobject = doc.context.lookup(value)
-      const name = `/${key.decodeText()}`
       if (!(xobject instanceof PDFRawStream)) continue
-      if (isHidden(xobject.dict.get(OC)) || (dropped.has(name) && !painted.has(name))) xobjects?.delete(key)
+      if (isHidden(xobject.dict.get(OC))) xobjects?.delete(key)
       else xobject.dict.delete(OC)
     }
     const propertyLists = resources?.lookupMaybe(Properties, PDFDict)
