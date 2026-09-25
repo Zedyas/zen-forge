@@ -2,7 +2,7 @@ import { PDFDict, PDFDocument, PDFName, PDFString, StandardFonts, degrees } from
 import { describe, expect, it } from 'vitest'
 import { pageGeometry, rectToDisplayed } from './geometry'
 import { redactPages } from './redact'
-import { extractPageTexts, fileContainsText } from './test-support'
+import { extractPageTexts, fileContainsText, layeredPdf } from './test-support'
 
 const keepHidden = { removeHiddenInformation: false }
 const removeHidden = { removeHiddenInformation: true }
@@ -89,4 +89,83 @@ describe('redactPages', () => {
     const [text] = await extractPageTexts(cleaned)
     expect(text).toContain('KEEP ME')
   })
+
+  it('removes covered text in a hidden layer, marked in the page content or on a form XObject', async () => {
+    // The box covers the line at y = 500 (82pt from the top as displayed).
+    const box = { x: 36, y: 82, width: 170, height: 24 }
+    const { doc } = await layeredPdf(
+      '/OC /hidden BDC BT /F1 14 Tf 40 500 Td (HIDDEN-MARKED) Tj ET EMC /Layer Do BT /F1 14 Tf 40 300 Td (KEEP ME) Tj ET',
+      { Layer: { content: 'BT /F1 14 Tf 40 505 Td (HIDDEN-FORM) Tj ET', layer: 'hidden' } },
+    )
+    const bytes = await doc.save({ useObjectStreams: false })
+    expect(await fileContainsText(bytes, 'HIDDEN-MARKED')).toBe(true)
+
+    const output = await redactPages(bytes, [{ index: 0, boxes: [box] }], keepHidden)
+    expect(await fileContainsText(output, 'HIDDEN-MARKED')).toBe(false)
+    expect(await fileContainsText(output, 'HIDDEN-FORM')).toBe(false)
+    const [text] = await extractPageTexts(output)
+    expect(text).toContain('KEEP ME')
+  })
 })
+
+describe('hidden layers', () => {
+  // The box sits on a second, blank page, so the layered page reaches hidden-layer removal as written.
+  const boxOnBlankPage = [{ index: 1, boxes: [{ x: 10, y: 10, width: 20, height: 20 }] }]
+
+  it('removes hidden layers with the hidden information and leaves the rest always visible', async () => {
+    // Unfiltered image data holding `EI (`, which a scanner reading it as tokens would take for the image's end and a string.
+    const inlineImage = 'q 4 0 0 1 300 50 cm BI /W 4 /H 1 /CS /G /BPC 8 ID EI (\nEI Q'
+    const { doc, page, layers } = await layeredPdf([
+      inlineImage,
+      '/OC /hidden BDC BT /F1 14 Tf 40 500 Td (HIDDEN-TEXT) Tj ET',
+      '/Span <</MCID 0>> BDC BT /F1 14 Tf 40 480 Td (HIDDEN-NESTED) Tj ET EMC',
+      'BT /F1 14 Tf 40 460 Td (HIDDEN-AFTER-NESTED) Tj ET /Inner Do EMC',
+      '/OC /shown BDC BT /F1 14 Tf 40 300 Td (SHOWN-TEXT) Tj ET EMC',
+      '/HiddenForm Do',
+    ].join('\n'), {
+      Inner: { content: 'BT /F1 14 Tf 40 100 Td (HIDDEN-INNER) Tj ET' },
+      HiddenForm: { content: 'BT /F1 14 Tf 40 200 Td (HIDDEN-FORM) Tj ET', layer: 'hidden' },
+    })
+    const { context } = doc
+    const link = context.obj({ Type: 'Annot', Subtype: 'Link', Rect: [40, 40, 120, 60], OC: layers.hidden, A: { S: 'URI', URI: PDFString.of('https://HIDDEN-LINK') } })
+    page.node.addAnnot(context.register(link))
+    doc.addPage([400, 600])
+    const bytes = await doc.save()
+    const markers = ['HIDDEN-TEXT', 'HIDDEN-NESTED', 'HIDDEN-AFTER-NESTED', 'HIDDEN-INNER', 'HIDDEN-FORM', 'HIDDEN-LINK', 'Hidden layer', 'Shown layer']
+
+    const kept = await redactPages(bytes, boxOnBlankPage, keepHidden)
+    for (const marker of markers) expect(await fileContainsText(kept, marker)).toBe(true)
+
+    const cleaned = await redactPages(bytes, boxOnBlankPage, removeHidden)
+    const left: string[] = []
+    for (const marker of markers) if (await fileContainsText(cleaned, marker)) left.push(marker)
+    expect(left).toEqual([])
+    const [text] = await extractPageTexts(cleaned)
+    expect(text).toContain('SHOWN-TEXT')
+    expect(await fileContainsText(cleaned, 'BI /W 4 /H 1')).toBe(true)
+    expect((await PDFDocument.load(cleaned)).catalog.get(PDFName.of('OCProperties'))).toBeUndefined()
+  })
+
+  it('reads membership dictionaries: policies over groups, and visibility expressions', async () => {
+    const { doc, page, layers: { hidden, shown } } = await layeredPdf('')
+    const { context } = doc
+    const memberships: Array<[name: string, membership: PDFDict, visible: boolean]> = [
+      ['AnyOn', context.obj({ Type: 'OCMD', OCGs: [hidden, shown], P: 'AnyOn' }), true],
+      ['AllOn', context.obj({ Type: 'OCMD', OCGs: [hidden, shown], P: 'AllOn' }), false],
+      ['AnyOff', context.obj({ Type: 'OCMD', OCGs: [hidden, shown], P: 'AnyOff' }), true],
+      ['AllOff', context.obj({ Type: 'OCMD', OCGs: [hidden, shown], P: 'AllOff' }), false],
+      ['ShownAndNotHidden', context.obj({ Type: 'OCMD', VE: ['And', shown, ['Not', hidden]] }), true],
+      ['HiddenOrNothing', context.obj({ Type: 'OCMD', VE: ['Or', hidden] }), false],
+    ]
+    const propertyLists = page.node.Resources()?.lookup(PDFName.of('Properties'), PDFDict)
+    memberships.forEach(([name, membership]) => propertyLists?.set(PDFName.of(name), context.register(membership)))
+    const content = memberships.map(([name], line) => `/OC /${name} BDC BT /F1 10 Tf 40 ${500 - line * 20} Td (MEMBER-${name}) Tj ET EMC`)
+    page.node.set(PDFName.of('Contents'), context.register(context.stream(content.join('\n'))))
+    doc.addPage([400, 600])
+
+    const output = await redactPages(await doc.save(), boxOnBlankPage, removeHidden)
+    const [text] = await extractPageTexts(output)
+    expect(memberships.filter(([name]) => text?.includes(`MEMBER-${name}`)).map(([name]) => name)).toEqual(['AnyOn', 'AnyOff', 'ShownAndNotHidden'])
+  })
+})
+

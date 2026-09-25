@@ -115,6 +115,6 @@ export interface RedactionRequest {
 }
 
 export interface RedactOptions {
-  /** Also remove metadata, bookmarks, attachments, comments and scripts, like Acrobat's Remove Hidden Information. */
+  /** Also remove metadata, bookmarks, attachments, comments, hidden layers and scripts, like Acrobat's Remove Hidden Information. */
   readonly removeHiddenInformation: boolean
 }

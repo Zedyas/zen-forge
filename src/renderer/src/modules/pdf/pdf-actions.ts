@@ -150,7 +150,7 @@ async function confirmRedaction(pages: readonly PageItem[]): Promise<RedactOptio
     message: 'Everything under the redaction boxes is permanently removed from the saved file: text, the covered parts of images, and drawings. The rest of each page stays as it is.',
     option: {
       label: 'Also remove hidden information',
-      detail: 'Document title and author, bookmarks, attached files, comments, and scripts.',
+      detail: 'Document title and author, bookmarks, attached files, comments, hidden layers, and scripts.',
       checked: true,
     },
     actions: [{ label: 'Redact and save', value: 'redact', primary: true }],

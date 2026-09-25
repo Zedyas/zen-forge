@@ -1,4 +1,4 @@
-import { decodePDFRawStream, PDFDocument, PDFRawStream } from '@cantoo/pdf-lib'
+import { decodePDFRawStream, PDFDocument, PDFName, PDFRawStream, PDFString, StandardFonts, type PDFPage, type PDFRef } from '@cantoo/pdf-lib'
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs'
 
 interface Resolvers<T> {
@@ -199,4 +199,40 @@ export async function fileContainsText(bytes: Uint8Array, text: string): Promise
     }
     return needles.some(needle => content.includes(needle))
   })
+}
+
+export interface LayeredPdf {
+  readonly doc: PDFDocument
+  readonly page: PDFPage
+  readonly layers: { readonly hidden: PDFRef; readonly shown: PDFRef }
+}
+
+/**
+ * One 400 × 600 page drawn by `content`, with two layers: `hidden` is OFF in the default
+ * configuration and `shown` is ON. Content names them as /hidden and /shown (for `/OC … BDC`),
+ * Helvetica as /F1, and each of `forms` as a form XObject, optionally in a layer through /OC.
+ */
+export async function layeredPdf(
+  content: string,
+  forms: Readonly<Record<string, { readonly content: string; readonly layer?: 'hidden' | 'shown' }>> = {},
+): Promise<LayeredPdf> {
+  const doc = await PDFDocument.create()
+  const { context } = doc
+  const font = await doc.embedFont(StandardFonts.Helvetica)
+  const page = doc.addPage([400, 600])
+  const layers = {
+    hidden: context.register(context.obj({ Type: 'OCG', Name: PDFString.of('Hidden layer') })),
+    shown: context.register(context.obj({ Type: 'OCG', Name: PDFString.of('Shown layer') })),
+  }
+  doc.catalog.set(PDFName.of('OCProperties'), context.obj({ OCGs: [layers.hidden, layers.shown], D: { OFF: [layers.hidden] } }))
+  const xobjects = Object.fromEntries(Object.entries(forms).map(([name, form]) => [name, context.register(context.stream(form.content, {
+    Type: 'XObject',
+    Subtype: 'Form',
+    BBox: [0, 0, 400, 600],
+    Resources: { Font: { F1: font.ref } },
+    ...(form.layer === undefined ? {} : { OC: layers[form.layer] }),
+  }))]))
+  page.node.set(PDFName.of('Resources'), context.obj({ Font: { F1: font.ref }, Properties: layers, XObject: xobjects }))
+  page.node.set(PDFName.of('Contents'), context.register(context.stream(content)))
+  return { doc, page, layers }
 }

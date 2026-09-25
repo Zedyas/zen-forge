@@ -10,6 +10,7 @@ import {
 } from '@cantoo/pdf-lib'
 import { pageGeometry, rectToUserSpace, type Rect } from './geometry'
 import { loadDocument } from './inspect'
+import { removeHiddenLayers } from './layers'
 import { dropUnreachable } from './prune'
 import type { RedactionRequest, RedactOptions } from './types'
 
@@ -169,11 +170,12 @@ function removeTagText(doc: PDFDocument, redactedPages: ReadonlySet<string>): vo
 const functionalAnnotations = new Set(['Link', 'Widget'])
 
 /**
- * Acrobat's "Remove Hidden Information" for the places text can hide outside the pages: document
- * metadata, bookmarks, attached files, comments and mark-ups, and scripts and automatic actions.
- * Links and form fields keep working.
+ * Acrobat's "Remove Hidden Information" for the places text can hide outside what the pages show:
+ * document metadata, bookmarks, attached files, comments and mark-ups, hidden layers, and scripts
+ * and automatic actions. Links and form fields keep working.
  */
 function removeHiddenInformation(doc: PDFDocument): void {
+  removeHiddenLayers(doc)
   const info = doc.context.lookup(doc.context.trailerInfo.Info)
   if (info instanceof PDFDict) {
     for (const key of ['Title', 'Author', 'Subject', 'Keywords', 'Creator']) info.delete(PDFName.of(key))
