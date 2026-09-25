@@ -239,7 +239,7 @@ export function DocInspector({ editor }: { readonly editor: Editor }) {
                 <li key={heading.position} data-level={heading.level}>
                   <button
                     type="button"
-                    className="button is-quiet"
+                    className="button is-quiet inspector-action"
                     onClick={() => editor.chain().focus().setTextSelection(heading.position).scrollIntoView().run()}
                   >
                     {heading.text === '' ? 'Untitled heading' : heading.text}

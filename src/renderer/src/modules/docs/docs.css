@@ -146,28 +146,26 @@
 
 /* ─── Toolbar, menus and inspector ─── */
 
+/* Module rules load before styles.css, so a rule that overrides a shared one needs more specificity. */
 .sumi-keep-focus { display: contents; }
-.sumi-menu-trigger { justify-content: space-between; }
-.sumi-menu-trigger > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.toolbar [aria-label="Paragraph style"], .title-essentials [aria-label="Paragraph style"] { width: 104px; }
-.toolbar [aria-label="Font"] { width: 118px; }
-.toolbar [aria-label="Font size"] { width: 48px; }
-.sumi-menu { min-width: 180px; max-height: 60vh; overflow-y: auto; }
+/* The font and size menus take their widths from .menu-label in styles.css, shared with Slides. */
+.tool.menu-label[aria-label="Paragraph style"] { width: 104px; }
+.sumi-menu { max-height: 60vh; overflow-y: auto; }
 
 .sumi-link-popover form { display: flex; align-items: center; gap: 6px; padding: 8px; }
 .sumi-link-popover .text-field { width: 250px; }
-.sumi-link-popover .button { height: 26px; padding: 0 10px; font-size: 12px; }
+.sumi-link-popover .button { height: var(--control); padding: 0 10px; font-size: 12px; }
 
-.sumi-number { display: inline-flex; align-items: center; gap: 5px; }
-.sumi-number .text-field { width: 58px; height: 24px; text-align: right; }
+.sumi-number { display: inline-flex; align-items: center; gap: var(--gap); }
+.sumi-number .text-field { width: 58px; text-align: right; }
 .sumi-number small { width: 26px; color: var(--dim); font-size: 11.5px; }
-.sumi-check-row { display: flex; align-items: center; gap: 7px; min-height: 26px; color: var(--ink); }
+.sumi-check-row { display: flex; align-items: center; gap: 8px; min-height: var(--control); color: var(--ink); }
 .sumi-check-row input { margin: 0; accent-color: var(--accent); }
 .sumi-inspector-actions { display: flex; gap: 6px; margin: 4px 0 8px; }
-.sumi-inspector-actions .button { height: 26px; padding: 0 10px; font-size: 12px; }
-.sumi-shades { padding: 2px 0 6px; }
+/* Swatches start at the column's edge, like the text above them. */
+.swatch-grid.sumi-shades { padding: 2px 0 6px; }
 
-.sumi-outline .button { justify-content: flex-start; width: 100%; height: 26px; padding: 0 6px; overflow: hidden; color: var(--ink); text-overflow: ellipsis; white-space: nowrap; }
+.inspector .sumi-outline .button { overflow: hidden; color: var(--ink); text-overflow: ellipsis; white-space: nowrap; }
 .sumi-outline li[data-level="0"] .button { font-weight: 600; }
 .sumi-outline li[data-level="2"] { padding-left: 12px; }
 .sumi-outline li[data-level="3"] { padding-left: 24px; }

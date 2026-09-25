@@ -127,10 +127,10 @@ function NewTabMenu() {
               <AppIcon application="sheets" size={icon.size} /><span>New spreadsheet</span><kbd>{commandShortcut('file.new')}</kbd>
             </Menu.Item>
             <Menu.Item className="menu-item" onClick={() => runCommand('file.newDocument')}>
-              <AppIcon application="docs" size={20} /><span>New document</span>
+              <AppIcon application="docs" size={icon.size} /><span>New document</span>
             </Menu.Item>
             <Menu.Item className="menu-item" onClick={() => runCommand('file.newPresentation')}>
-              <AppIcon application="slides" size={20} /><span>New presentation</span>
+              <AppIcon application="slides" size={icon.size} /><span>New presentation</span>
             </Menu.Item>
             <Menu.Item className="menu-item" onClick={() => runCommand('file.open')}>
               <FolderOpen {...icon} /><span>Open…</span><kbd>{commandShortcut('file.open')}</kbd>

@@ -1,5 +1,7 @@
 import {
+  BetweenHorizontalEnd,
   BetweenHorizontalStart,
+  BetweenVerticalEnd,
   BetweenVerticalStart,
   BringToFront,
   Copy,
@@ -19,6 +21,7 @@ import { useState } from 'react'
 import { toast } from 'sonner'
 import type { OpenDocument } from '../../app/documents-store'
 import { platformClient } from '../../services/platform/client'
+import { smallIcon } from '../../ui/icons'
 import { Inspector, InspectorRow, InspectorSection } from '../../ui/Inspector'
 import { Tip } from '../../ui/Tip'
 import { ToolButton } from '../../ui/Toolbar'
@@ -133,11 +136,11 @@ function Stepper({ label, value, step, minimum, onChange }: { readonly label: st
   return (
     <span className="slides-stepper">
       <Tip label={`Less ${label.toLowerCase()}`}>
-        <button type="button" className="tool" aria-label={`Less ${label.toLowerCase()}`} onClick={() => onChange(Math.max(minimum, value - step))}><Minus aria-hidden="true" size={13} /></button>
+        <button type="button" className="tool" aria-label={`Less ${label.toLowerCase()}`} onClick={() => onChange(Math.max(minimum, value - step))}><Minus {...smallIcon} /></button>
       </Tip>
       <span>{Math.round(value * 10) / 10} pt</span>
       <Tip label={`More ${label.toLowerCase()}`}>
-        <button type="button" className="tool" aria-label={`More ${label.toLowerCase()}`} onClick={() => onChange(value + step)}><Plus aria-hidden="true" size={13} /></button>
+        <button type="button" className="tool" aria-label={`More ${label.toLowerCase()}`} onClick={() => onChange(value + step)}><Plus {...smallIcon} /></button>
       </Tip>
     </span>
   )
@@ -231,10 +234,10 @@ function TextOptions({ documentId, elements }: { readonly documentId: string; re
       </InspectorRow>
       <InspectorRow label="Lists">
         <span className="slides-inline-tools">
-          <ToolButton icon={List} label="Bullets" pressed={listed('bullet')} onClick={() => toggleList(documentId, 'bullet')} />
-          <ToolButton icon={ListOrdered} label="Numbering" pressed={listed('number')} onClick={() => toggleList(documentId, 'number')} />
-          <ToolButton icon={IndentDecrease} label="Decrease indent" shortcut="⇧⇥" onClick={() => changeIndent(documentId, -1)} />
-          <ToolButton icon={IndentIncrease} label="Increase indent" shortcut="⇥" onClick={() => changeIndent(documentId, 1)} />
+          <ToolButton icon={List} label="Bullets" small pressed={listed('bullet')} onClick={() => toggleList(documentId, 'bullet')} />
+          <ToolButton icon={ListOrdered} label="Numbering" small pressed={listed('number')} onClick={() => toggleList(documentId, 'number')} />
+          <ToolButton icon={IndentDecrease} label="Decrease indent" shortcut="⇧⇥" small onClick={() => changeIndent(documentId, -1)} />
+          <ToolButton icon={IndentIncrease} label="Increase indent" shortcut="⇥" small onClick={() => changeIndent(documentId, 1)} />
         </span>
       </InspectorRow>
     </InspectorSection>
@@ -247,12 +250,12 @@ function TableOptions({ documentId, table, cell }: { readonly documentId: string
     <InspectorSection title="Table">
       <p className="inspector-note">{cell === undefined ? 'Click a cell to choose where rows and columns go. Double-click to type.' : `Row ${cell.row + 1}, column ${cell.column + 1}.`}</p>
       <div className="slides-table-actions">
-        <button type="button" className="button is-quiet" onClick={() => editTable(documentId, 'rowAbove')}><BetweenHorizontalStart aria-hidden="true" size={14} />Row above</button>
-        <button type="button" className="button is-quiet" onClick={() => editTable(documentId, 'rowBelow')}><BetweenHorizontalStart aria-hidden="true" size={14} />Row below</button>
-        <button type="button" className="button is-quiet" onClick={() => editTable(documentId, 'columnLeft')}><BetweenVerticalStart aria-hidden="true" size={14} />Column left</button>
-        <button type="button" className="button is-quiet" onClick={() => editTable(documentId, 'columnRight')}><BetweenVerticalStart aria-hidden="true" size={14} />Column right</button>
-        <button type="button" className="button is-quiet" disabled={table.rows.length === 1} onClick={() => editTable(documentId, 'deleteRow')}><Trash2 aria-hidden="true" size={14} />Delete row</button>
-        <button type="button" className="button is-quiet" disabled={table.columns.length === 1} onClick={() => editTable(documentId, 'deleteColumn')}><Trash2 aria-hidden="true" size={14} />Delete column</button>
+        <button type="button" className="button is-quiet inspector-action" onClick={() => editTable(documentId, 'rowAbove')}><BetweenHorizontalStart {...smallIcon} />Row above</button>
+        <button type="button" className="button is-quiet inspector-action" onClick={() => editTable(documentId, 'rowBelow')}><BetweenHorizontalEnd {...smallIcon} />Row below</button>
+        <button type="button" className="button is-quiet inspector-action" onClick={() => editTable(documentId, 'columnLeft')}><BetweenVerticalStart {...smallIcon} />Column left</button>
+        <button type="button" className="button is-quiet inspector-action" onClick={() => editTable(documentId, 'columnRight')}><BetweenVerticalEnd {...smallIcon} />Column right</button>
+        <button type="button" className="button is-quiet inspector-action" disabled={table.rows.length === 1} onClick={() => editTable(documentId, 'deleteRow')}><Trash2 {...smallIcon} />Delete row</button>
+        <button type="button" className="button is-quiet inspector-action" disabled={table.columns.length === 1} onClick={() => editTable(documentId, 'deleteColumn')}><Trash2 {...smallIcon} />Delete column</button>
       </div>
       <label className="slides-check-row">
         <input type="checkbox" checked={hasHeaderRow(table)} onChange={event => setHeaderRow(documentId, event.currentTarget.checked)} />
@@ -277,14 +280,14 @@ function Arrange({ documentId, count }: { readonly documentId: string; readonly 
     <InspectorSection title="Arrange">
       <div className="slides-align-row" role="group" aria-label={count > 1 ? 'Align objects' : 'Align to slide'}>
         {objectAlignments.map(({ edge, label, icon }) => (
-          <ToolButton key={edge} icon={icon} label={count > 1 ? label : `${label} to the slide`} onClick={() => alignSelection(documentId, edge)} />
+          <ToolButton key={edge} icon={icon} label={count > 1 ? label : `${label} to the slide`} small onClick={() => alignSelection(documentId, edge)} />
         ))}
       </div>
       <div className="slides-actions">
-        <button type="button" className="button is-quiet" onClick={() => arrangeSelection(documentId, 'front')}><BringToFront aria-hidden="true" size={14} />Bring to front</button>
-        <button type="button" className="button is-quiet" onClick={() => arrangeSelection(documentId, 'back')}><SendToBack aria-hidden="true" size={14} />Send to back</button>
-        <button type="button" className="button is-quiet" onClick={() => duplicateSelection(documentId)}><Copy aria-hidden="true" size={14} />Duplicate<kbd>⌘D</kbd></button>
-        <button type="button" className="button is-quiet" onClick={() => removeSelection(documentId)}><Trash2 aria-hidden="true" size={14} />Delete<kbd>⌫</kbd></button>
+        <button type="button" className="button is-quiet inspector-action" onClick={() => arrangeSelection(documentId, 'front')}><BringToFront {...smallIcon} />Bring to front</button>
+        <button type="button" className="button is-quiet inspector-action" onClick={() => arrangeSelection(documentId, 'back')}><SendToBack {...smallIcon} />Send to back</button>
+        <button type="button" className="button is-quiet inspector-action" onClick={() => duplicateSelection(documentId)}><Copy {...smallIcon} />Duplicate<kbd>⌘D</kbd></button>
+        <button type="button" className="button is-quiet inspector-action" onClick={() => removeSelection(documentId)}><Trash2 {...smallIcon} />Delete<kbd>⌫</kbd></button>
       </div>
     </InspectorSection>
   )
@@ -308,16 +311,16 @@ function SlideOptions({ documentId, document }: { readonly documentId: string; r
       <InspectorSection title={`Slide ${index + 1}`}>
         <Swatches label="Background" options={backgroundColors} current={backgroundImage === undefined ? background : undefined} onChoose={value => { if (value !== undefined) setBackground(documentId, { background: value, backgroundImage: undefined }) }} />
         <div className="slides-actions">
-          <button type="button" className="button is-quiet" onClick={() => void chooseBackgroundPicture(documentId).catch(reportFailure('Could not use the picture'))}>
-            <ImageUp aria-hidden="true" size={14} />{backgroundImage === undefined ? 'Background picture…' : 'Change background picture…'}
+          <button type="button" className="button is-quiet inspector-action" onClick={() => void chooseBackgroundPicture(documentId).catch(reportFailure('Could not use the picture'))}>
+            <ImageUp {...smallIcon} />{backgroundImage === undefined ? 'Background picture…' : 'Change background picture…'}
           </button>
           {backgroundImage !== undefined && (
-            <button type="button" className="button is-quiet" onClick={() => setBackground(documentId, { background, backgroundImage: undefined })}>
-              <ImageMinus aria-hidden="true" size={14} />Remove background picture
+            <button type="button" className="button is-quiet inspector-action" onClick={() => setBackground(documentId, { background, backgroundImage: undefined })}>
+              <ImageMinus {...smallIcon} />Remove background picture
             </button>
           )}
-          <button type="button" className="button is-quiet" onClick={() => setBackground(documentId, { background, backgroundImage }, true)}>
-            <Copy aria-hidden="true" size={14} />Use on every slide
+          <button type="button" className="button is-quiet inspector-action" onClick={() => setBackground(documentId, { background, backgroundImage }, true)}>
+            <Copy {...smallIcon} />Use on every slide
           </button>
         </div>
       </InspectorSection>
@@ -376,10 +379,10 @@ export function SlidesInspector({ documentId, document, openDocument }: {
         <InspectorRow label="Size"><span>{ratio(width, height)}, {points(width)} × {points(height)}</span></InspectorRow>
         <InspectorRow label="File"><span className="slides-file-name">{openDocument.name}.{openDocument.extension}</span></InspectorRow>
         {openDocument.path !== undefined && (
-          <button type="button" className="button is-quiet slides-inspector-action" onClick={() => {
+          <button type="button" className="button is-quiet inspector-action slides-inspector-action" onClick={() => {
             if (openDocument.path !== undefined) void platformClient.revealInFinder(openDocument.path)
           }}>
-            <FolderSearch aria-hidden="true" size={14} />Show in Finder
+            <FolderSearch {...smallIcon} />Show in Finder
           </button>
         )}
       </InspectorSection>

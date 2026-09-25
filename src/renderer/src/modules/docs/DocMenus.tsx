@@ -21,6 +21,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { icon, smallIcon, tinyIcon } from '../../ui/icons'
 import { Tip } from '../../ui/Tip'
 import { ToolButton } from '../../ui/Toolbar'
 import { applyLink, openLink, removeLink, setBlockStyle, setParagraphFormat } from './doc-commands'
@@ -37,9 +38,9 @@ function ToolMenu({ label, trigger, wide, disabled, children }: {
   return (
     <Menu.Root>
       <Tip label={label}>
-        <Menu.Trigger className={`tool${wide === true ? ' is-label sumi-menu-trigger' : ''}`} aria-label={label} disabled={disabled}>
+        <Menu.Trigger className={`tool${wide === true ? ' is-label menu-label' : ''}`} aria-label={label} disabled={disabled}>
           {trigger}
-          <ChevronDown aria-hidden="true" size={11} strokeWidth={2.2} />
+          <ChevronDown {...tinyIcon} />
         </Menu.Trigger>
       </Tip>
       <Menu.Portal>
@@ -61,7 +62,7 @@ function Item({ active, onClick, children, style }: {
   return (
     <Menu.Item className="menu-item" data-active={active === true ? '' : undefined} onClick={onClick}>
       <span style={style}>{children}</span>
-      {active === true && <Check aria-hidden="true" size={14} />}
+      {active === true && <Check {...smallIcon} />}
     </Menu.Item>
   )
 }
@@ -144,10 +145,10 @@ export function MoreFormattingMenu({ editor, state }: { readonly editor: Editor;
     [Code, 'Code', '⌘E', state.code, () => editor.chain().focus().toggleCode().run()],
   ]
   return (
-    <ToolMenu label="More text formatting" trigger={<Ellipsis aria-hidden="true" size={16} strokeWidth={1.7} />}>
+    <ToolMenu label="More text formatting" trigger={<Ellipsis {...icon} />}>
       {items.map(([Icon, label, shortcut, active, action]) => (
         <Menu.Item key={label} className="menu-item" data-active={active ? '' : undefined} onClick={action}>
-          <Icon aria-hidden="true" size={16} strokeWidth={1.7} />
+          <Icon {...icon} />
           <span>{label}</span>
           <kbd>{shortcut}</kbd>
         </Menu.Item>
@@ -168,7 +169,7 @@ export type AlignValue = (typeof alignments)[number]['value']
 export function AlignMenu({ editor, current }: { readonly editor: Editor; readonly current: AlignValue }) {
   const Icon = alignments.find(alignment => alignment.value === current)?.icon ?? AlignLeft
   return (
-    <ToolMenu label="Alignment" trigger={<Icon aria-hidden="true" size={16} strokeWidth={1.7} />}>
+    <ToolMenu label="Alignment" trigger={<Icon {...icon} />}>
       {alignments.map(alignment => (
         <Menu.Item
           key={alignment.value}
@@ -176,7 +177,7 @@ export function AlignMenu({ editor, current }: { readonly editor: Editor; readon
           data-active={alignment.value === current ? '' : undefined}
           onClick={() => editor.chain().focus().setTextAlign(alignment.value).run()}
         >
-          <alignment.icon aria-hidden="true" size={16} strokeWidth={1.7} />
+          <alignment.icon {...icon} />
           <span>{alignment.label}</span>
           <kbd>{alignment.shortcut}</kbd>
         </Menu.Item>
@@ -187,7 +188,7 @@ export function AlignMenu({ editor, current }: { readonly editor: Editor; readon
 
 export function SpacingMenu({ editor, current, styleLine }: { readonly editor: Editor; readonly current: number; readonly styleLine: number }) {
   return (
-    <ToolMenu label="Line spacing" trigger={<UnfoldVertical aria-hidden="true" size={16} strokeWidth={1.7} />}>
+    <ToolMenu label="Line spacing" trigger={<UnfoldVertical {...icon} />}>
       {[...new Set([...lineSpacings, styleLine])].sort((a, b) => a - b).map(spacing => (
         <Item key={spacing} active={spacing === current} onClick={() => setParagraphFormat(editor, { lineHeight: spacing === styleLine ? null : spacing })}>
           {spacing === 1 ? 'Single' : spacing === 2 ? 'Double' : String(spacing)}
@@ -220,7 +221,7 @@ export function TableMenu({ editor, inTable }: { readonly editor: Editor; readon
     [['Delete table', () => chain().deleteTable().run(), true]],
   ]
   return (
-    <ToolMenu label={inTable ? 'Rows and columns' : 'Rows and columns: place the cursor in a table'} disabled={!inTable} trigger={<Rows3 aria-hidden="true" size={16} strokeWidth={1.7} />}>
+    <ToolMenu label={inTable ? 'Rows and columns' : 'Rows and columns: place the cursor in a table'} disabled={!inTable} trigger={<Rows3 {...icon} />}>
       {groups.map((group, index) => (
         <div key={group[0]?.[0]}>
           {index > 0 && <Menu.Separator className="menu-separator" />}
@@ -263,7 +264,7 @@ export function LinkTool({ editor, active }: { readonly editor: Editor; readonly
     >
       <Tip label={active ? 'Edit link' : 'Link'}>
         <Popover.Trigger className="tool" aria-label="Link" aria-pressed={active}>
-          <Link2 aria-hidden="true" size={16} strokeWidth={1.7} />
+          <Link2 {...icon} />
         </Popover.Trigger>
       </Tip>
       <Popover.Portal>

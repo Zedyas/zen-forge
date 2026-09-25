@@ -7,7 +7,7 @@
 /** Bars (title bar, toolbar, find bar), menus and Home. */
 export const icon = { size: 16, strokeWidth: 1.7, 'aria-hidden': true } as const
 
-/** The status bar, inspector, panels, popovers and toasts. */
+/** The status bar, inspector, panels, popovers and toasts, and the check mark in menus. */
 export const smallIcon = { size: 14, strokeWidth: 2, 'aria-hidden': true } as const
 
 /** Close marks on tabs and the carets on menu buttons. */

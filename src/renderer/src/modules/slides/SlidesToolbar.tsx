@@ -42,6 +42,7 @@ import {
 import { useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import type { CommandId } from '@shared/commands'
+import { icon, tinyIcon } from '../../ui/icons'
 import { commandShortcut, Tip } from '../../ui/Tip'
 import { ColorTool, Toolbar, ToolButton, ToolSeparator } from '../../ui/Toolbar'
 import { TitleEssentials } from '../../ui/TitleSlot'
@@ -109,10 +110,10 @@ function MenuTool({ icon: Icon, label, text, shortcut, disabled, children }: {
   return (
     <Menu.Root>
       <Tip label={label} shortcut={shortcut}>
-        <Menu.Trigger className={`tool${text === undefined ? '' : ' is-label slides-menu-label'}`} aria-label={label} disabled={disabled}>
-          {Icon !== undefined && <Icon aria-hidden="true" size={16} strokeWidth={1.7} />}
+        <Menu.Trigger className={`tool${text === undefined ? '' : ' is-label menu-label'}`} aria-label={label} disabled={disabled}>
+          {Icon !== undefined && <Icon {...icon} />}
           {text !== undefined && <span>{text}</span>}
-          <ChevronDown aria-hidden="true" size={11} strokeWidth={2.2} />
+          <ChevronDown {...tinyIcon} />
         </Menu.Trigger>
       </Tip>
       <Menu.Portal>
@@ -139,7 +140,7 @@ function ShapeMenu({ documentId, document }: ToolProps) {
     <MenuTool icon={Shapes} label="Shape">
       {shapes.map(({ shape, label, icon: Icon }) => (
         <Menu.Item key={shape} className="menu-item" onClick={() => addElement(documentId, newShape(shape, document.present))}>
-          <Icon aria-hidden="true" size={16} strokeWidth={1.7} /><span>{label}</span>
+          <Icon {...icon} /><span>{label}</span>
         </Menu.Item>
       ))}
     </MenuTool>
@@ -156,8 +157,8 @@ function TableTool({ documentId }: { readonly documentId: string }) {
     <Popover.Root>
       <Tip label="Table">
         <Popover.Trigger className="tool" aria-label="Table">
-          <Table aria-hidden="true" size={16} strokeWidth={1.7} />
-          <ChevronDown aria-hidden="true" size={11} strokeWidth={2.2} />
+          <Table {...icon} />
+          <ChevronDown {...tinyIcon} />
         </Popover.Trigger>
       </Tip>
       <Popover.Portal>
@@ -190,12 +191,12 @@ function TableTool({ documentId }: { readonly documentId: string }) {
 function ArrangeMenu({ documentId, disabled }: { readonly documentId: string; readonly disabled: boolean }) {
   return (
     <MenuTool icon={Layers} label="Arrange and align" disabled={disabled}>
-      <Menu.Item className="menu-item" onClick={() => arrangeSelection(documentId, 'front')}><BringToFront aria-hidden="true" size={16} /><span>Bring to Front</span></Menu.Item>
-      <Menu.Item className="menu-item" onClick={() => arrangeSelection(documentId, 'back')}><SendToBack aria-hidden="true" size={16} /><span>Send to Back</span></Menu.Item>
+      <Menu.Item className="menu-item" onClick={() => arrangeSelection(documentId, 'front')}><BringToFront {...icon} /><span>Bring to Front</span></Menu.Item>
+      <Menu.Item className="menu-item" onClick={() => arrangeSelection(documentId, 'back')}><SendToBack {...icon} /><span>Send to Back</span></Menu.Item>
       <Menu.Separator className="menu-separator" />
       {objectAlignments.map(({ edge, label, icon: Icon }) => (
         <Menu.Item key={edge} className="menu-item" onClick={() => alignSelection(documentId, edge)}>
-          <Icon aria-hidden="true" size={16} /><span>{label}</span>
+          <Icon {...icon} /><span>{label}</span>
         </Menu.Item>
       ))}
     </MenuTool>

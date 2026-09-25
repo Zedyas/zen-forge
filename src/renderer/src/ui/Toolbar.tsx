@@ -2,7 +2,7 @@ import { Popover } from '@base-ui/react/popover'
 import { ChevronDown, type LucideIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
 import type { CommandId } from '@shared/commands'
-import { icon, tinyIcon } from './icons'
+import { icon, smallIcon, tinyIcon } from './icons'
 import { commandShortcut, Tip } from './Tip'
 
 interface ToolButtonProps {
@@ -16,10 +16,12 @@ interface ToolButtonProps {
   readonly shortcut?: string
   readonly pressed?: boolean
   readonly disabled?: boolean
+  /** Uses the small icon, for rows of tools in the inspector. */
+  readonly small?: boolean
   onClick(): void
 }
 
-export function ToolButton({ icon: Icon, label, text, command, shortcut, pressed, disabled, onClick }: ToolButtonProps) {
+export function ToolButton({ icon: Icon, label, text, command, shortcut, pressed, disabled, small, onClick }: ToolButtonProps) {
   return (
     <Tip label={label} shortcut={shortcut ?? commandShortcut(command)}>
       <button
@@ -30,7 +32,7 @@ export function ToolButton({ icon: Icon, label, text, command, shortcut, pressed
         disabled={disabled}
         onClick={onClick}
       >
-        {Icon !== undefined && <Icon {...icon} />}
+        {Icon !== undefined && <Icon {...(small === true ? smallIcon : icon)} />}
         {text}
       </button>
     </Tip>

@@ -1,4 +1,5 @@
-/* Slides layout. Colours, radii and shadows come from the shared tokens in styles.css. */
+/* Slides layout. Colours, radii, shadows and sizes come from the shared tokens in styles.css. Module
+   rules load before styles.css, so a rule that overrides a shared one needs more specificity. */
 
 
 /* ─── The static slide (SlideView) ───
@@ -113,9 +114,8 @@
 
 /* ─── Toolbar ─── */
 
-.tool.slides-menu-label { min-width: 44px; max-width: 132px; justify-content: space-between; }
-.tool.slides-menu-label span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.slides-menu { min-width: 200px; max-height: 420px; overflow-y: auto; }
+/* The font and size menus are .menu-label buttons (styles.css), the same as Sumi's. */
+.slides-menu { max-height: 60vh; overflow-y: auto; }
 .slides-table-picker { display: grid; gap: 3px; padding: 8px 10px 10px; }
 .slides-table-cell { width: 16px; height: 16px; padding: 0; border: 1px solid var(--line); border-radius: 2px; background: var(--surface); }
 .slides-table-cell.is-chosen { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 30%, var(--surface)); }
@@ -123,35 +123,36 @@
 /* ─── Inspector ─── */
 
 .slides-number-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; }
-.slides-number { display: flex; align-items: center; gap: 5px; color: var(--dim); }
-.slides-number > span { flex: none; }
+.slides-number { display: flex; align-items: center; gap: var(--gap); color: var(--dim); }
+/* Wide enough for X, Y, W and H alike, so the fields in each column start together. */
+.slides-number > span { flex: none; min-width: 12px; }
 .slides-number input { width: 100%; min-width: 0; text-align: right; }
 .slides-number small { color: var(--faint); font-size: 11px; }
 .slides-field { display: flex; flex-direction: column; gap: 6px; padding: 4px 0 6px; color: var(--dim); }
-.slides-swatches { display: grid; grid-template-columns: repeat(8, 18px); gap: 6px; }
-.slides-swatches .swatch { width: 18px; height: 18px; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 22%, transparent); }
+.slides-swatches { display: grid; grid-template-columns: repeat(8, 20px); gap: 6px; }
+.slides-swatches .swatch { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 22%, transparent); }
 .slides-swatches .swatch[aria-pressed="true"] { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 22%, transparent), 0 0 0 2px var(--chrome), 0 0 0 3.5px var(--accent); }
 .slides-stepper { display: inline-flex; align-items: center; gap: 2px; }
-.slides-stepper span { min-width: 44px; text-align: center; }
+.slides-stepper span { min-width: 42px; text-align: center; }
 .slides-inline-tools { display: inline-flex; gap: 1px; }
-.slides-align-row { display: flex; gap: 1px; margin-bottom: 6px; }
+/* Reaches 6px left, like the quiet actions under it, so the first icon lines up with the text above. */
+.slides-align-row { display: flex; gap: 1px; margin: 0 0 6px -6px; }
 .slides-actions { display: flex; flex-direction: column; gap: 2px; }
-.slides-actions .button { justify-content: flex-start; padding: 0 6px; }
 .slides-actions kbd { margin-left: auto; }
 .slides-table-actions { display: grid; grid-template-columns: 1fr; gap: 2px; margin: 8px 0 4px; }
-.slides-table-actions .button { justify-content: flex-start; height: 28px; padding: 0 6px; font-size: 12px; }
-.slides-check-row { display: flex; align-items: center; gap: 8px; min-height: 28px; }
+.slides-check-row { display: flex; align-items: center; gap: 8px; min-height: var(--control); }
 .slides-check-row input { margin: 0; accent-color: var(--accent); }
 .slides-themes { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
 .slides-theme {
   position: relative; height: 34px; padding: 0 0 6px;
-  border: 0; border-radius: 6px;
+  border: 0; border-radius: var(--radius);
   box-shadow: inset 0 0 0 1px rgb(0 0 0 / 14%);
   font-size: 13px; font-weight: 600;
 }
-.slides-theme[aria-pressed="true"] { box-shadow: inset 0 0 0 1px rgb(0 0 0 / 14%), 0 0 0 2px var(--surface), 0 0 0 3.5px var(--accent); }
+/* The ring's gap is the inspector's colour, as on the swatches. */
+.slides-theme[aria-pressed="true"] { box-shadow: inset 0 0 0 1px rgb(0 0 0 / 14%), 0 0 0 2px var(--chrome), 0 0 0 3.5px var(--accent); }
 .slides-theme i { position: absolute; left: 6px; right: 6px; bottom: 5px; height: 3px; border-radius: 2px; }
-.button.slides-inspector-action { width: 100%; justify-content: flex-start; margin-top: 4px; padding: 0 6px; }
+.inspector .slides-inspector-action { margin-top: 4px; }
 .slides-file-name { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ─── Slideshow ─── */
