@@ -149,7 +149,7 @@ select.pdf-field { appearance: auto; }
   transform: translate(-50%, -50%);
   padding: 20px 22px;
   border-radius: 14px;
-  background: var(--surface); box-shadow: var(--shadow-pop);
+  background: var(--glass); backdrop-filter: var(--glass-filter); box-shadow: var(--shadow-pop);
   outline: none;
 }
 .pdf-dialog h2 { margin: 0 0 6px; font-size: 15px; font-weight: 600; }

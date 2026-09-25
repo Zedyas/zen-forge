@@ -43,6 +43,10 @@
   --shadow-float: 0 0 0 0.5px rgb(0 0 0 / 12%), 0 1px 3px rgb(0 0 0 / 6%);
   --shadow-pop: 0 0 0 0.5px rgb(0 0 0 / 14%), 0 12px 32px rgb(0 0 0 / 16%);
   --shadow-page: 0 0 0 0.5px rgb(0 0 0 / 14%), 0 4px 18px rgb(0 0 0 / 12%);
+  /* Floating surfaces (menus, popovers, tooltips, dialogs, toasts) are frosted glass: the surface
+     colour, partly see-through, over a blur of what is behind. */
+  --glass: color-mix(in srgb, var(--surface) 64%, transparent);
+  --glass-filter: blur(24px) saturate(1.8);
 
   /* Application identity: the same four colours as the suite mark's stones and the app icons, in
      both appearances. They are light, so text on them uses --on-accent (dark ink), not white. */
@@ -85,6 +89,7 @@
     --shadow-float: 0 0 0 0.5px rgb(255 255 255 / 9%), 0 1px 3px rgb(0 0 0 / 40%);
     --shadow-pop: 0 0 0 0.5px rgb(255 255 255 / 10%), 0 14px 36px rgb(0 0 0 / 55%);
     --shadow-page: 0 0 0 0.5px rgb(255 255 255 / 6%), 0 6px 22px rgb(0 0 0 / 50%);
+    --glass: color-mix(in srgb, var(--surface) 78%, transparent);
     --on-accent: #15171b;
   }
 }
@@ -201,14 +206,14 @@ kbd { color: var(--faint); font: 500 11px var(--font-ui); letter-spacing: 0.02em
 }
 .swatch[aria-pressed="true"] { box-shadow: inset 0 0 0 1px rgb(0 0 0 / 14%), 0 0 0 2px var(--surface), 0 0 0 3.5px var(--accent); }
 .swatch.is-none { background: linear-gradient(135deg, transparent 45%, var(--bad) 45%, var(--bad) 55%, transparent 55%), var(--surface); }
-.popover { z-index: 50; border-radius: var(--radius-large); background: var(--surface); box-shadow: var(--shadow-pop); outline: none; }
+.popover { z-index: 50; border-radius: var(--radius-large); background: var(--glass); backdrop-filter: var(--glass-filter); box-shadow: var(--shadow-pop); outline: none; }
 .popover-label { padding: 10px 10px 0; color: var(--dim); font-size: 11.5px; font-weight: 600; }
 
 /* Hover labels for icon buttons. One fade on open and close; no motion when reduced motion is set. */
 .tip-positioner { z-index: 60; }
 .tip {
   display: flex; align-items: center; gap: 8px; padding: 4px 8px;
-  border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow-float);
+  border-radius: var(--radius); background: var(--glass); backdrop-filter: var(--glass-filter); box-shadow: var(--shadow-float);
   color: var(--ink); font-size: 12px; white-space: nowrap; pointer-events: none;
   transition: opacity 90ms ease;
 }
@@ -419,7 +424,7 @@ kbd { color: var(--faint); font: 500 11px var(--font-ui); letter-spacing: 0.02em
 
 /* ─── Menus ───────────────────────────────────────────────────────────── */
 
-.menu-popup { min-width: 260px; padding: 5px; border-radius: var(--radius-large); background: var(--surface); box-shadow: var(--shadow-pop); outline: none; }
+.menu-popup { min-width: 260px; padding: 5px; border-radius: var(--radius-large); background: var(--glass); backdrop-filter: var(--glass-filter); box-shadow: var(--shadow-pop); outline: none; }
 .menu-item {
   display: flex; align-items: center; gap: 10px;
   min-height: 32px; padding: 4px 8px;
@@ -436,7 +441,7 @@ kbd { color: var(--faint); font: 500 11px var(--font-ui); letter-spacing: 0.02em
 /* ─── Command palette ─────────────────────────────────────────────────── */
 
 .palette-backdrop { position: fixed; inset: 0; z-index: 40; background: rgb(0 0 0 / 14%); }
-.palette-dialog { position: fixed; top: 16%; left: 50%; z-index: 41; width: min(560px, calc(100vw - 32px)); transform: translateX(-50%); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow-pop); overflow: hidden; outline: none; }
+.palette-dialog { position: fixed; top: 16%; left: 50%; z-index: 41; width: min(560px, calc(100vw - 32px)); transform: translateX(-50%); border-radius: 12px; background: var(--glass); backdrop-filter: var(--glass-filter); box-shadow: var(--shadow-pop); overflow: hidden; outline: none; }
 .command-input-row { display: flex; align-items: center; gap: 10px; height: 46px; padding: 0 14px; border-bottom: 1px solid var(--line); color: var(--dim); }
 .command-input-row input { flex: 1; border: 0; outline: none; background: transparent; color: var(--ink); font-size: 15px; }
 .command-palette [cmdk-list] { max-height: 340px; overflow-y: auto; padding: 6px; }
@@ -455,7 +460,7 @@ kbd { color: var(--faint); font: 500 11px var(--font-ui); letter-spacing: 0.02em
 .fidelity-badge--lossless { background: var(--ok); }
 .fidelity-badge--degraded { background: var(--warn); }
 .fidelity-badge--dropped { background: var(--bad); }
-.fidelity-panel { position: fixed; right: 12px; bottom: 40px; z-index: 20; width: 360px; max-height: 60vh; display: flex; flex-direction: column; border-radius: 12px; background: var(--surface); box-shadow: var(--shadow-pop); }
+.fidelity-panel { position: fixed; right: 12px; bottom: 40px; z-index: 20; width: 360px; max-height: 60vh; display: flex; flex-direction: column; border-radius: 12px; background: var(--glass); backdrop-filter: var(--glass-filter); box-shadow: var(--shadow-pop); }
 .fidelity-panel header { display: flex; align-items: center; justify-content: space-between; padding: 12px 12px 4px 16px; font-weight: 600; }
 .fidelity-panel > p { margin: 0; padding: 0 16px 10px; color: var(--dim); line-height: 1.45; }
 .fidelity-panel ul { margin: 0; padding: 0 8px 10px; overflow-y: auto; list-style: none; }
@@ -468,7 +473,7 @@ kbd { color: var(--faint); font: 500 11px var(--font-ui); letter-spacing: 0.02em
 .fidelity-panel li[data-severity="dropped"] em { color: var(--bad); }
 .fidelity-panel li[data-severity="degraded"] em { color: var(--warn); }
 .fidelity-modal-backdrop { position: fixed; inset: 0; z-index: 40; background: rgb(0 0 0 / 22%); }
-.fidelity-modal { position: fixed; top: 50%; left: 50%; z-index: 41; width: min(440px, calc(100vw - 32px)); transform: translate(-50%, -50%); padding: 22px; border-radius: 14px; background: var(--surface); box-shadow: var(--shadow-pop); outline: none; }
+.fidelity-modal { position: fixed; top: 50%; left: 50%; z-index: 41; width: min(440px, calc(100vw - 32px)); transform: translate(-50%, -50%); padding: 22px; border-radius: 14px; background: var(--glass); backdrop-filter: var(--glass-filter); box-shadow: var(--shadow-pop); outline: none; }
 .fidelity-modal h2 { margin: 12px 0 6px; font-size: 16px; }
 .fidelity-modal p { margin: 0 0 8px; color: var(--dim); line-height: 1.5; }
 .fidelity-modal ul { margin: 0 0 16px; padding-left: 18px; line-height: 1.6; }
@@ -477,7 +482,7 @@ kbd { color: var(--faint); font: 500 11px var(--font-ui); letter-spacing: 0.02em
 
 /* ─── Toasts ──────────────────────────────────────────────────────────── */
 
-.app-toast { border-radius: 12px !important; background: var(--surface) !important; color: var(--ink) !important; border: 0 !important; box-shadow: var(--shadow-pop) !important; font-family: var(--font-ui) !important; }
+.app-toast { border-radius: 12px !important; background: var(--glass) !important; backdrop-filter: var(--glass-filter) !important; color: var(--ink) !important; border: 0 !important; box-shadow: var(--shadow-pop) !important; font-family: var(--font-ui) !important; }
 .app-toast-description { color: var(--dim) !important; }
 
 /* ─── Printing ────────────────────────────────────────────────────────── */
@@ -491,4 +496,9 @@ kbd { color: var(--faint); font: 500 11px var(--font-ui); letter-spacing: 0.02em
   html, body { height: auto; overflow: visible; background: #fff; }
   body > :not(.print-root) { display: none !important; }
   .print-root { color: #000; print-color-adjust: exact; }
+}
+
+/* macOS System Settings › Accessibility › Display › Reduce transparency: floating surfaces go solid. */
+@media (prefers-reduced-transparency: reduce) {
+  :root { --glass: var(--surface); --glass-filter: none; }
 }
