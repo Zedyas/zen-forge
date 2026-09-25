@@ -468,3 +468,16 @@ kbd { color: var(--faint); font: 500 11px var(--font-ui); letter-spacing: 0.02em
 
 .app-toast { border-radius: 12px !important; background: var(--surface) !important; color: var(--ink) !important; border: 0 !important; box-shadow: var(--shadow-pop) !important; font-family: var(--font-ui) !important; }
 .app-toast-description { color: var(--dim) !important; }
+
+/* ─── Printing ────────────────────────────────────────────────────────── */
+/* services/print mounts a printout here only while a job runs. Printing shows it and nothing else. */
+
+@media screen {
+  .print-root { display: none; }
+}
+
+@media print {
+  html, body { height: auto; overflow: visible; background: #fff; }
+  body > :not(.print-root) { display: none !important; }
+  .print-root { color: #000; print-color-adjust: exact; }
+}

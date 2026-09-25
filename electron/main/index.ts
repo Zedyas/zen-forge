@@ -5,6 +5,7 @@ import { commandApplies, commandDefinitions, type CommandDefinition, type MenuId
 import type { Appearance, FileReference, ViewState, WindowSession, WindowState } from '../../src/shared/shell'
 import { registerFileIpc } from './file-ipc'
 import { NodeFileService } from './node-file-service'
+import { registerPrintIpc } from './print-ipc'
 import { applySecurity, appPageUrl, handle, registerAppScheme } from './security'
 import { applyStoredAppearance, getAppearance, readSession, readSettings, setAppearance, setCheckForUpdates, writeSession } from './settings'
 import { currentUpdateStatus, registerUpdates, scheduleUpdateCheck } from './updates'
@@ -333,6 +334,7 @@ app.whenReady().then(() => {
   applyStoredAppearance()
   registerFileIpc()
   registerUpdates(broadcast)
+  registerPrintIpc()
   const sessions = readSession()
   if (sessions.length === 0) createWindow()
   else sessions.forEach(session => createWindow(session))

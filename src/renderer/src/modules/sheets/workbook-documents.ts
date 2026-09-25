@@ -2,14 +2,17 @@ import { useEffect, useSyncExternalStore } from 'react'
 import { toast } from 'sonner'
 import { isWritableExtension } from '@shared/applications'
 import { createImportReport } from '@shared/fidelity'
+import { openFiles } from '../../app/document-actions'
 import { useDocumentsStore, type OpenDocument } from '../../app/documents-store'
 import { fileService } from '../../services/file/IpcFileService'
 import { useFidelityStore } from '../../services/fidelity/fidelity-store'
 import { recordPreview, recordRecent } from '../../services/index/document-index'
+import { openPrintDialog, printToPdf } from '../../services/print/print'
 import { readCsv, readXlsx, writeCsv, writeXlsx } from './io'
 import { formatCellValue } from './model/format'
 import { Workbook } from './model/Workbook'
 import { renderPreview } from './preview'
+import { sheetPrintout, sheetPrintTable, type SheetPrintTable } from './print'
 
 export type WorkbookEntry =
   | { readonly status: 'loading' }
@@ -169,4 +172,35 @@ export async function exportSheetCsv(documentId: string, sheetId: number, sheetN
   if (path === undefined) return
   await fileService.write(path, writeCsv(displayRows(workbook, sheetId)))
   toast.success(`Exported ${path.split('/').pop() ?? 'CSV'}`)
+}
+
+/** The sheet's printable table; says so and resolves undefined when there is nothing to print. */
+function printableTable(workbook: Workbook, sheetId: number): SheetPrintTable | undefined {
+  const table = sheetPrintTable(workbook, sheetId)
+  if (table === undefined) toast.info('Nothing to print', { description: 'The visible cells of this sheet are empty.' })
+  return table
+}
+
+/** Opens the print dialog for one sheet. */
+export async function printSheet(workbook: Workbook, sheetId: number): Promise<void> {
+  const table = printableTable(workbook, sheetId)
+  if (table !== undefined) await openPrintDialog(paper => sheetPrintout(table, paper))
+}
+
+/** Writes one sheet, as it prints, to a PDF chosen by the user, and offers to open it in Hanko. */
+export async function exportSheetPdf(documentId: string, sheetId: number): Promise<void> {
+  const document = useDocumentsStore.getState().documents.find(candidate => candidate.id === documentId)
+  const workbook = workbookFor(documentId)
+  const table = workbook === undefined ? undefined : printableTable(workbook, sheetId)
+  if (document === undefined || table === undefined) return
+  const path = await fileService.chooseSavePath({ defaultName: `${document.name}.pdf`, extensions: ['pdf'] })
+  if (path === undefined) return
+  const bytes = await printToPdf(paper => sheetPrintout(table, paper))
+  if (bytes === undefined) return
+  await fileService.write(path, bytes)
+  const file = await fileService.describe(path)
+  toast.success('Exported as PDF', {
+    description: file.name,
+    action: { label: 'Open', onClick: () => void openFiles([file]) },
+  })
 }

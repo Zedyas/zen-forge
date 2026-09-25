@@ -1,4 +1,5 @@
 import type { CommandId } from '@shared/commands'
+import type { Paper } from '@shared/print'
 import type { Appearance, CloseChoice, FileReference, UpdateCheckResult, UpdateStatus, ViewState, WindowSession, WindowState } from '@shared/shell'
 import { getBridge, requireBridge } from '../file/IpcFileService'
 
@@ -24,6 +25,18 @@ export const platformClient = {
 
   async revealInFinder(path: string): Promise<void> {
     await getBridge()?.revealInFinder(path)
+  },
+
+  printPaper(): Promise<Paper> {
+    return requireBridge('Printing').printPaper()
+  },
+
+  print(): Promise<boolean> {
+    return requireBridge('Printing').print()
+  },
+
+  printToPdf(): Promise<Uint8Array> {
+    return requireBridge('Exporting PDF').printToPdf()
   },
 
   async getAppearance(): Promise<Appearance> {

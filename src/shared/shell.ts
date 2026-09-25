@@ -1,5 +1,6 @@
 import type { ApplicationId } from './applications'
 import type { CommandId } from './commands'
+import type { Paper } from './print'
 
 export interface FileReference {
   readonly path: string
@@ -79,6 +80,12 @@ export interface ShellBridge {
   readFile(path: string): Promise<Uint8Array>
   writeFile(path: string, contents: Uint8Array): Promise<void>
   revealInFinder(path: string): Promise<void>
+  /** The paper printouts are laid out for: Letter in the US and a few other regions, A4 elsewhere. */
+  printPaper(): Promise<Paper>
+  /** Prints this window's page through the print dialog. Resolves false when cancelled. */
+  print(): Promise<boolean>
+  /** Prints this window's page to PDF bytes, with the page sizes its CSS sets. */
+  printToPdf(): Promise<Uint8Array>
   pathForDroppedFile(file: File): string
   getAppearance(): Promise<Appearance>
   setAppearance(appearance: Appearance): Promise<void>

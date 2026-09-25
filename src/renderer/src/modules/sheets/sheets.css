@@ -82,3 +82,9 @@
 .inspector-inline-form { display: flex; gap: 6px; margin-bottom: 8px; }
 .inspector-inline-form .text-field { flex: 1; }
 .inspector-inline-form .button { height: 26px; padding: 0 10px; }
+
+/* Printout (print.ts), mounted only while printing. Light grey gridlines, as Google Sheets prints them. */
+.sheet-print table { table-layout: fixed; border-collapse: collapse; font-size: 13px; line-height: 1.3; }
+.sheet-print table + table { break-before: page; }
+.sheet-print tr { break-inside: avoid; }
+.sheet-print td { height: 21px; padding: 0 5px; border: 1px solid #d4d7dc; overflow: hidden; white-space: nowrap; }

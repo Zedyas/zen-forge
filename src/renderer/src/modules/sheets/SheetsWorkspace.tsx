@@ -8,7 +8,7 @@ import { WindowEmpty } from '../../ui/WindowEmpty'
 import { renderPreview } from './preview'
 import { activeSheet, toggleStyle } from './sheet-commands'
 import { SheetEditor } from './SheetEditor'
-import { exportSheetCsv, releaseWorkbook, saveWorkbook, useWorkbookEntry } from './workbook-documents'
+import { exportSheetCsv, exportSheetPdf, printSheet, releaseWorkbook, saveWorkbook, useWorkbookEntry } from './workbook-documents'
 
 /** The native menu owns ⌘Z, so text fields (formula bar, cell editor, find) get their own undo back here. */
 function isEditingText(): boolean {
@@ -40,6 +40,10 @@ function runSheetCommand(command: CommandId): void | Promise<void> {
       return controller.workbook.clearFormatting(controller.sheetId, controller.range)
     case 'file.exportCsv':
       return exportSheetCsv(controller.documentId, controller.sheetId, controller.sheetName)
+    case 'file.exportPdf':
+      return exportSheetPdf(controller.documentId, controller.sheetId)
+    case 'file.print':
+      return printSheet(controller.workbook, controller.sheetId)
   }
 }
 

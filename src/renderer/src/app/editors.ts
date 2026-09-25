@@ -5,7 +5,7 @@ import { sheetsEditor } from '../modules/sheets/SheetsWorkspace'
 
 /** What the shell needs from an editor module, for any of its documents, mounted or not. */
 export interface EditorHandler {
-  /** Runs an editor command (undo, format, page, zoom…) against the active document. */
+  /** Runs an editor command (undo, format, page, zoom, print…) against the active document. */
   run(command: CommandId): void | Promise<void>
   /** Saves a document, asking for a path when it has none or `saveAs` is set. Resolves false when cancelled. */
   save(documentId: string, saveAs: boolean): Promise<boolean>
