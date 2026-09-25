@@ -1,5 +1,6 @@
 import { decodePDFRawStream, PDFDocument, PDFName, PDFRawStream, PDFString, StandardFonts, type PDFPage, type PDFRef } from '@cantoo/pdf-lib'
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs'
+import { shownGeometry, type PageGeometry } from './geometry'
 
 interface Resolvers<T> {
   promise: Promise<T>
@@ -50,6 +51,15 @@ export async function extractPageTexts(bytes: Uint8Array): Promise<string[]> {
       texts.push(content.items.map(item => ('str' in item ? item.str : '')).join(''))
     }
     return texts
+  })
+}
+
+/** Each page as pdf.js shows it, which is the page the editor draws redaction boxes on. */
+export async function shownPages(bytes: Uint8Array): Promise<PageGeometry[]> {
+  return withDocument(bytes, async doc => {
+    const pages: PageGeometry[] = []
+    for (let number = 1; number <= doc.numPages; number += 1) pages.push(shownGeometry(await doc.getPage(number)))
+    return pages
   })
 }
 

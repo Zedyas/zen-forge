@@ -6,6 +6,8 @@ import { extractPageTexts, fileContainsText, layeredPdf } from './test-support'
 
 const keepHidden = { removeHiddenInformation: false }
 const removeHidden = { removeHiddenInformation: true }
+/** How pdf.js shows an unrotated 400 × 600 page. */
+const plainPage = { x: 0, y: 0, width: 400, height: 600, rotation: 0, userUnit: 1 } as const
 
 /** One page with a line to redact and a line to keep; the box is in displayed coordinates, as the UI sends it. */
 async function statement(rotation = 0) {
@@ -15,14 +17,15 @@ async function statement(rotation = 0) {
   page.setRotation(degrees(rotation))
   page.drawText('ACCOUNT 4417-2291', { x: 40, y: 500, size: 14, font })
   page.drawText('KEEP ME', { x: 40, y: 300, size: 14, font })
-  const box = rectToDisplayed(pageGeometry(page), { x: 36, y: 494, width: 170, height: 24 })
-  return { doc, page, box }
+  const shown = pageGeometry(page)
+  const box = rectToDisplayed(shown, { x: 36, y: 494, width: 170, height: 24 })
+  return { doc, page, box, shown }
 }
 
 describe('redactPages', () => {
   it.each([0, 90])('removes only the covered text and keeps the rest of the page as text (rotation %i)', async rotation => {
-    const { doc, box } = await statement(rotation)
-    const output = await redactPages(await doc.save(), [{ index: 0, boxes: [box] }], keepHidden)
+    const { doc, box, shown } = await statement(rotation)
+    const output = await redactPages(await doc.save(), [{ index: 0, shown, boxes: [box] }], keepHidden)
 
     const [text] = await extractPageTexts(output)
     expect(text).toContain('KEEP ME')
@@ -34,8 +37,14 @@ describe('redactPages', () => {
     expect(page?.getRotation().angle).toBe(rotation)
   })
 
+  it('refuses boxes drawn on a page that differs from the page it would redact', async () => {
+    const { doc, box, shown } = await statement(90)
+    const request = { index: 0, shown: { ...shown, rotation: 0 as const }, boxes: [box] }
+    await expect(redactPages(await doc.save(), [request], keepHidden)).rejects.toThrow("Zendo can't redact page 1 safely")
+  })
+
   it('removes a form field under a box, value included, and keeps the fields elsewhere', async () => {
-    const { doc, page, box } = await statement()
+    const { doc, page, box, shown } = await statement()
     const form = doc.getForm()
     const iban = form.createTextField('iban')
     iban.setText('IBANSECRET')
@@ -45,7 +54,7 @@ describe('redactPages', () => {
     name.addToPage(page, { x: 220, y: 296, width: 150, height: 20 })
     const wide = { ...box, width: 360 }
 
-    const output = await redactPages(await doc.save(), [{ index: 0, boxes: [wide] }], keepHidden)
+    const output = await redactPages(await doc.save(), [{ index: 0, shown, boxes: [wide] }], keepHidden)
 
     expect(await fileContainsText(output, 'IBANSECRET')).toBe(false)
     const fields = (await PDFDocument.load(output)).getForm().getFields().map(field => field.getName())
@@ -54,7 +63,7 @@ describe('redactPages', () => {
 
   it('removes copies of the text outside the page content, and hidden information on request', async () => {
     const build = async () => {
-      const { doc, page, box } = await statement()
+      const { doc, page, box, shown } = await statement()
       const { context } = doc
       const secret = (label: string): PDFString => PDFString.of(`SECRET-${label}`)
       // Always removed on a redacted page: a stored thumbnail, application data, tag alt text.
@@ -71,17 +80,17 @@ describe('redactPages', () => {
       doc.catalog.set(PDFName.of('Outlines'), outlines)
       await doc.attach(new TextEncoder().encode('SECRET-ATTACHMENT'), 'notes.txt')
       page.node.addAnnot(context.register(context.obj({ Type: 'Annot', Subtype: 'Text', Rect: [300, 100, 320, 120], Contents: secret('COMMENT') })))
-      return { bytes: await doc.save({ useObjectStreams: false }), box }
+      return { bytes: await doc.save({ useObjectStreams: false }), request: { index: 0, shown, boxes: [box] } }
     }
 
-    const { bytes, box } = await build()
+    const { bytes, request } = await build()
     expect(await fileContainsText(bytes, 'SECRET-ALT')).toBe(true)
 
-    const kept = await redactPages(bytes, [{ index: 0, boxes: [box] }], keepHidden)
+    const kept = await redactPages(bytes, [request], keepHidden)
     for (const label of ['THUMB', 'PIECE', 'ALT']) expect(await fileContainsText(kept, `SECRET-${label}`)).toBe(false)
     expect(await fileContainsText(kept, 'SECRET-TITLE')).toBe(true)
 
-    const cleaned = await redactPages(bytes, [{ index: 0, boxes: [box] }], removeHidden)
+    const cleaned = await redactPages(bytes, [request], removeHidden)
     const left: string[] = []
     for (const label of ['THUMB', 'PIECE', 'ALT', 'TITLE', 'XMP', 'BOOKMARK', 'ATTACHMENT', 'COMMENT']) if (await fileContainsText(cleaned, `SECRET-${label}`)) left.push(label)
     expect(left).toEqual([])
@@ -100,7 +109,7 @@ describe('redactPages', () => {
     const bytes = await doc.save({ useObjectStreams: false })
     expect(await fileContainsText(bytes, 'HIDDEN-MARKED')).toBe(true)
 
-    const output = await redactPages(bytes, [{ index: 0, boxes: [box] }], keepHidden)
+    const output = await redactPages(bytes, [{ index: 0, shown: plainPage, boxes: [box] }], keepHidden)
     expect(await fileContainsText(output, 'HIDDEN-MARKED')).toBe(false)
     expect(await fileContainsText(output, 'HIDDEN-FORM')).toBe(false)
     const [text] = await extractPageTexts(output)
@@ -110,7 +119,7 @@ describe('redactPages', () => {
 
 describe('hidden layers', () => {
   // The box sits on a second, blank page, so the layered page reaches hidden-layer removal as written.
-  const boxOnBlankPage = [{ index: 1, boxes: [{ x: 10, y: 10, width: 20, height: 20 }] }]
+  const boxOnBlankPage = [{ index: 1, shown: plainPage, boxes: [{ x: 10, y: 10, width: 20, height: 20 }] }]
 
   it('removes hidden layers with the hidden information and leaves the rest always visible', async () => {
     // Unfiltered image data holding `EI (`, which a scanner reading it as tokens would take for the image's end and a string.

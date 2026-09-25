@@ -1,7 +1,9 @@
-import { PDFDocument, StandardFonts, degrees } from '@cantoo/pdf-lib'
+import { PDFDocument, PDFName, PDFNumber, StandardFonts, degrees, type PDFPage } from '@cantoo/pdf-lib'
 import { describe, expect, it } from 'vitest'
+import type { Rect } from './geometry'
+import { redactPages } from './redact'
 import { savePdf, extractPages } from './save'
-import { extractPageTexts, extractPlacedText, fileContainsText } from './test-support'
+import { extractPageTexts, extractPlacedText, fileContainsText, shownPages } from './test-support'
 
 async function documentWith(
   labels: readonly string[],
@@ -96,6 +98,67 @@ describe('text edits', () => {
     expect(edge).toBeDefined()
     expect(edge?.x).toBeCloseTo(100, 1)
     expect(edge?.y).toBeCloseTo(50 + ascent, 1)
+  })
+})
+
+describe('saved pages as the editor shows them', () => {
+  /** A 400 × 600 page with SECRET at (40, 500) and KEEP at (40, 300) in user space, in 20pt Courier (12pt per glyph). */
+  async function secretPage(change: (doc: PDFDocument, page: PDFPage) => void): Promise<Uint8Array> {
+    const doc = await PDFDocument.create()
+    const font = await doc.embedFont(StandardFonts.Courier)
+    const page = doc.addPage([400, 600])
+    page.drawText('SECRET', { x: 40, y: 500, size: 20, font })
+    page.drawText('KEEP', { x: 40, y: 300, size: 20, font })
+    change(doc, page)
+    return doc.save()
+  }
+
+  /** What Save does with a redaction box drawn on page 1 as pdf.js showed it: rebuild the pages, then redact. */
+  async function saveRedacted(source: Uint8Array, box: Rect): Promise<string> {
+    const [shown] = await shownPages(source)
+    if (shown === undefined) throw new Error('The source has no page')
+    const saved = await savePdf({ sources: [source], pages: [{ source: 0, index: 0, rotation: 0, edits: [] }] })
+    const output = await redactPages(saved, [{ index: 0, shown, boxes: [box] }], { removeHiddenInformation: false })
+    return (await extractPageTexts(output))[0] ?? ''
+  }
+
+  it('keeps the rotation, page box and resources a page inherits from the page tree', async () => {
+    const source = await secretPage((doc, page) => {
+      const { context } = doc
+      const parent = context.obj({ Type: 'Pages', Parent: doc.catalog.get(PDFName.of('Pages')), Kids: [page.ref], Count: 1, Rotate: 90 })
+      for (const key of ['MediaBox', 'Resources'].map(name => PDFName.of(name))) {
+        const value = page.node.get(key)
+        if (value !== undefined) parent.set(key, value)
+        page.node.delete(key)
+      }
+      const parentRef = context.register(parent)
+      page.node.set(PDFName.of('Parent'), parentRef)
+      doc.catalog.Pages().set(PDFName.of('Kids'), context.obj([parentRef]))
+    })
+    expect((await shownPages(source))[0]?.rotation).toBe(90)
+
+    // Turned a quarter clockwise, user (x, y) shows at (y, x): SECRET runs down from (500, 40).
+    const text = await saveRedacted(source, { x: 490, y: 30, width: 40, height: 90 })
+    expect(text).toContain('KEEP')
+    expect(text).not.toContain('SECRET')
+  })
+
+  it('scales by the page\'s UserUnit, as pdf.js does', async () => {
+    const source = await secretPage((_, page) => page.node.set(PDFName.of('UserUnit'), PDFNumber.of(2)))
+
+    // Shown twice as large: SECRET's baseline starts at (80, 200).
+    const text = await saveRedacted(source, { x: 70, y: 160, width: 170, height: 60 })
+    expect(text).toContain('KEEP')
+    expect(text).not.toContain('SECRET')
+  })
+
+  it('treats a rotation that is not a quarter turn as none, as pdf.js does', async () => {
+    const source = await secretPage((_, page) => page.node.set(PDFName.of('Rotate'), PDFNumber.of(45)))
+    expect((await shownPages(source))[0]?.rotation).toBe(0)
+
+    const text = await saveRedacted(source, { x: 30, y: 75, width: 90, height: 35 })
+    expect(text).toContain('KEEP')
+    expect(text).not.toContain('SECRET')
   })
 })
 

@@ -13,7 +13,7 @@ import {
 /** A crop box that does not start at the origin, so offsets cannot hide behind zeros. */
 const CROP = { x: 20, y: 30, width: 200, height: 400 }
 
-const geometryAt = (rotation: PageGeometry['rotation']): PageGeometry => ({ ...CROP, rotation })
+const geometryAt = (rotation: PageGeometry['rotation']): PageGeometry => ({ ...CROP, rotation, userUnit: 1 })
 
 describe('displayed to user space conversion', () => {
   it('swaps the displayed size on quarter turns', () => {
@@ -66,10 +66,12 @@ describe('displayed to user space conversion', () => {
     expect(rectToUserSpace(geometryAt(270), rect)).toEqual({ x: 160, y: 390, width: 40, height: 30 })
   })
 
-  it('normalizes odd and negative /Rotate values', () => {
+  it('normalizes odd and negative /Rotate values, and ignores ones that are not quarter turns as pdf.js does', () => {
     expect(normalizeRotation(-90)).toBe(270)
     expect(normalizeRotation(450)).toBe(90)
     expect(normalizeRotation(0)).toBe(0)
+    expect(normalizeRotation(45)).toBe(0)
+    expect(normalizeRotation(135)).toBe(0)
   })
 })
 
@@ -80,8 +82,8 @@ describe('pageGeometry', () => {
     page.setCropBox(CROP.x, CROP.y, CROP.width, CROP.height)
     page.setRotation(degrees(90))
 
-    expect(pageGeometry(page)).toEqual({ ...CROP, rotation: 90 })
-    expect(pageGeometry(page, 180)).toEqual({ ...CROP, rotation: 270 })
-    expect(pageGeometry(page, 270)).toEqual({ ...CROP, rotation: 0 })
+    expect(pageGeometry(page)).toEqual({ ...CROP, rotation: 90, userUnit: 1 })
+    expect(pageGeometry(page, 180)).toEqual({ ...CROP, rotation: 270, userUnit: 1 })
+    expect(pageGeometry(page, 270)).toEqual({ ...CROP, rotation: 0, userUnit: 1 })
   })
 })

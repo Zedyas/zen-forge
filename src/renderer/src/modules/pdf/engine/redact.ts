@@ -8,7 +8,7 @@ import {
   type PDFObject,
   type PDFPage,
 } from '@cantoo/pdf-lib'
-import { pageGeometry, rectToUserSpace, type Rect } from './geometry'
+import { pageGeometry, rectToUserSpace, sameGeometry, type Rect } from './geometry'
 import { loadDocument } from './inspect'
 import { removeHiddenLayers } from './layers'
 import { dropUnreachable } from './prune'
@@ -93,10 +93,15 @@ async function markRedactions(bytes: Uint8Array, requests: readonly RedactionReq
   const doc = await loadDocument(bytes)
   const pages = doc.getPages()
   const areas = new Map<PDFPage, readonly Rect[]>()
-  for (const { index, boxes } of requests) {
+  for (const { index, shown, boxes } of requests) {
     const page = pages[index]
     if (page === undefined) throw new Error(`No page at index ${index}`)
     const geometry = pageGeometry(page)
+    // The boxes were drawn on the page as shown. A page that differs in size, turn or scale would
+    // take them somewhere else, and leave uncovered what they were drawn over.
+    if (!sameGeometry(geometry, shown)) {
+      throw new Error(`Zendo can't redact page ${index + 1} safely: the saved page would not match the page shown, so the boxes could miss. Nothing was saved. Redact this PDF in Adobe Acrobat instead.`)
+    }
     areas.set(page, boxes.map(box => rectToUserSpace(geometry, box)))
   }
 

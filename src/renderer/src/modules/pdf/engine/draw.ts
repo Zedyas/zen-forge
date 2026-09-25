@@ -58,7 +58,7 @@ function drawTextEdit(
     page.drawText(line, {
       x: origin.x,
       y: origin.y,
-      size: edit.size,
+      size: edit.size / geometry.userUnit,
       font,
       color,
       rotate: degrees(geometry.rotation),
@@ -79,7 +79,7 @@ function drawInkEdit(
   page.pushOperators(
     pushGraphicsState(),
     setStrokingColor(parseColor(edit.color)),
-    setLineWidth(edit.width),
+    setLineWidth(edit.width / geometry.userUnit),
     setLineCap(LineCapStyle.Round),
     setLineJoin(LineJoinStyle.Round),
     moveTo(start.x, start.y),
@@ -93,7 +93,8 @@ function drawInkEdit(
  * Draws one page's edits. Everything lands in PDF user space, so content on a
  * page the viewer will rotate is turned by the same quarter turn to come out
  * upright: `degrees()` turns counter-clockwise, which cancels the clockwise
- * rotation the viewer applies.
+ * rotation the viewer applies. Sizes are divided by the page's UserUnit, which
+ * the viewer multiplies them by.
  */
 export async function applyEdits(
   doc: PDFDocument,
@@ -114,7 +115,7 @@ export async function applyEdits(
         height: box.height,
         color: edit.fill === undefined ? undefined : parseColor(edit.fill),
         borderColor: edit.stroke === undefined ? undefined : parseColor(edit.stroke),
-        borderWidth: edit.stroke === undefined ? 0 : 1,
+        borderWidth: edit.stroke === undefined ? 0 : 1 / geometry.userUnit,
         opacity: edit.opacity,
         borderOpacity: edit.opacity,
       })
@@ -126,8 +127,8 @@ export async function applyEdits(
       page.drawImage(image, {
         x: anchor.x,
         y: anchor.y,
-        width: edit.width,
-        height: edit.height,
+        width: edit.width / geometry.userUnit,
+        height: edit.height / geometry.userUnit,
         rotate: degrees(geometry.rotation),
       })
     } else {

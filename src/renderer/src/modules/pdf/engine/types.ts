@@ -1,4 +1,5 @@
 import type { ImportFindingInput } from '@shared/fidelity'
+import type { PageGeometry } from './geometry'
 
 /** `#rrggbb` or `#rgb`. */
 export type PdfColor = `#${string}`
@@ -110,6 +111,8 @@ export interface ImageSource {
 
 export interface RedactionRequest {
   readonly index: number
+  /** The page as the editor showed it (from pdf.js) when the boxes were drawn. */
+  readonly shown: PageGeometry
   /** Boxes in displayed page coordinates: points from the top-left of the page as shown. */
   readonly boxes: readonly { readonly x: number; readonly y: number; readonly width: number; readonly height: number }[]
 }

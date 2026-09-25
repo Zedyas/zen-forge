@@ -7,10 +7,10 @@ import { openFiles } from '../../app/document-actions'
 import { useFidelityStore } from '../../services/fidelity/fidelity-store'
 import { recordPreview, recordRecent } from '../../services/index/document-index'
 import { askConfirm } from './ConfirmDialog'
-import { inspectPdf, listFormFields, redactPages, savePdf, type RedactOptions } from './engine'
+import { inspectPdf, listFormFields, redactPages, savePdf, type RedactionRequest, type RedactOptions } from './engine'
 import { openFind } from './find-store'
 import { isRedaction, newId, toPageRef, turnPage, type PageItem, type Size, type Snapshot } from './model'
-import { closePdfJs, openPdfJs, renderPage } from './pdfjs'
+import { closePdfJs, openPdfJs, renderPage, shownPage } from './pdfjs'
 import { printPdfDocument } from './print'
 import {
   commitPdf,
@@ -131,10 +131,12 @@ async function buildOutput(document: ReadyPdf, pages: readonly PageItem[], redac
     formValues: snapshot.formValues,
     flattenForm: snapshot.flattenForm,
   })
-  const requests = pages.flatMap((item, index) => {
+  const requests: RedactionRequest[] = []
+  for (const [index, item] of pages.entries()) {
     const boxes = item.markups.flatMap(placed => isRedaction(placed.markup) ? [placed.markup] : [])
-    return boxes.length === 0 ? [] : [{ index, boxes }]
-  })
+    // Redaction checks the saved page against the page shown, so the boxes land where they were drawn.
+    if (boxes.length > 0) requests.push({ index, shown: await shownPage(document.sources[item.source], item.index, item.rotation), boxes })
+  }
   if (requests.length === 0) return saved
   return redactPages(saved, requests, redaction)
 }

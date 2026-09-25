@@ -1,5 +1,6 @@
 import { AnnotationMode, getDocument, GlobalWorkerOptions, type PDFDocumentLoadingTask, type PDFDocumentProxy, type RenderTask } from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
+import { shownGeometry, type PageGeometry, type PageRotation } from './engine'
 
 GlobalWorkerOptions.workerSrc = workerUrl
 
@@ -21,6 +22,11 @@ export async function closePdfJs(bytes: Uint8Array): Promise<void> {
   const task = tasks.get(bytes)
   tasks.delete(bytes)
   await task?.destroy()
+}
+
+/** A page as pdf.js shows it, turned a further `extraRotation`: what boxes drawn on it are relative to. */
+export async function shownPage(bytes: Uint8Array, index: number, extraRotation: PageRotation): Promise<PageGeometry> {
+  return shownGeometry(await (await openPdfJs(bytes)).getPage(index + 1), extraRotation)
 }
 
 export interface RenderOptions {

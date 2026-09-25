@@ -1,4 +1,4 @@
-import { degrees, PDFDocument, type PDFPage } from '@cantoo/pdf-lib'
+import { degrees, PDFDocument, PDFName, PDFPageLeaf, type PDFPage } from '@cantoo/pdf-lib'
 import { applyEdits, textFontProvider } from './draw'
 import { applyFormValues } from './forms'
 import { pageGeometry } from './geometry'
@@ -71,6 +71,18 @@ export async function savePdf(input: SavePdfInput): Promise<Uint8Array> {
   const originals = doc.getPages()
   const resolved = await resolvePages(doc, sources, pages)
   const kept = new Set(resolved)
+
+  // A page can inherit its rotation, page boxes and resources from its parents in the page tree.
+  // It is about to leave that tree, so it takes its own copy of each first; otherwise the saved
+  // page would differ from the page shown, and redaction boxes would miss what they covered.
+  // (`copyPages` does this for the pages from other sources.)
+  for (const page of resolved) {
+    for (const name of PDFPageLeaf.InheritableEntries) {
+      const key = PDFName.of(name)
+      const value = page.node.getInheritableAttribute(key)
+      if (value !== undefined && page.node.get(key) === undefined) page.node.set(key, value)
+    }
+  }
 
   for (let index = originals.length - 1; index >= 0; index -= 1) doc.removePage(index)
   // `removePage` unregisters the page object; put back the ones we are reusing
