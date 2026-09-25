@@ -1,0 +1,84 @@
+/* Ledger layout. Colours, type and controls come from the shared tokens in styles.css. */
+
+.formula-bar {
+  position: relative; flex: none;
+  display: flex; align-items: center;
+  height: 30px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+.window[data-toolbar="hidden"] .formula-bar { border-top: 0; }
+.formula-address {
+  display: flex; align-items: center;
+  width: 76px; height: 100%; padding-left: 12px;
+  border-right: 1px solid var(--line);
+  font-weight: 600; font-size: 12.5px;
+}
+.formula-fx { padding: 0 8px 0 10px; color: var(--faint); font: italic 13px var(--font-doc); }
+.formula-editor { position: relative; flex: 1; height: 100%; }
+.formula-editor input {
+  width: 100%; height: 100%; padding: 0 10px 0 2px;
+  border: 0; outline: none; background: transparent;
+  font: 12.5px var(--font-code);
+}
+.formula-references { display: flex; gap: 4px; padding-right: 10px; }
+.formula-references span { padding: 1px 6px; border-radius: 4px; font: 500 11px var(--font-code); }
+.formula-references [data-reference-color="0"] { background: color-mix(in srgb, #2f5bd3 14%, transparent); color: #2f5bd3; }
+.formula-references [data-reference-color="1"] { background: color-mix(in srgb, #c2620a 14%, transparent); color: #c2620a; }
+.formula-references [data-reference-color="2"] { background: color-mix(in srgb, #7a3fc8 14%, transparent); color: #7a3fc8; }
+.formula-references [data-reference-color="3"] { background: color-mix(in srgb, #1f8a4c 14%, transparent); color: #1f8a4c; }
+
+.function-autocomplete {
+  position: absolute; top: calc(100% + 4px); left: 0; z-index: 30;
+  width: 420px; max-height: 320px; overflow-y: auto; padding: 5px;
+  border-radius: var(--radius-large); background: var(--surface); box-shadow: var(--shadow-pop);
+}
+.function-autocomplete button {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  width: 100%; padding: 6px 8px;
+  border: 0; border-radius: 6px; background: transparent; text-align: left;
+}
+.function-autocomplete button:hover { background: var(--hover); }
+.function-autocomplete button span { display: flex; align-items: baseline; gap: 8px; }
+.function-autocomplete strong { font-size: 12.5px; }
+.function-autocomplete code { color: var(--dim); font: 11.5px var(--font-code); }
+.function-autocomplete small { color: var(--dim); font-size: 11.5px; line-height: 1.4; }
+
+.find-bar {
+  flex: none; display: flex; align-items: center; gap: 4px;
+  height: 36px; padding: 0 8px;
+  border-bottom: 1px solid var(--line);
+  background: var(--chrome);
+}
+.find-bar .text-field { width: 190px; }
+.find-bar .button { height: 26px; padding: 0 10px; font-size: 12px; }
+.find-count { min-width: 70px; padding: 0 4px; color: var(--dim); font-size: 12px; }
+
+.sheet-canvas { position: relative; flex: 1; display: flex; flex-direction: column; min-height: 0; background: var(--doc); }
+.sheet-frozen-rows { flex: none; border-bottom: 2px solid var(--line); }
+.sheet-scrolling-rows { flex: 1; min-height: 0; }
+
+.sheet-tabs { display: flex; align-items: stretch; min-width: 0; overflow: hidden; }
+.sheet-tabs > .tool { align-self: center; margin-left: 4px; }
+.sheet-tab { position: relative; display: flex; align-items: stretch; border-right: 1px solid var(--line); }
+.sheet-tab button:first-child, .sheet-tab form {
+  display: flex; align-items: center;
+  height: 100%; padding: 0 14px;
+  border: 0; background: transparent; color: var(--dim);
+  font-size: 12px; font-weight: 500; white-space: nowrap;
+}
+.sheet-tab:hover button:first-child { color: var(--ink); }
+.sheet-tab.is-active { background: var(--doc); box-shadow: inset 0 2px 0 var(--accent); }
+.sheet-tab.is-active button:first-child { color: var(--ink); font-weight: 600; }
+.sheet-tab.is-dragging { opacity: 0.6; }
+.sheet-tab input { width: 110px; height: 20px; padding: 0 4px; border: 1px solid var(--accent); border-radius: 4px; outline: none; background: var(--surface); font-size: 12px; }
+.sheet-delete {
+  align-self: center; display: grid; place-items: center;
+  width: 16px; height: 16px; margin: 0 6px 0 -8px;
+  border: 0; border-radius: 4px; background: transparent; color: var(--dim);
+}
+.sheet-delete:hover { background: var(--pressed); color: var(--ink); }
+
+.inspector-inline-form { display: flex; gap: 6px; margin-bottom: 8px; }
+.inspector-inline-form .text-field { flex: 1; }
+.inspector-inline-form .button { height: 26px; padding: 0 10px; }

@@ -1,0 +1,15 @@
+diff --git a/dist/esm/data-editor/data-editor.js b/dist/esm/data-editor/data-editor.js
+index ec05aa9866c70032fc5509ff557cb8c542e384ed..302fcbfc668faed9192ec1d44aba55830d7b1e4d 100644
+--- a/dist/esm/data-editor/data-editor.js
++++ b/dist/esm/data-editor/data-editor.js
+@@ -26,7 +26,9 @@ import { withAlpha } from "../internal/data-grid/color-parser.js";
+ import { combineRects, getClosestRect, pointInRect } from "../common/math.js";
+ import { groupHeaderKind, outOfBoundsKind, headerKind, mouseEventArgsAreEqual, } from "../internal/data-grid/event-args.js";
+ import { useKeybindingsWithDefaults } from "./data-editor-keybindings.js";
+-const DataGridOverlayEditor = React.lazy(async () => await import("../internal/data-grid-overlay-editor/data-grid-overlay-editor.js"));
++// Patched: static import. The lazy one suspended the first cell edit long enough (React's ~300 ms
++// reveal throttle) for a fast second keystroke to replace the first.
++import DataGridOverlayEditor from "../internal/data-grid-overlay-editor/data-grid-overlay-editor.js";
+ // There must be a better way
+ let idCounter = 0;
+ function getSpanStops(cells) {

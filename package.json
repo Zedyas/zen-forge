@@ -1,0 +1,71 @@
+{
+  "name": "zen-forge",
+  "version": "0.1.0",
+  "private": true,
+  "license": "GPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Zedyas/zen-forge.git"
+  },
+  "productName": "Zendo",
+  "description": "Zendo: Ledger for spreadsheets and Hanko for PDFs, local-first and Mac-first.",
+  "main": "out/main/index.js",
+  "scripts": {
+    "dev": "env -u ELECTRON_RUN_AS_NODE electron-vite dev",
+    "start": "electron-vite preview",
+    "build": "electron-vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "lint": "eslint electron src --max-warnings=0",
+    "test": "vitest run",
+    "package:mac": "electron-vite build && electron-builder --mac --dir",
+    "icon:generate": "node scripts/suite-icon.mjs"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.7.0",
+    "@cantoo/pdf-lib": "^2.11.1",
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@glideapps/glide-data-grid": "6.0.3",
+    "cmdk": "^1.1.1",
+    "exceljs": "4.4.0",
+    "fflate": "^0.8.3",
+    "hyperformula": "3.4.0",
+    "idb": "^8.0.3",
+    "lucide-react": "^1.31.0",
+    "mupdf": "1.28.1",
+    "papaparse": "^5.7.0",
+    "pdfjs-dist": "^6.3.289",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "sonner": "^2.0.8",
+    "zod": "^4.4.3",
+    "zustand": "^5.0.15"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/papaparse": "^5.5.2",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^5.2.0",
+    "electron": "^43.4.0",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "eslint": "10.8.1",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "8.67.0",
+    "vite": "^7.3.6",
+    "vitest": "4.1.10"
+  },
+  "packageManager": "pnpm@10.28.2",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron",
+      "esbuild"
+    ],
+    "patchedDependencies": {
+      "@glideapps/glide-data-grid@6.0.3": "patches/@glideapps__glide-data-grid@6.0.3.patch"
+    }
+  }
+}

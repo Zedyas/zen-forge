@@ -1,0 +1,34 @@
+# Packages Zendo as a macOS app built on this Mac: `pnpm package:mac` → dist/mac-arm64/Zendo.app
+# The file associations are what let Finder open .xlsx/.csv/.pdf files in Zendo ("Open With", default app).
+appId: dev.zendo.suite
+productName: Zendo
+directories:
+  output: dist
+  buildResources: build
+files:
+  - out/**
+  - package.json
+  # Vite bundles everything the renderer uses and main needs only Electron and Node built-ins,
+  # so node_modules would be ~165 MB of dead weight inside the app.
+  - "!node_modules/**"
+mac:
+  category: public.app-category.productivity
+  target:
+    - target: dir
+  # Ad-hoc signature: enough for this Mac to run it. Sharing with other people needs a Developer ID
+  # certificate and notarization instead. Hardened runtime would reject Electron's differently-signed
+  # frameworks under an ad-hoc identity, so it is off for this local build.
+  identity: "-"
+  hardenedRuntime: false
+  extendInfo:
+    NSHumanReadableCopyright: Copyright © 2026 Zed Y. Licensed under GPL-3.0.
+fileAssociations:
+  - ext: [xlsx, csv]
+    name: Spreadsheet
+    role: Editor
+  - ext: xlsm
+    name: Macro-enabled workbook
+    role: Viewer
+  - ext: pdf
+    name: PDF document
+    role: Editor

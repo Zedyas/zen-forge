@@ -1,0 +1,3 @@
+# pnpm settings. electron-winstaller builds Squirrel installers for Windows, which this project does not use.
+ignoredBuiltDependencies:
+  - electron-winstaller

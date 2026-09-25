@@ -1,0 +1,10 @@
+node_modules/
+out/
+dist/
+.DS_Store
+*.log
+coverage/
+*.tsbuildinfo
+
+# Planning documents and design mockups stay local.
+plans/
