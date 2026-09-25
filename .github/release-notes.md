@@ -2,9 +2,13 @@ Zendo is a simplified office suite for macOS: spreadsheets (Ledger) and PDF edit
 
 ## What's new
 
-- **Security hardening.** A file you open can no longer reach the network, open windows or ask for permissions, and the app checks its own code for tampering before it runs.
-- **Updated a library** used by the spreadsheet grid, with its security fixes.
-- After updating, the recent files list on Home starts empty once.
+- **Print and Export as PDF** (⌘P) in Ledger and Hanko. Hanko prints your unsaved edits, and redacted areas print as solid black.
+- **More spreadsheet files.** Open Numbers, OpenDocument and older Excel (.xls) files, and open and save .tsv.
+- **Search in PDFs** (⌘F), and redact every match at once.
+- **Stronger redaction.** "Also remove hidden information" now removes hidden layers too, and Zendo refuses to save a redaction that wouldn't land exactly where you drew it.
+- **Updates from inside the app.** Zendo checks for new versions and downloads them for you (you can turn this off in the Zendo menu).
+- **Clearer import notes.** When a file has something Zendo can't keep, each note says what happens to it.
+- **Fixes and polish.** Row numbers skip hidden rows, formula suggestions appear right after =, the title bar lines up, and menus and popups have a frosted-glass look.
 
 ## Install
 
