@@ -7,8 +7,9 @@ interface FunctionAutocompleteProps {
   onChoose(name: string): void
 }
 
-function functionPrefix(input: string): string | undefined {
-  const match = input.match(/(?:^|[+\-*/,(])([A-Z][A-Z0-9.]*)$/i)
+/** The function name being typed at the end of a formula: after the = sign, an operator, a comma or a bracket. */
+export function functionPrefix(input: string): string | undefined {
+  const match = input.match(/(?:^|[=+\-*/,(&^<>\s])([A-Z][A-Z0-9.]*)$/i)
   return input.startsWith('=') ? match?.[1] : undefined
 }
 
