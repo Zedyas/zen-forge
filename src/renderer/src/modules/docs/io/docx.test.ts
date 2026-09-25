@@ -115,7 +115,7 @@ describe('docx', () => {
     })
     const { findings } = readDocx(new Uint8Array(await Packer.toArrayBuffer(source)))
 
-    expect(findings).toContainEqual({ construct: 'Comments', severity: 'dropped', location: '2 comments', suggestedAlternative: 'Removed when saved; the original file keeps them.' })
+    expect(findings).toContainEqual({ construct: 'Comments', severity: 'dropped', location: '2 comments', suggestedAlternative: 'Not shown, and not kept when saved.' })
     expect(findings).toContainEqual(expect.objectContaining({ construct: 'Header and footer text', severity: 'dropped' }))
   })
 })

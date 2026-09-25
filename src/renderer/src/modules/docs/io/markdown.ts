@@ -52,13 +52,13 @@ function markdownFindings(text: string): ImportFindingInput[] {
     if (token.type === 'table' && token.align.some((align: unknown) => align !== null)) alignedTables += 1
   })
   const findings: ImportFindingInput[] = []
-  if (html > 0) findings.push({ construct: 'HTML', location: places(html), suggestedAlternative: 'Shown as the text it contains; saved as plain Markdown without the HTML.' })
-  if (deepHeadings > 0) findings.push({ construct: 'Headings below level 3', location: places(deepHeadings), suggestedAlternative: 'Shown and saved as level 3 headings.' })
-  if (alignedTables > 0) findings.push({ construct: 'Table column alignment', location: places(alignedTables), suggestedAlternative: 'Columns are shown and saved aligned left.' })
+  if (html > 0) findings.push({ construct: 'HTML', location: places(html), suggestedAlternative: 'Shown as the text it contains, and saved as plain Markdown without the HTML.' })
+  if (deepHeadings > 0) findings.push({ construct: 'Headings below level 3', location: places(deepHeadings), suggestedAlternative: 'Shown as level 3 headings, and saved that way.' })
+  if (alignedTables > 0) findings.push({ construct: 'Table column alignment', location: places(alignedTables), suggestedAlternative: 'Columns are shown aligned left, and saved that way.' })
   if (/^---\r?\n[\s\S]*?\r?\n---\r?\n/.test(text)) {
-    findings.push({ construct: 'Front matter', suggestedAlternative: 'Shown and saved as ordinary text, so tools that read front matter will not find it.' })
+    findings.push({ construct: 'Front matter', suggestedAlternative: 'Shown as ordinary text, and saved that way, so tools that read front matter will not find it.' })
   }
-  if (/^\[\^[^\]]+\]:/m.test(text)) findings.push({ construct: 'Footnotes', suggestedAlternative: 'Shown and saved as plain text.' })
+  if (/^\[\^[^\]]+\]:/m.test(text)) findings.push({ construct: 'Footnotes', suggestedAlternative: 'Shown as plain text, and saved that way.' })
   return findings
 }
 

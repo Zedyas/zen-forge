@@ -93,7 +93,7 @@ class Findings {
   }
 }
 
-const removed = 'Removed when saved; the original file keeps them.'
+const notKept = 'Not shown, and not kept when saved.'
 
 // ─── Formatting properties ──────────────────────────────────────────────
 
@@ -403,7 +403,7 @@ function marksFor(run: RunProps, base: BlockStyle, href: string | undefined, cod
   if (href === undefined && run.underline !== undefined && run.underline !== 'none') {
     marks.push({ type: 'underline' })
     if (run.underline !== 'single' && run.underline !== 'words') {
-      context.findings.add('Underline styles', 'degraded', { alternative: 'Shown and saved as a single underline.' })
+      context.findings.add('Underline styles', 'degraded', { alternative: 'Shown as a single underline, and saved that way.' })
     }
   }
   if (run.strike === true) marks.push({ type: 'strike' })
@@ -416,32 +416,32 @@ function marksFor(run: RunProps, base: BlockStyle, href: string | undefined, cod
   if (run.background !== undefined) style['backgroundColor'] = run.background
   if (Object.keys(style).length > 0) marks.push({ type: 'textStyle', attrs: style })
   if (href !== undefined) marks.push({ type: 'link', attrs: { href } })
-  if (run.effects === true) context.findings.add('Character spacing and text effects', 'degraded', { alternative: 'Shown and saved as plain text.' })
+  if (run.effects === true) context.findings.add('Character spacing and text effects', 'degraded', { alternative: 'Shown as plain text, and saved that way.' })
   return marks
 }
 
 function imageFromDrawing(drawing: Element, context: Context): JSONContent | undefined {
   const blip = all(drawing, 'a:blip')[0] ?? all(drawing, 'v:imagedata')[0]
   if (blip === undefined) {
-    if (all(drawing, 'c:chart').length > 0) context.findings.add('Charts', 'dropped', { unit: 'chart', alternative: removed })
-    else if (all(drawing, 'dgm:relIds').length > 0) context.findings.add('SmartArt', 'dropped', { unit: 'diagram', alternative: removed })
-    else context.findings.add('Text boxes and shapes', 'dropped', { unit: 'object', alternative: 'Removed when saved, with any text inside them; the original file keeps them.' })
+    if (all(drawing, 'c:chart').length > 0) context.findings.add('Charts', 'dropped', { unit: 'chart', alternative: notKept })
+    else if (all(drawing, 'dgm:relIds').length > 0) context.findings.add('SmartArt', 'dropped', { unit: 'diagram', alternative: notKept })
+    else context.findings.add('Text boxes and shapes', 'dropped', { unit: 'object', alternative: 'Not shown, and not kept when saved, with any text inside them.' })
     return undefined
   }
   const relationship = context.relationships.get(attr(blip, 'r:embed') ?? attr(blip, 'r:id') ?? attr(blip, 'r:link') ?? '')
   if (relationship?.external === true) {
-    context.findings.add('Linked images', 'dropped', { unit: 'image', alternative: 'Removed when saved; Zendo only shows images stored in the document.' })
+    context.findings.add('Linked images', 'dropped', { unit: 'image', alternative: 'Not shown, and not kept when saved. Zendo only shows images stored in the document.' })
     return undefined
   }
   const bytes = relationship === undefined ? undefined : context.parts[relationship.target]
   const extension = relationship?.target.split('.').pop()?.toLowerCase() ?? ''
   const mimeType = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', bmp: 'image/bmp' }[extension]
   if (bytes === undefined || mimeType === undefined) {
-    context.findings.add('Images in EMF, WMF or TIFF format', 'dropped', { unit: 'image', alternative: 'Removed when saved; Zendo cannot show these formats.' })
+    context.findings.add('Images in EMF, WMF or TIFF format', 'dropped', { unit: 'image', alternative: 'Not shown, and not kept when saved. Zendo cannot show these formats.' })
     return undefined
   }
   if (all(drawing, 'wp:anchor').length > 0) {
-    context.findings.add('Image positions and text wrapping', 'degraded', { alternative: 'Shown and saved in line with the text.' })
+    context.findings.add('Image positions and text wrapping', 'degraded', { alternative: 'Shown in line with the text, and saved that way.' })
   }
   const extent = all(drawing, 'wp:extent')[0]
   const properties = all(drawing, 'wp:docPr')[0]
@@ -471,7 +471,7 @@ function inlineContent(paragraph: Element, base: BlockStyle, paragraphRun: RunPr
     const code = context.styles.name(styleId) === docxStyleNames.InlineCode.toLowerCase()
     const props: RunProps = { ...paragraphRun, ...context.styles.character(styleId), ...readRunProps(rPr, context.themeFonts) }
     if (props.hidden === true) {
-      context.findings.add('Hidden text', 'dropped', { alternative: 'Removed when saved; the original file keeps it.' })
+      context.findings.add('Hidden text', 'dropped', { alternative: 'Not shown, and not kept when saved.' })
       return
     }
     const fieldLink = context.fields.map(open => hyperlinkTarget(open.instruction)).find(target => target !== undefined)
@@ -488,7 +488,7 @@ function inlineContent(paragraph: Element, base: BlockStyle, paragraphRun: RunPr
             const ended = context.fields.pop()
             const name = ended === undefined ? '' : fieldName(ended.instruction)
             if (name !== '' && name !== 'HYPERLINK') {
-              context.findings.add('Fields', 'dropped', { name, alternative: 'Kept as their last shown text; they no longer update.' })
+              context.findings.add('Fields', 'dropped', { name, alternative: 'Their last shown text is kept as plain text; they no longer update.' })
             }
           }
           break
@@ -539,11 +539,11 @@ function inlineContent(paragraph: Element, base: BlockStyle, paragraphRun: RunPr
         return
       }
       case 'w:object':
-        context.findings.add('Embedded objects', 'dropped', { unit: 'object', alternative: removed })
+        context.findings.add('Embedded objects', 'dropped', { unit: 'object', alternative: notKept })
         return
       case 'w:footnoteReference':
       case 'w:endnoteReference':
-        context.findings.add('Footnotes and endnotes', 'dropped', { unit: 'note', alternative: 'Removed when saved, with their numbers in the text; the original file keeps them.' })
+        context.findings.add('Footnotes and endnotes', 'dropped', { unit: 'note', alternative: 'Not shown, and not kept when saved, with their numbers in the text.' })
         return
     }
   }
@@ -562,18 +562,18 @@ function inlineContent(paragraph: Element, base: BlockStyle, paragraphRun: RunPr
         case 'w:fldSimple': {
           const instruction = attr(child, 'w:instr') ?? ''
           const name = fieldName(instruction)
-          if (name !== 'HYPERLINK') context.findings.add('Fields', 'dropped', { name, alternative: 'Kept as their last shown text; they no longer update.' })
+          if (name !== 'HYPERLINK') context.findings.add('Fields', 'dropped', { name, alternative: 'Their last shown text is kept as plain text; they no longer update.' })
           walk(child, safeHref(hyperlinkTarget(instruction)) ?? href)
           break
         }
         case 'w:ins':
         case 'w:moveTo':
-          context.findings.add('Tracked changes', 'dropped', { unit: 'change', alternative: 'Shown with every change accepted. To review them, accept or reject the changes in Word first.' })
+          context.findings.add('Tracked changes', 'dropped', { unit: 'change', alternative: 'Shown with every change accepted, and saved that way. To review the changes, accept or reject them in Word first.' })
           walk(child, href)
           break
         case 'w:del':
         case 'w:moveFrom':
-          context.findings.add('Tracked changes', 'dropped', { unit: 'change', alternative: 'Shown with every change accepted. To review them, accept or reject the changes in Word first.' })
+          context.findings.add('Tracked changes', 'dropped', { unit: 'change', alternative: 'Shown with every change accepted, and saved that way. To review the changes, accept or reject them in Word first.' })
           break
         case 'w:smartTag':
         case 'w:customXml':
@@ -583,13 +583,13 @@ function inlineContent(paragraph: Element, base: BlockStyle, paragraphRun: RunPr
           break
         case 'w:sdt':
           if (all(child, 'w14:checkbox').length > 0) {
-            context.findings.add('Form fields and check boxes', 'dropped', { alternative: 'Kept as plain text.' })
+            context.findings.add('Form fields and check boxes', 'dropped', { alternative: 'Their current text is kept as plain text.' })
           }
           walk(kid(child, 'w:sdtContent') ?? child, href)
           break
         case 'm:oMath':
         case 'm:oMathPara':
-          context.findings.add('Equations', 'dropped', { unit: 'equation', alternative: removed })
+          context.findings.add('Equations', 'dropped', { unit: 'equation', alternative: notKept })
           break
       }
     }
@@ -605,7 +605,7 @@ function blockKind(styleId: string | undefined, resolved: ParagraphProps, contex
   if (kind !== undefined) return kind
   const level = deeperHeading.test(name) ? 3 : resolved.outlineLevel
   if (level !== undefined && level < 9) {
-    if (level >= 3) context.findings.add('Headings below level 3', 'degraded', { alternative: 'Shown and saved as Heading 3.' })
+    if (level >= 3) context.findings.add('Headings below level 3', 'degraded', { alternative: 'Shown as Heading 3, and saved that way.' })
     return (['heading1', 'heading2', 'heading3'] as const)[Math.min(level, 2)] ?? 'heading3'
   }
   context.findings.add('Other paragraph styles', 'degraded', {
@@ -622,7 +622,7 @@ function paragraphAttrs(props: ParagraphProps, base: BlockStyle, fontSize: numbe
   if (props.spaceBefore !== undefined && props.spaceBefore !== base.spaceBefore) attrs['spaceBefore'] = props.spaceBefore
   if (props.spaceAfter !== undefined && props.spaceAfter !== base.spaceAfter) attrs['spaceAfter'] = props.spaceAfter
   if (props.lineExact !== undefined) {
-    context.findings.add('Exact line spacing', 'degraded', { alternative: 'Shown and saved as the nearest multiple of single spacing.' })
+    context.findings.add('Exact line spacing', 'degraded', { alternative: 'Shown as the nearest multiple of single spacing, and saved that way.' })
     attrs['lineHeight'] = round(props.lineExact / (fontSize * singleLineHeight))
   } else if (props.lineHeight !== undefined && props.lineHeight !== base.lineHeight) attrs['lineHeight'] = props.lineHeight
   if (props.indentLeft !== undefined && props.indentLeft !== base.indentLeft) attrs['indentLeft'] = props.indentLeft
@@ -651,19 +651,19 @@ function paragraphItems(paragraph: Element, context: Context): Item[] {
   const kind = blockKind(styleId, props, context)
   // Code and rule paragraphs get their shading and line from Sumi's own styles.
   if (direct.decorated === true || (style.paragraph.decorated === true && kind !== 'code' && kind !== 'rule')) {
-    context.findings.add('Paragraph borders and shading', 'degraded', { alternative: 'Shown and saved without them.' })
+    context.findings.add('Paragraph borders and shading', 'degraded', { alternative: 'Shown without them, and saved that way.' })
   }
   const themeStyle: StyleName = kind === 'title' || kind === 'heading1' || kind === 'heading2' || kind === 'heading3' || kind === 'quote' ? kind : 'normal'
   const base = context.theme[themeStyle]
   const segments = inlineContent(paragraph, base, style.run, context)
   if (props.tabStops === true && segments.some(segment => segment.some(node => node.text?.includes('\t') === true))) {
-    context.findings.add('Tab stops', 'degraded', { alternative: 'Tabs line up at the default positions.' })
+    context.findings.add('Tab stops', 'degraded', { alternative: 'Tabs line up at the default positions, and save that way.' })
   }
   const levels = props.numId === undefined || props.numId === '0' ? undefined : context.numbering.get(props.numId)
   const listLevel = levels?.get(props.level ?? 0)
   const isList = listLevel !== undefined && (kind === 'normal' || kind === 'continue')
   if (listLevel !== undefined && !isList && kind.startsWith('heading')) {
-    context.findings.add('Numbered headings', 'degraded', { alternative: 'Shown and saved without their numbers.' })
+    context.findings.add('Numbered headings', 'degraded', { alternative: 'Shown without their numbers, and saved that way.' })
   }
   const fontSize = style.run.size ?? base.fontSize
   const attrs = paragraphAttrs(props, base, fontSize, !isList && kind !== 'checklist' && kind !== 'code' && kind !== 'continue' && kind !== 'cell', context)
@@ -681,7 +681,7 @@ function paragraphItems(paragraph: Element, context: Context): Item[] {
     if (isList && listLevel !== undefined) {
       const level = props.level ?? 0
       if (listLevel.format !== (listLevel.ordered ? listFormats[level % 3] : 'bullet')) {
-        context.findings.add('List numbering styles', 'degraded', { alternative: 'Shown and saved as 1., a., i. and bullets.' })
+        context.findings.add('List numbering styles', 'degraded', { alternative: 'Shown as 1., a., i. and bullets, and saved that way.' })
       }
       items.push({ kind: 'list', numId: props.numId ?? '', level, ordered: listLevel.ordered, start: listLevel.start, node: node('paragraph') })
       return
@@ -747,7 +747,7 @@ function tableBorders(table: Element): boolean {
 
 function table(element: Element, context: Context): JSONContent {
   const grid = kids(kid(element, 'w:tblGrid'), 'w:gridCol').map(column => Math.round((number(attr(column, 'w:w')) ?? 0) / 15))
-  if (tableBorders(element)) context.findings.add('Table borders and styles', 'degraded', { alternative: 'Shown and saved with a thin border around every cell.' })
+  if (tableBorders(element)) context.findings.add('Table borders and styles', 'degraded', { alternative: 'Shown with a thin border around every cell, and saved that way.' })
   // Cells merged down (vMerge) grow the cell that starts the merge, by column.
   const merging = new Map<number, CellBuild>()
   const rows = kids(element, 'w:tr').map(row => {
@@ -883,10 +883,10 @@ function blocks(container: Element, context: Context): JSONContent[] {
           collect(child)
           break
         case 'm:oMathPara':
-          context.findings.add('Equations', 'dropped', { unit: 'equation', alternative: removed })
+          context.findings.add('Equations', 'dropped', { unit: 'equation', alternative: notKept })
           break
         case 'w:altChunk':
-          context.findings.add('Embedded documents', 'dropped', { alternative: removed })
+          context.findings.add('Embedded documents', 'dropped', { alternative: notKept })
           break
       }
     }
@@ -963,7 +963,7 @@ function readPage(body: Element | undefined, context: Context, xmlPart: (name: s
   const margins = kid(section, 'w:pgMar')
   const length = (element: Element | undefined, name: string, fallback: number): number => Math.abs(number(attr(element, name)) ?? fallback)
   if ((number(attr(kid(section, 'w:cols'), 'w:num')) ?? 1) > 1) {
-    context.findings.add('Multiple columns', 'dropped', { alternative: 'Shown and saved in one column.' })
+    context.findings.add('Multiple columns', 'dropped', { alternative: 'Shown in one column, and saved that way.' })
   }
   let pageNumbers = false
   let text = false
@@ -975,7 +975,7 @@ function readPage(body: Element | undefined, context: Context, xmlPart: (name: s
   }
   if (text) {
     context.findings.add('Header and footer text', 'dropped', {
-      alternative: pageNumbers ? 'Removed when saved; page numbers are kept. The original file keeps the text.' : removed,
+      alternative: pageNumbers ? 'Not shown, and not kept when saved. Page numbers are kept.' : notKept,
     })
   }
   return {
@@ -1017,7 +1017,7 @@ export function readDocx(bytes: Uint8Array): DocxRead {
 
   const comments = xmlPart('word/comments.xml')
   const commentCount = comments === undefined ? 0 : kids(comments, 'w:comment').length
-  if (commentCount > 0) findings.add('Comments', 'dropped', { unit: 'comment', count: commentCount, alternative: removed })
+  if (commentCount > 0) findings.add('Comments', 'dropped', { unit: 'comment', count: commentCount, alternative: notKept })
 
   const content = blocks(body, context)
   const page = readPage(body, context, xmlPart)
