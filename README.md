@@ -1,78 +1,60 @@
 # Zendo
 
-Spreadsheets and PDFs for the Mac. Files stay on your Mac: no account, no network.
-
-Zendo covers the everyday jobs, not every feature of Microsoft Office. It opens Excel workbooks, CSV files and PDFs, lets you edit them, and saves them back in the same formats so other people can open them.
+Simplified office suite for macOS because I hate using Numbers and needed functionality of a PDF editor without the cost. More to come.
 
 ![Zendo Home: the applications, quick actions and recent files](docs/media/home.png)
 
-## How it is organised
+## How it works
 
-Zendo is one window with tabs. A spreadsheet and a PDF can sit side by side in the same tab row, so a task that needs both, such as filling in a form from a budget, stays in one place.
-
-- **Home** is the pinned first tab (⇧⌘H). It starts new files, opens existing ones, and lists recent files with previews.
-- **Every other tab is a file.** Its icon shows which application edits it. The toolbar, the inspector and the menu bar follow the active tab: a spreadsheet brings the Format menu, a PDF brings the Page menu.
-- **Tabs group by kind.** A new spreadsheet opens after the last spreadsheet tab and a PDF after the last PDF, so the row reads as groups. You can still drag any tab anywhere.
-- **More windows when you want them.** ⇧⌘N opens a new window. Right-click a tab and choose **Move to New Window** to put two files next to each other.
-- **Tabs come back.** Quitting remembers each window's open files and reopens them on the next launch.
+One window with tabs. Home is the first tab, and spreadsheets and PDFs open as tabs beside it. Right-click a tab to move it to its own window, or press ⇧⌘N for a new one.
 
 ![Tabs: open a spreadsheet and a PDF from Home; a second spreadsheet joins the spreadsheet group](docs/media/tabs.gif)
 
 ## Applications
 
-| Application | For | Opens | Saves | Status |
-|---|---|---|---|---|
-| **Ledger** | Spreadsheets | `.xlsx`, `.xlsm`, `.csv` | `.xlsx`, `.csv` | Available |
-| **Hanko** | PDF editing | `.pdf` (and `.png` / `.jpg` into a new PDF) | `.pdf` | Available |
-| **Sumi** | Documents | `.docx`, `.md` | — | Planned |
-| **Slides** | Presentations | `.pptx` | — | Planned |
+| Application | For | Files | Status |
+|---|---|---|---|
+| **Ledger** | Spreadsheets | Excel (`.xlsx`, `.xlsm`), `.csv` | Available |
+| **Hanko** | PDF editing | `.pdf` | Available |
+| **Sumi** | Documents | Word (`.docx`), Markdown | Planned |
+| **Slides** | Presentations | PowerPoint (`.pptx`) | Planned |
 
 ### Ledger
 
 ![Ledger: bold headers, currency format, AutoSum, recalculation and the inspector](docs/media/ledger.gif)
 
-- **Formulas.** Excel-style formulas (`=SUM(B2:B7)`, `=VLOOKUP(…)`, references across sheets) recalculate as you type.
-- **Formatting.** Bold, italic, underline, text and fill colour, alignment, and number formats (number, currency, percent, date, decimal places). A file's own number formats, such as euros or `dd/mm/yyyy` dates, are written back unchanged unless you change them.
-- **Data tools.** Sort by a column, AutoSum, find and replace across all sheets, freeze rows and columns, insert, delete or hide rows and columns, and named ranges.
-- **Inspector.** ⌥⌘I opens a side panel with the selection's sum, average, minimum and maximum, plus the cell's format and freeze settings.
-- **Safe saving.** When a workbook uses something Ledger can't represent (for example charts or macros), Ledger says so when the file opens and lists it in an import report. Saving then goes to Save As, so the original file is never overwritten with less than it had.
-- **Macro-enabled workbooks (`.xlsm`)** open with their data, formulas and formatting. Macros are not kept: Ledger warns when the file opens, and saving makes a new `.xlsx` copy.
+- Excel formulas and formatting
+- Sort, AutoSum, and find and replace
+- Opens and saves Excel and CSV files. If a file has something Ledger can't keep, such as macros, Ledger tells you when it opens and saves a copy instead of overwriting the original.
 
 ### Hanko
 
 ![Hanko: highlight, redact, draw a signature, place it and type the date](docs/media/hanko.gif)
 
-- **Mark up.** Text, highlight, freehand drawing, rectangles and white-out.
-- **Sign.** Draw a signature once with the trackpad or mouse. Zendo keeps it on this Mac so you can place it on any PDF.
-- **Fill forms.** Type into a PDF's own form fields and tick its checkboxes.
-- **Redact.** True redaction, the way Adobe Acrobat Pro applies it: everything under a box is removed from the file, not covered. Text under the box is deleted, the covered pixels of images are blanked, and drawings under the box are dropped. Form fields, links and comments touching a box are removed with their values. The rest of the page stays real, selectable text. Copies that can hide outside the page are cleared too: the page's stored thumbnail and the accessibility text of redacted pages.
-- **Remove hidden information.** When you save redactions, Zendo offers to also remove the document title and author, bookmarks, attached files, comments and scripts, like Acrobat's Remove Hidden Information. It is on by default. Hidden layers are not removed yet.
-- **Pages.** Rotate, delete, insert pages from another PDF, and extract a page to its own file.
-- **From Home.** Combine several PDFs into one, or turn photos (`.png`, `.jpg`) into a PDF.
+- Add text, highlights and your signature
+- Fill in forms
+- Redact: removes what's under the box from the file, like Adobe Acrobat Pro
+- Rotate, delete and reorder pages, combine PDFs, and turn photos into a PDF
 
-### Sumi (planned)
+### Sumi and Slides (planned)
 
-Documents: open, edit and save Word (`.docx`) and Markdown (`.md`) files. The planned scope is the common set: headings, paragraphs and lists, bold, italic and links, tables, images, and export to PDF. Not started yet; the Home card is shown as planned.
-
-### Slides (planned)
-
-Presentations: open and present PowerPoint (`.pptx`) files, then edit text and reorder slides. Not started yet; the Home card is shown as planned.
+Word documents and Markdown in Sumi; PowerPoint presentations in Slides.
 
 ## Roadmap
 
 In order, with the next item first:
 
-1. **Print and Export as PDF** (⌘P) in Ledger and Hanko.
-2. **More spreadsheet formats.** Open and save `.tsv`; open `.xls` (Excel 97–2003), Apple `.numbers` and LibreOffice `.ods`, saving them as `.xlsx`.
-3. **Ledger, second tier:** borders and text wrap, filters, conditional formatting, dropdown lists, charts, and row numbers that skip hidden rows.
-4. **Search in PDFs** (⌘F in Hanko).
-5. **iPhone photos (`.heic`)** in PDF from images.
-6. **Sumi**, for documents (`.docx`, Markdown, plain text and `.rtf`).
-7. **Signed and notarized builds**, so Zendo can be downloaded and run on other Macs without building it.
-8. **Slides**, for presentations (`.pptx`).
-9. **Windows support.** The same app, not a separate version. Electron already runs it on Windows; the work is only what it needs to run and fit there: a Windows target in the packaging config, no title-bar space reserved for the Mac window buttons, Ctrl instead of ⌘ in labels and tooltips, and wording such as "Show in Explorer" instead of "Show in Finder".
+1. Print and Export as PDF
+2. More spreadsheet formats: `.tsv`, `.xls`, Apple `.numbers` and `.ods`
+3. More Ledger tools: borders, filters, conditional formatting, dropdown lists and charts
+4. Search in PDFs
+5. iPhone photos (`.heic`) in PDF from images
+6. Sumi, for documents
+7. Signed builds, so Zendo runs on other Macs without building it
+8. Slides, for presentations
+9. Windows support: the same app, adjusted to run and fit on Windows
 
-Not planned: binary workbooks (`.xlsb`) and other macro-enabled formats, and Apple Pages or Keynote files.
+Not planned: `.xlsb` and other macro-enabled formats, and Apple Pages or Keynote files.
 
 ## Install
 
