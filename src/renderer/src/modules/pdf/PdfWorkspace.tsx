@@ -88,9 +88,11 @@ export function PdfWorkspace({ document }: { readonly document: OpenDocument }) 
   }, [document])
 
   // Tool and find state are shared by every PDF tab; a different document starts with nothing selected and find closed.
+  // Find also closes when the document does, which stops its search and drops its matches.
   useEffect(() => {
     useToolStore.setState({ selection: undefined, textDraft: undefined })
     closeFind()
+    return closeFind
   }, [documentId])
 
   if (state === undefined || state.status === 'loading') {

@@ -104,6 +104,10 @@ export async function findInDocument(documentId: string, query: string, jump: bo
   }
 
   for (const [position, item] of document.present.pages.entries()) {
+    // Stop once a newer search runs or the document has closed. Closing destroys the document's
+    // pdf.js copy, and loading a page would open a new one, with its own worker, that nothing closes.
+    // (The document's state changes identity on every edit, so only its absence means closed.)
+    if (run !== generation || readyPdf(documentId) === undefined) return
     const source = document.sources[item.source]
     let found: FindMatch[] = []
     try {
