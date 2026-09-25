@@ -1,5 +1,6 @@
 import { Popover } from '@base-ui/react/popover'
 import { Plus, Signature, Trash2 } from 'lucide-react'
+import { icon, smallIcon } from '../../ui/icons'
 import { Tip } from '../../ui/Tip'
 import { removeSignature, useSignatureStore } from './signatures'
 import { setTool, toolKeys, useToolStore } from './tool-store'
@@ -19,7 +20,7 @@ export function SignatureTool() {
     return (
       <Tip label="Signature" shortcut={toolKeys.signature}>
         <button type="button" className="tool" aria-label="Signature" onClick={() => useToolStore.setState({ signatureDialogOpen: true })}>
-          <Signature aria-hidden="true" size={16} strokeWidth={1.7} />
+          <Signature {...icon} />
         </button>
       </Tip>
     )
@@ -29,7 +30,7 @@ export function SignatureTool() {
     <Popover.Root>
       <Tip label="Signature" shortcut={toolKeys.signature}>
         <Popover.Trigger className="tool" aria-label="Signature" aria-pressed={tool === 'signature'}>
-          <Signature aria-hidden="true" size={16} strokeWidth={1.7} />
+          <Signature {...icon} />
         </Popover.Trigger>
       </Tip>
       <Popover.Portal>
@@ -44,14 +45,14 @@ export function SignatureTool() {
                   </Popover.Close>
                   <Tip label="Delete signature">
                     <button type="button" className="tool" aria-label="Delete signature" onClick={() => removeSignature(signature.id)}>
-                      <Trash2 aria-hidden="true" size={14} strokeWidth={1.7} />
+                      <Trash2 {...smallIcon} />
                     </button>
                   </Tip>
                 </li>
               ))}
             </ul>
             <Popover.Close className="button is-quiet pdf-signature-add" onClick={() => useToolStore.setState({ signatureDialogOpen: true })}>
-              <Plus aria-hidden="true" size={15} />Add signature…
+              <Plus {...smallIcon} />Add signature…
             </Popover.Close>
           </Popover.Popup>
         </Popover.Positioner>

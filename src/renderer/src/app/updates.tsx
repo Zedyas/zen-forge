@@ -5,6 +5,7 @@ import { create } from 'zustand'
 import { suiteName } from '@shared/applications'
 import type { UpdateStatus } from '@shared/shell'
 import { platformClient } from '../services/platform/client'
+import { smallIcon } from '../ui/icons'
 
 /** This window's copy of the main process's update status. */
 const useUpdateStore = create<{ readonly status: UpdateStatus }>(() => ({ status: { state: 'none' } }))
@@ -59,7 +60,7 @@ export function UpdateOffer({ onClose }: { readonly onClose?: () => void }) {
       </span>
       {onClose !== undefined && (
         <button type="button" className="tool update-offer-close" aria-label="Close" onClick={onClose}>
-          <X aria-hidden="true" size={14} />
+          <X {...smallIcon} />
         </button>
       )}
     </div>

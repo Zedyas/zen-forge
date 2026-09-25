@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { useSortable } from '@dnd-kit/sortable'
 import { X } from 'lucide-react'
 import type { WorkbookSheet } from './model/Workbook'
+import { tinyIcon } from '../../ui/icons'
 
 interface SheetTabProps {
   readonly sheet: WorkbookSheet
@@ -79,7 +80,7 @@ export function SheetTab({
           // Deleting is undoable with ⌘Z, so it does not ask first.
           onClick={onDelete}
         >
-          <X aria-hidden="true" size={11} />
+          <X {...tinyIcon} />
         </button>
       )}
     </div>

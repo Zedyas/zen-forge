@@ -7,6 +7,7 @@ import { acceleratorLabel, commandApplies, commandDefinitions, type MenuId } fro
 import { executeCommand } from '../app/commands'
 import { activeDocument, useDocumentsStore } from '../app/documents-store'
 import { useShellUiStore } from '../app/shell-ui-store'
+import { icon } from './icons'
 
 const groups: ReadonlyArray<readonly [MenuId, string]> = [
   ['file', 'File'],
@@ -32,7 +33,7 @@ export function CommandPalette() {
           <Dialog.Title className="sr-only">Command palette</Dialog.Title>
           <Command className="command-palette" label="Command palette">
             <div className="command-input-row">
-              <Search aria-hidden="true" size={17} />
+              <Search {...icon} />
               <Command.Input autoFocus placeholder="Type a command" />
               <kbd>esc</kbd>
             </div>

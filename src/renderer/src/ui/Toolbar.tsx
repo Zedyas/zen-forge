@@ -2,6 +2,7 @@ import { Popover } from '@base-ui/react/popover'
 import { ChevronDown, type LucideIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
 import type { CommandId } from '@shared/commands'
+import { icon, tinyIcon } from './icons'
 import { commandShortcut, Tip } from './Tip'
 
 interface ToolButtonProps {
@@ -29,7 +30,7 @@ export function ToolButton({ icon: Icon, label, text, command, shortcut, pressed
         disabled={disabled}
         onClick={onClick}
       >
-        {Icon !== undefined && <Icon aria-hidden="true" size={16} strokeWidth={1.7} />}
+        {Icon !== undefined && <Icon {...icon} />}
         {text}
       </button>
     </Tip>
@@ -63,14 +64,14 @@ export function ColorTool({ icon: Icon, label, options, current, disabled, onApp
     <span className="split-tool">
       <Tip label={label}>
         <button type="button" className="tool" aria-label={label} disabled={disabled} onClick={() => onApply(current)}>
-          <Icon aria-hidden="true" size={16} strokeWidth={1.7} />
+          <Icon {...icon} />
           <i className="swatch-bar" style={{ background: current ?? 'transparent' }} />
         </button>
       </Tip>
       <Popover.Root>
         <Tip label={`Choose ${label.toLowerCase()}`}>
           <Popover.Trigger className="tool caret" aria-label={`Choose ${label.toLowerCase()}`} disabled={disabled}>
-            <ChevronDown aria-hidden="true" size={11} strokeWidth={2.2} />
+            <ChevronDown {...tinyIcon} />
           </Popover.Trigger>
         </Tip>
         <Popover.Portal>

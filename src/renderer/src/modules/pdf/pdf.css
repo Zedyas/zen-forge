@@ -137,7 +137,8 @@ select.pdf-field { appearance: auto; }
   background: #fff; box-shadow: inset 0 0 0 1px var(--line);
   touch-action: none; cursor: crosshair;
 }
-.pdf-signature-line { height: 1px; margin: -40px 28px 39px; background: #c9ccd2; pointer-events: none; }
+/* Drawn 40px up inside the pad; it takes no space, so the actions keep their gap below the pad. */
+.pdf-signature-line { position: relative; top: -40px; height: 1px; margin: 0 28px -1px; background: #c9ccd2; pointer-events: none; }
 .pdf-ink-dot { display: inline-block; width: 9px; height: 9px; margin-right: 6px; border-radius: 50%; vertical-align: -0.5px; }
 
 /* ─── Dialogs ─── */
@@ -156,15 +157,17 @@ select.pdf-field { appearance: auto; }
 .pdf-dialog p { margin: 0; color: var(--dim); line-height: 1.5; }
 .pdf-dialog-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 .pdf-dialog-actions .button { white-space: nowrap; }
-/* The pad is a fixed 460 × 170 drawing surface; the dialog grows to hold it plus its padding. */
-.pdf-dialog.pdf-signature-dialog { width: min(520px, calc(100vw - 32px)); }
+/* The pad is a fixed 460 × 170 drawing surface; the dialog is exactly the pad plus its padding, so the
+   pad lines up with the text and buttons. */
+.pdf-dialog.pdf-signature-dialog { width: min(calc(460px + 2 * 22px), calc(100vw - 32px)); }
 
 /* ─── Inspector details ─── */
 
 .pdf-stepper { display: inline-flex; align-items: center; gap: 2px; }
 .pdf-stepper span { min-width: 42px; text-align: center; }
-.button.pdf-inspector-action { width: 100%; justify-content: flex-start; margin-top: 4px; padding: 0 6px; }
-.pdf-check-row { display: flex; align-items: center; gap: 8px; min-height: 26px; }
+/* Quiet buttons reach 6px past the column on each side, so their icons line up with the text above. */
+.inspector .button.pdf-inspector-action { width: calc(100% + 12px); justify-content: flex-start; margin: 4px -6px 0; padding: 0 6px; }
+.pdf-check-row { display: flex; align-items: center; gap: 8px; min-height: var(--control); }
 .pdf-file-name { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pdf-dialog-option { display: flex; align-items: flex-start; gap: 8px; margin-top: 14px; color: var(--ink); line-height: 1.4; }
 .pdf-dialog-option input { margin: 2px 0 0; accent-color: var(--accent); }

@@ -8,6 +8,7 @@ import { forgetRecent, listRecents, watchRecents, type RecentDocument } from '..
 import { platformClient } from '../services/platform/client'
 import { combinePdfs, createPdfFromImages } from '../modules/pdf/workflows'
 import { AppIcon } from '../ui/AppIcon'
+import { icon } from '../ui/icons'
 import { commandShortcut, Tip } from '../ui/Tip'
 import { chooseAndOpenFiles, openFiles } from './document-actions'
 import { useDocumentsStore } from './documents-store'
@@ -151,23 +152,23 @@ export function HomeScreen() {
 
         <div className="home-actions">
           <button type="button" className="button" onClick={() => start('sheets')}>
-            <FilePlus2 aria-hidden="true" size={16} />New spreadsheet
+            <FilePlus2 {...icon} />New spreadsheet
           </button>
           <button type="button" className="button" onClick={() => void chooseAndOpenFiles().catch(reportFailure('Could not open the file'))}>
-            <FolderOpen aria-hidden="true" size={16} />Open…
+            <FolderOpen {...icon} />Open…
           </button>
           <button type="button" className="button" onClick={() => void createPdfFromImages().catch(reportFailure('Could not create the PDF'))}>
-            <Images aria-hidden="true" size={16} />PDF from images…
+            <Images {...icon} />PDF from images…
           </button>
           <button type="button" className="button" onClick={() => void combinePdfs().catch(reportFailure('Could not combine the PDFs'))}>
-            <Files aria-hidden="true" size={16} />Combine PDFs…
+            <Files {...icon} />Combine PDFs…
           </button>
         </div>
 
         <div className="home-section-head">
           <h2>Recent</h2>
           <label className="home-search">
-            <Search aria-hidden="true" size={15} />
+            <Search {...icon} />
             <input type="search" value={query} placeholder="Search recents" aria-label="Search recent files" onChange={event => setQuery(event.currentTarget.value)} />
           </label>
         </div>

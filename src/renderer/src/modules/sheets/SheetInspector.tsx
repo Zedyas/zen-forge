@@ -5,9 +5,9 @@ import { cellName, columnName } from './model/address'
 import { formatStatistic } from './model/format'
 import type { CellRange } from './model/Workbook'
 import type { SheetController } from './sheet-commands'
+import { smallIcon } from '../../ui/icons'
 import { Inspector, InspectorRow, InspectorSection } from '../../ui/Inspector'
 import { Tip } from '../../ui/Tip'
-import { ToolButton } from '../../ui/Toolbar'
 
 function rangeLabel(range: CellRange): string {
   const start = cellName([range.x, range.y])
@@ -111,7 +111,11 @@ export function SheetInspector({ controller }: { readonly controller: SheetContr
               {workbook.namedRanges().map(namedRange => (
                 <li key={namedRange.name}>
                   <span><strong>{namedRange.name}</strong> <code>{namedRange.sheetName}!{rangeLabel(namedRange.range)}</code></span>
-                  <ToolButton icon={Trash2} label={`Delete ${namedRange.name}`} onClick={() => workbook.removeNamedRange(namedRange.name)} />
+                  <Tip label={`Delete ${namedRange.name}`}>
+                    <button type="button" className="tool" aria-label={`Delete ${namedRange.name}`} onClick={() => workbook.removeNamedRange(namedRange.name)}>
+                      <Trash2 {...smallIcon} />
+                    </button>
+                  </Tip>
                 </li>
               ))}
             </ul>

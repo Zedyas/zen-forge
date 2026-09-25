@@ -2,6 +2,7 @@ import { Dialog } from '@base-ui/react/dialog'
 import { ShieldAlert, X } from 'lucide-react'
 import type { FindingSeverity } from '@shared/fidelity'
 import { useFidelityStore } from '../services/fidelity/fidelity-store'
+import { smallIcon } from './icons'
 import { Tip } from './Tip'
 
 const severityLabel: Record<FindingSeverity, string> = {
@@ -37,7 +38,7 @@ export function FidelitySurface({ documentId }: { readonly documentId: string | 
             <span>Import report</span>
             <Tip label="Close import report">
               <button type="button" className="tool" onClick={() => setPanelOpen(false)} aria-label="Close import report">
-                <X aria-hidden="true" size={15} />
+                <X {...smallIcon} />
               </button>
             </Tip>
           </header>

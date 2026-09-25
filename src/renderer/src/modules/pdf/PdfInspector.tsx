@@ -2,6 +2,7 @@ import { FolderSearch, Minus, Plus, Trash2 } from 'lucide-react'
 import type { OpenDocument } from '../../app/documents-store'
 import { platformClient } from '../../services/platform/client'
 import { Inspector, InspectorRow, InspectorSection } from '../../ui/Inspector'
+import { smallIcon } from '../../ui/icons'
 import { Tip } from '../../ui/Tip'
 import { findMarkup, removeMarkup, updateMarkup } from './markup-actions'
 import type { Markup } from './model'
@@ -40,11 +41,11 @@ function SelectedMarkup({ documentId, document }: { readonly documentId: string;
         <InspectorRow label="Size">
           <span className="pdf-stepper">
             <Tip label="Smaller text">
-              <button type="button" className="tool" aria-label="Smaller text" onClick={() => update({ ...markup, size: Math.max(6, markup.size - 1) })}><Minus aria-hidden="true" size={13} /></button>
+              <button type="button" className="tool" aria-label="Smaller text" onClick={() => update({ ...markup, size: Math.max(6, markup.size - 1) })}><Minus {...smallIcon} /></button>
             </Tip>
             <span>{markup.size} pt</span>
             <Tip label="Larger text">
-              <button type="button" className="tool" aria-label="Larger text" onClick={() => update({ ...markup, size: Math.min(96, markup.size + 1) })}><Plus aria-hidden="true" size={13} /></button>
+              <button type="button" className="tool" aria-label="Larger text" onClick={() => update({ ...markup, size: Math.min(96, markup.size + 1) })}><Plus {...smallIcon} /></button>
             </Tip>
           </span>
         </InspectorRow>
@@ -56,7 +57,7 @@ function SelectedMarkup({ documentId, document }: { readonly documentId: string;
         <p className="inspector-note">Removed permanently when you save. The page becomes an image.</p>
       )}
       <button type="button" className="button is-quiet pdf-inspector-action" onClick={() => removeMarkup(documentId, selection.pageKey, selection.markupId)}>
-        <Trash2 aria-hidden="true" size={14} />Delete
+        <Trash2 {...smallIcon} />Delete
       </button>
     </InspectorSection>
   )
@@ -84,14 +85,14 @@ function Signatures() {
             </button>
             <Tip label="Delete signature">
               <button type="button" className="tool" aria-label="Delete signature" onClick={() => removeSignature(signature.id)}>
-                <Trash2 aria-hidden="true" size={14} />
+                <Trash2 {...smallIcon} />
               </button>
             </Tip>
           </li>
         ))}
       </ul>
       <button type="button" className="button is-quiet pdf-inspector-action" onClick={() => useToolStore.setState({ signatureDialogOpen: true })}>
-        <Plus aria-hidden="true" size={14} />Add signature…
+        <Plus {...smallIcon} />Add signature…
       </button>
     </InspectorSection>
   )
@@ -154,7 +155,7 @@ export function PdfInspector({ documentId, document, openDocument }: {
           <button type="button" className="button is-quiet pdf-inspector-action" onClick={() => {
             if (openDocument.path !== undefined) void platformClient.revealInFinder(openDocument.path)
           }}>
-            <FolderSearch aria-hidden="true" size={14} />Show in Finder
+            <FolderSearch {...smallIcon} />Show in Finder
           </button>
         )}
       </InspectorSection>

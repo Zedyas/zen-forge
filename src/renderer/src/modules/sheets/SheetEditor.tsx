@@ -19,6 +19,7 @@ import { toast } from 'sonner'
 import type { OpenDocument } from '../../app/documents-store'
 import { useViewStore } from '../../app/view-store'
 import { FidelitySurface } from '../../ui/FidelitySurface'
+import { smallIcon } from '../../ui/icons'
 import { Tip } from '../../ui/Tip'
 import { FindBar } from './FindBar'
 import { FormulaBar } from './FormulaBar'
@@ -395,7 +396,7 @@ export function SheetEditor({ document, workbook }: SheetEditorProps) {
               </SortableContext>
               <Tip label="Add sheet">
                 <button className="tool" type="button" aria-label="Add sheet" onClick={() => setActiveSheetName(workbook.addSheet().name)}>
-                  <Plus aria-hidden="true" size={14} strokeWidth={1.8} />
+                  <Plus {...smallIcon} />
                 </button>
               </Tip>
             </div>

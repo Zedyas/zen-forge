@@ -37,6 +37,7 @@ import {
   toggleStyle,
   type SheetController,
 } from './sheet-commands'
+import { icon, tinyIcon } from '../../ui/icons'
 import { Tip } from '../../ui/Tip'
 import { ColorTool, Toolbar, ToolButton, ToolSeparator } from '../../ui/Toolbar'
 import { TitleEssentials } from '../../ui/TitleSlot'
@@ -92,8 +93,8 @@ function StructureMenu({ controller, axis }: StructureMenuProps) {
     <Menu.Root>
       <Tip label={isRows ? 'Rows' : 'Columns'}>
         <Menu.Trigger className="tool" aria-label={isRows ? 'Rows' : 'Columns'}>
-          <Icon aria-hidden="true" size={16} strokeWidth={1.7} />
-          <ChevronDown aria-hidden="true" size={11} strokeWidth={2.2} />
+          <Icon {...icon} />
+          <ChevronDown {...tinyIcon} />
         </Menu.Trigger>
       </Tip>
       <Menu.Portal>
