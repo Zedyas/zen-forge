@@ -4,8 +4,8 @@ import { create } from 'zustand'
 import type { CommandId } from '@shared/commands'
 import { fileService } from '../../services/file/IpcFileService'
 import { platformClient } from '../../services/platform/client'
-import { mimeTypeForExtension, toDataUrl } from './io/images'
-import { documentPage, documentTheme, type BlockStyle, type PageSetup, type StyleName } from './theme'
+import { imageSize, mimeTypeForExtension, toDataUrl } from './io/images'
+import { contentWidthPixels, documentPage, documentTheme, type BlockStyle, type PageSetup, type StyleName } from './theme'
 
 /** The mounted document that menu commands act on. */
 export interface DocController {
@@ -166,8 +166,14 @@ export function runDocCommand(command: CommandId): void | Promise<void> {
 export async function insertImage(editor: Editor): Promise<void> {
   const [file] = await fileService.chooseFiles({ extensions: ['png', 'jpg', 'jpeg'] })
   if (file === undefined) return
-  const src = toDataUrl(await fileService.read(file.path), mimeTypeForExtension(file.extension))
-  editor.chain().focus().setImage({ src }).run()
+  const bytes = await fileService.read(file.path)
+  const src = toDataUrl(bytes, mimeTypeForExtension(file.extension))
+  // The size it is placed at, as Word records it: its own size, scaled down to the text width.
+  const natural = imageSize(bytes)
+  const column = contentWidthPixels(documentPage(editor.state.doc.attrs['page']))
+  const width = natural === undefined ? undefined : Math.round(Math.min(natural.width, column))
+  const size = natural === undefined || width === undefined || natural.width === 0 ? {} : { width, height: Math.round(natural.height * (width / natural.width)) }
+  editor.chain().focus().setImage({ src, ...size }).run()
 }
 
 /** A web or mail address as typed: `example.com` becomes `https://example.com`. Other schemes are refused. */
