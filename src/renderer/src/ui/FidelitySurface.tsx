@@ -1,11 +1,10 @@
 import { Dialog } from '@base-ui/react/dialog'
 import { ShieldAlert, X } from 'lucide-react'
-import type { ImportSeverity } from '@shared/fidelity'
+import type { FindingSeverity } from '@shared/fidelity'
 import { useFidelityStore } from '../services/fidelity/fidelity-store'
 import { Tip } from './Tip'
 
-const severityLabel: Record<ImportSeverity, string> = {
-  lossless: 'Nothing lost',
+const severityLabel: Record<FindingSeverity, string> = {
   degraded: 'Approximated',
   dropped: 'Lost on save',
 }
@@ -21,19 +20,18 @@ export function FidelitySurface({ documentId }: { readonly documentId: string | 
   const setPanelOpen = useFidelityStore(state => state.setPanelOpen)
   const closeModal = useFidelityStore(state => state.closeModal)
 
-  if (report === undefined) return null
+  // A file opened with nothing lost needs no mention.
+  if (report === undefined || report.findings.length === 0) return null
   const dropped = report.findings.filter(finding => finding.severity === 'dropped')
 
   return (
     <>
       <button className="fidelity-status" type="button" onClick={() => setPanelOpen(!panelOpen)}>
         <i className={`fidelity-badge fidelity-badge--${report.severity}`} aria-hidden="true" />
-        {report.severity === 'lossless'
-          ? 'Opened without loss'
-          : `${report.findings.length} import ${report.findings.length === 1 ? 'note' : 'notes'}`}
+        {report.findings.length} import {report.findings.length === 1 ? 'note' : 'notes'}
       </button>
 
-      {panelOpen && report.findings.length > 0 && (
+      {panelOpen && (
         <aside className="fidelity-panel" aria-label="Import report">
           <header>
             <span>Import report</span>

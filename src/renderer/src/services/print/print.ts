@@ -1,3 +1,4 @@
+import { toast } from 'sonner'
 import type { Paper } from '@shared/print'
 import { platformClient } from '../platform/client'
 
@@ -69,7 +70,10 @@ let busy = false
 
 /** Builds and mounts a printout, runs `job` on the page, then removes it. A request while one runs is ignored. */
 async function withPrintout<Result>(build: PrintoutBuilder, job: () => Promise<Result>): Promise<Result | undefined> {
-  if (busy) return undefined
+  if (busy) {
+    toast.info('Zendo is already preparing a printout', { description: 'Try again when it has finished.' })
+    return undefined
+  }
   busy = true
   const root = document.createElement('div')
   let printout: Printout | undefined
@@ -91,12 +95,12 @@ async function withPrintout<Result>(build: PrintoutBuilder, job: () => Promise<R
   }
 }
 
-/** Opens the print dialog for a printout. Resolves true once printed; false when cancelled or there was nothing to print. */
+/** Opens the print dialog for a printout. Resolves true once printed; false when cancelled, when there was nothing to print, or while another printout is being prepared. */
 export async function openPrintDialog(build: PrintoutBuilder): Promise<boolean> {
   return (await withPrintout(build, () => platformClient.print())) ?? false
 }
 
-/** Renders a printout to PDF bytes; undefined when there was nothing to print. */
+/** Renders a printout to PDF bytes; undefined when there was nothing to print or another printout is being prepared. */
 export function printToPdf(build: PrintoutBuilder): Promise<Uint8Array | undefined> {
   return withPrintout(build, () => platformClient.printToPdf())
 }

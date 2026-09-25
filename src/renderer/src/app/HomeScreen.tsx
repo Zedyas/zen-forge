@@ -184,7 +184,7 @@ export function HomeScreen() {
       </div>
 
       <footer className="home-footer">
-        <span>Files stay on this Mac. No account. {suiteName} checks GitHub for updates.</span>
+        <span>Files stay on this Mac. No account needed.</span>
         <AppearanceControl />
       </footer>
     </main>
