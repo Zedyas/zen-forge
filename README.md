@@ -153,6 +153,7 @@ src/
 scripts/       the app icon generator (pnpm icon:generate) and the license notices for releases
 .github/       checks and release workflows, Dependabot, issue forms
 patches/       fixes for Glide Data Grid, applied by pnpm install
+vendor/        SheetJS, installed from a copy in the repository as its authors recommend
 build/         the app icon used for packaging
 ```
 
