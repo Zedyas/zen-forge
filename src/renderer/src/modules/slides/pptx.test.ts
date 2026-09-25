@@ -3,7 +3,7 @@ import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 import PptxGenJS from 'pptxgenjs'
 import { describe, expect, it } from 'vitest'
 import { createImportReport } from '@shared/fidelity'
-import { newId, newTable, paragraphOf, textRun, updateCell, type Presentation, type SlideElement } from './model'
+import { createSlide, newId, newTable, paragraphOf, textRun, updateCell, type Paragraph, type Presentation, type SlideElement } from './model'
 import { writePptx } from './pptx-export'
 import { readPptx } from './pptx-import'
 
@@ -31,6 +31,12 @@ const shape: SlideElement = {
 }
 const picture: SlideElement = { kind: 'image', id: newId(), x: 620, y: 320, width: 160, height: 160, rotation: 0, src: png }
 const table = updateCell(updateCell(newTable(3, 2, { width: 960, height: 540, theme: 'light' }), 0, 0, { text: 'Region' }), 1, 1, { text: '12', align: 'right', fill: '#dbe8fb' })
+// Empty layout boxes in a dark theme (light text), and a box with a blank line between two lines and a tab.
+const layout = createSlide('titleContent', { width: 960, height: 540, theme: 'slate' })
+const spaced: SlideElement = {
+  kind: 'text', id: newId(), x: 58, y: 300, width: 500, height: 100, ...frame,
+  paragraphs: [paragraphOf('Name\tValue'), paragraphOf('', { size: 32, color: '#c9352b', bold: true, font: 'Georgia' }), paragraphOf('Below')],
+}
 
 const presentation: Presentation = {
   width: 960,
@@ -39,13 +45,20 @@ const presentation: Presentation = {
   slides: [
     { id: newId(), background: '#fdf6e3', elements: [title, bullets, shape, picture], notes: 'Speak slowly' },
     { id: newId(), background: '#ffffff', backgroundImage: png, elements: [table], notes: '' },
+    { ...layout, elements: [...layout.elements, spaced] },
   ],
+}
+
+/** What an empty line keeps: its look, not its (absent) text. */
+function look(paragraph: Paragraph | undefined) {
+  const run = paragraph?.runs[0]
+  return { align: paragraph?.align, list: paragraph?.list, size: run?.size, color: run?.color, font: run?.font, bold: run?.bold }
 }
 
 describe('.pptx round trip', () => {
   it('keeps text, lists, bold, highlight, shapes, pictures, tables, positions and notes, and reports nothing lost', async () => {
     const { presentation: reopened, findings } = await readPptx(await writePptx(presentation))
-    const [first, second] = reopened.slides
+    const [first, second, third] = reopened.slides
 
     expect(findings).toEqual([])
     expect(reopened).toMatchObject({ width: 960, height: 540 })
@@ -76,9 +89,16 @@ describe('.pptx round trip', () => {
     expect(reopenedTable.columns).toHaveLength(2)
     expect(reopenedTable.rows.map(row => row.cells.map(cell => cell.text))).toEqual([['Region', ''], ['', '12'], ['', '']])
     expect(reopenedTable.rows[0]?.cells[0]).toMatchObject({ bold: true, fill: '#4a78c2', color: '#ffffff' })
+    // An empty header cell keeps its bold white text, so the header row stays on.
+    expect(reopenedTable.rows[0]?.cells[1]).toMatchObject({ text: '', bold: true, fill: '#4a78c2', color: '#ffffff' })
     expect(reopenedTable.rows[1]?.cells[1]).toMatchObject({ align: 'right', fill: '#dbe8fb' })
     expect(reopenedTable.x).toBeCloseTo(table.x, 0)
     expect(reopenedTable.width).toBeCloseTo(table.width, 0)
+
+    const originalLooks = presentation.slides[2]?.elements.flatMap(element => element.kind === 'text' ? element.paragraphs.map(look) : [])
+    expect(third?.elements.flatMap(element => element.kind === 'text' ? element.paragraphs.map(look) : [])).toEqual(originalLooks)
+    const lines = third?.elements[2]
+    expect(lines?.kind === 'text' ? lines.paragraphs.map(paragraph => paragraph.runs.map(run => run.text).join('')) : undefined).toEqual(['Name\tValue', '', 'Below'])
   })
 })
 
@@ -97,6 +117,38 @@ describe('.pptx import report', () => {
     expect(findings).toEqual([expect.objectContaining({ construct: 'Charts', severity: 'dropped', location: 'Slide 1', suggestedAlternative: expect.stringContaining('removed when saved') })])
     expect(createImportReport('Results.pptx', findings).severity).toBe('dropped')
     expect(imported.slides[0]?.elements.map(element => element.kind)).toEqual(['shape', 'table'])
+  })
+})
+
+describe('.pptx import report for tables and text', () => {
+  it('reports what a table cell or a text box would lose, so saving asks first', async () => {
+    const pptx = new PptxGenJS()
+    const slide = pptx.addSlide()
+    const none = { type: 'none' as const }
+    const line = { type: 'solid' as const, pt: 1, color: '000000' }
+    slide.addTable([[
+      { text: [{ text: 'Total: ' }, { text: '12', options: { bold: true } }] },
+      { text: [{ text: 'one', options: { bullet: true, breakLine: true } }, { text: 'two', options: { bullet: true } }] },
+      { text: 'edges', options: { border: [line, none, line, none] } },
+    ]], { x: 0.5, y: 0.5, w: 6 })
+    slide.addText('A title that must not wrap', { x: 0.5, y: 3, w: 2, h: 1, wrap: false })
+    const written = await pptx.write({ outputType: 'uint8array' })
+    if (!(written instanceof Uint8Array)) throw new Error('pptxgenjs did not write bytes')
+
+    const { findings } = await readPptx(written)
+
+    expect(findings.map(finding => [finding.construct, finding.severity])).toEqual(expect.arrayContaining([
+      ['Mixed formatting inside a table cell', 'degraded'],
+      ['Bullets and numbering in table cells', 'degraded'],
+      ['Table borders that differ between cells', 'degraded'],
+      ['Text set not to wrap', 'degraded'],
+    ]))
+  })
+
+  it('gives a plain message for a file pptxtojson cannot read', async () => {
+    const parts = unzipSync(await writePptx(presentation))
+    parts['ppt/slides/slide1.xml'] = strToU8('<p:sld')
+    await expect(readPptx(zipSync(parts))).rejects.toThrow('This presentation couldn\'t be read. It may be damaged, or use something Slides doesn\'t support.')
   })
 })
 

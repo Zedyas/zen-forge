@@ -1,6 +1,7 @@
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 import PptxGenJS from 'pptxgenjs'
 import {
+  isLine,
   lineEnds,
   opaqueHex,
   scalePath,
@@ -8,7 +9,9 @@ import {
   type Border,
   type Paragraph,
   type Presentation,
+  type RunStyle,
   type ShapeElement,
+  type Slide,
   type SlideElement,
   type TableElement,
   type TextBody,
@@ -215,18 +218,71 @@ function addElement(slide: PptxGenJS.Slide, element: SlideElement): void {
 }
 
 /**
- * pptxgenjs repeats a paragraph's `<a:pPr>` before each of its runs, which the file format does not
- * allow; PowerPoint and pptxtojson then misread bullets. Keeps only the first one, and recompresses
- * (pptxgenjs stores files uncompressed).
+ * The paragraphs pptxgenjs writes for a slide, in the order they appear in its XML, with the look an
+ * empty one should keep: text boxes and shapes paragraph by paragraph, tables cell by cell and line
+ * by line. Undefined for a paragraph with text, whose runs already carry its look.
  */
-function repairParagraphProperties(bytes: Uint8Array): Uint8Array {
+function paragraphLooks(slide: Slide): (RunStyle | undefined)[] {
+  return slide.elements.flatMap((element): (RunStyle | undefined)[] => {
+    if (element.kind === 'table') {
+      return element.rows.flatMap(row => row.cells.flatMap(cell => cell.text.split('\n').map(line => line !== '' ? undefined : {
+        bold: cell.bold, italic: false, underline: false, color: cell.color ?? element.color, size: element.size, font: element.font,
+      })))
+    }
+    if (element.kind === 'image' || element.paragraphs.length === 0 || isLine(element)) return []
+    return element.paragraphs.map(paragraph => paragraph.runs.every(run => run.text === '') ? paragraph.runs[0] : undefined)
+  })
+}
+
+/** An `<a:endParaRPr>` holding a whole run look; pptxgenjs writes only a size, often the wrong one. */
+function endParagraphProperties(style: RunStyle): string {
+  const hex = opaqueHex(style.color)?.slice(1) ?? '000000'
+  const opacity = 100 - transparency(style.color)
+  const alpha = opacity < 100 ? `<a:alpha val="${opacity * 1000}"/>` : ''
+  const font = style.font.replace(/[<>&"]/g, '')
+  return `<a:endParaRPr lang="en-US" sz="${Math.round(style.size * 100)}" b="${style.bold ? 1 : 0}" i="${style.italic ? 1 : 0}" u="${style.underline ? 'sng' : 'none'}" dirty="0">`
+    + `<a:solidFill><a:srgbClr val="${hex}">${alpha}</a:srgbClr></a:solidFill><a:latin typeface="${font}"/></a:endParaRPr>`
+}
+
+/**
+ * Gives each empty paragraph its own look, so an empty placeholder, a blank line or an empty table
+ * cell reopens with its size, colour, font and weight. When the slide's paragraphs do not line up
+ * with the model's (they always should), the slide is left as pptxgenjs wrote it.
+ */
+function keepEmptyParagraphLooks(xml: string, slide: Slide | undefined): string {
+  if (slide === undefined) return xml
+  const looks = paragraphLooks(slide)
+  const paragraphs = xml.match(/<a:p>[\s\S]*?<\/a:p>/g) ?? []
+  if (paragraphs.length !== looks.length) return xml
+  let index = 0
+  return xml.replace(/<a:p>[\s\S]*?<\/a:p>/g, paragraph => {
+    const look = looks[index++]
+    if (look === undefined) return paragraph
+    const end = endParagraphProperties(look)
+    const replaced = paragraph.replace(/<a:endParaRPr\b[^>]*?(?:\/>|>[\s\S]*?<\/a:endParaRPr>)/, end)
+    return replaced === paragraph ? paragraph.replace('</a:p>', `${end}</a:p>`) : replaced
+  })
+}
+
+/**
+ * Repairs what pptxgenjs writes, and recompresses (it stores files uncompressed):
+ * - It repeats a paragraph's `<a:pPr>` before each of its runs, which the file format does not
+ *   allow; PowerPoint and pptxtojson then misread bullets. Only the first is kept.
+ * - Empty paragraphs get their look (see keepEmptyParagraphLooks).
+ */
+function repairSlides(bytes: Uint8Array, presentation: Presentation): Uint8Array {
   const files = unzipSync(bytes)
   const repaired: Record<string, Uint8Array> = {}
   for (const [name, data] of Object.entries(files)) {
     if (name.endsWith('/')) continue
-    repaired[name] = /^ppt\/slides\/slide\d+\.xml$/.test(name)
-      ? strToU8(strFromU8(data).replace(/(<\/a:r>(?:<a:br\/>)?)<a:pPr\b[^>]*?(?:\/>|>[\s\S]*?<\/a:pPr>)/g, '$1'))
-      : data
+    const slide = /^ppt\/slides\/slide(\d+)\.xml$/.exec(name)
+    if (slide === null) {
+      repaired[name] = data
+      continue
+    }
+    const single = strFromU8(data).replace(/(<\/a:r>(?:<a:br\/>)?)<a:pPr\b[^>]*?(?:\/>|>[\s\S]*?<\/a:pPr>)/g, '$1')
+    // pptxgenjs numbers slide files from 1, in the presentation's order.
+    repaired[name] = strToU8(keepEmptyParagraphLooks(single, presentation.slides[Number(slide[1]) - 1]))
   }
   return zipSync(repaired)
 }
@@ -246,5 +302,5 @@ export async function writePptx(presentation: Presentation): Promise<Uint8Array>
   }
   const written = await pptx.write({ outputType: 'uint8array' })
   if (!(written instanceof Uint8Array)) throw new Error('The presentation could not be written.')
-  return repairParagraphProperties(written)
+  return repairSlides(written, presentation)
 }

@@ -9,6 +9,7 @@ import {
   type Text as SourceText,
 } from 'pptxtojson'
 import type { FindingSeverity, ImportFindingInput } from '@shared/fidelity'
+import { assertZipFitsInMemory } from '../../services/zip'
 import {
   defaultInset,
   lineThrough,
@@ -26,6 +27,7 @@ import {
   type Paragraph,
   type Point,
   type Presentation,
+  type RunStyle,
   type ShapeElement,
   type Slide,
   type SlideElement,
@@ -65,10 +67,10 @@ const catalogue = {
   comments: ['Comments', 'dropped', `Not shown, and removed when saved. ${keptInOriginal}`],
   sections: ['Slide sections', 'dropped', 'Slides keep their order; saving removes the section names.'],
   embeddedFonts: ['Embedded fonts', 'dropped', 'Text uses fonts installed on this Mac, and saving removes the embedded copies.'],
-  pictureFormats: ['Pictures in EMF, WMF or TIFF format', 'dropped', `Not shown, and removed when saved. ${keptInOriginal}`],
+  pictureFormats: ['Pictures in formats Slides can\'t show', 'dropped', `Not shown, and removed when saved. ${keptInOriginal}`],
   pictureFills: ['Picture fills in shapes', 'dropped', 'The shape is kept without its picture.'],
   masters: ['Slide master and layout designs', 'degraded', 'Their shapes and pictures are copied onto each slide, where they can be selected and moved.'],
-  placeholders: ['Placeholders', 'degraded', 'Kept as text boxes with the same position and look.'],
+  placeholders: ['Placeholders', 'degraded', 'Kept as ordinary text boxes in the same place, with the same text style.'],
   theme: ['Theme colours and fonts', 'degraded', 'Kept as fixed colours and fonts, so changing the theme in PowerPoint later does not update them.'],
   groups: ['Grouped shapes', 'degraded', 'Ungrouped into separate shapes in the same places.'],
   gradients: ['Gradient fills', 'degraded', 'Shown and saved in one colour, the gradient\'s first.'],
@@ -97,6 +99,10 @@ const catalogue = {
   lineBreaks: ['Line breaks inside paragraphs', 'degraded', 'Shown and saved as spaces.'],
   mergedCells: ['Merged table cells', 'degraded', 'Shown and saved as separate cells.'],
   tableText: ['Table text formatting', 'degraded', 'Each table uses one font and size; bold, colour and alignment are kept per cell.'],
+  tableRuns: ['Mixed formatting inside a table cell', 'degraded', 'Each cell is shown and saved in one style, its first words\' bold and colour; highlight is left out.'],
+  tableLists: ['Bullets and numbering in table cells', 'degraded', 'Shown and saved as plain lines.'],
+  tableBorders: ['Table borders that differ between cells', 'degraded', 'Every cell edge is shown and saved with the same border.'],
+  noWrap: ['Text set not to wrap', 'degraded', 'Shown and saved wrapping inside its box.'],
 } satisfies Record<string, readonly [string, FindingSeverity, string]>
 
 type FindingKey = keyof typeof catalogue
@@ -135,11 +141,24 @@ interface ParagraphInfo {
   readonly list?: ListStyle
   readonly customList: boolean
   readonly stretches: readonly Stretch[]
+  /** An empty paragraph's look, from its `a:endParaRPr`: pptxtojson gives empty lines a default 18 pt. */
+  readonly endStyle: Partial<RunStyle>
+}
+
+/** What a table's XML says about its cells. */
+interface TableXml {
+  /** Each empty cell's look, from its paragraph's `a:endParaRPr`, by row and column. */
+  readonly ends: readonly (readonly Partial<RunStyle>[])[]
+  /** Some cell has bullets, numbering or highlighted text, none of which a cell here holds. */
+  readonly lists: boolean
+  readonly highlight: boolean
 }
 
 interface SlideXml {
   /** Paragraph levels, lists and highlight of each shape, by its `cNvPr` id. */
   readonly paragraphs: ReadonlyMap<string, readonly ParagraphInfo[]>
+  /** Tables by their graphic frame's `cNvPr` id. */
+  readonly tables: ReadonlyMap<string, TableXml>
   readonly animated: boolean
   readonly hidden: boolean
   readonly fields: boolean
@@ -178,9 +197,57 @@ function stretchesOf(paragraph: Element): Stretch[] {
   })
 }
 
+/** The run look an empty paragraph keeps in its `a:endParaRPr`: only what the file states. */
+function endStyleOf(paragraph: Element): Partial<RunStyle> {
+  const properties = childNamed(paragraph, 'a:endParaRPr')
+  const hasRuns = Array.from(paragraph.children).some(child => child.tagName === 'a:r' || child.tagName === 'a:fld')
+  if (properties === undefined || hasRuns) return {}
+  const flag = (name: string): boolean | undefined => {
+    const value = properties.getAttribute(name)
+    return value === null ? undefined : value === '1' || value === 'true'
+  }
+  const size = Number(properties.getAttribute('sz'))
+  const underline = properties.getAttribute('u')
+  const colour = childNamed(properties, 'a:solidFill')?.getElementsByTagName('a:srgbClr')[0]
+  const alpha = Number(colour?.getElementsByTagName('a:alpha')[0]?.getAttribute('val') ?? 100000)
+  const alphaHex = alpha >= 100000 ? '' : Math.round((alpha / 100000) * 255).toString(16).padStart(2, '0')
+  const color = colour === undefined ? undefined : parseColor(`#${colour.getAttribute('val') ?? ''}${alphaHex}`)
+  const font = childNamed(properties, 'a:latin')?.getAttribute('typeface')
+  const bold = flag('b')
+  const italic = flag('i')
+  return {
+    ...(Number.isFinite(size) && size > 0 ? { size: size / 100 } : {}),
+    ...(bold === undefined ? {} : { bold }),
+    ...(italic === undefined ? {} : { italic }),
+    ...(underline === null ? {} : { underline: underline !== 'none' }),
+    ...(color === undefined ? {} : { color }),
+    // A theme font (`+mn-lt`) is left to pptxtojson, which resolves it.
+    ...(font === null || font === undefined || font.startsWith('+') ? {} : { font }),
+  }
+}
+
+function readTableXml(frame: Element): TableXml | undefined {
+  const table = frame.getElementsByTagName('a:tbl')[0]
+  if (table === undefined) return undefined
+  const ends = Array.from(table.children).filter(child => child.tagName === 'a:tr').map(row =>
+    Array.from(row.children).filter(child => child.tagName === 'a:tc').map(cell => {
+      const paragraph = cell.getElementsByTagName('a:p')[0]
+      return paragraph === undefined ? {} : endStyleOf(paragraph)
+    }))
+  const lists = Array.from(table.getElementsByTagName('a:pPr')).some(properties =>
+    childNamed(properties, 'a:buChar') !== undefined || childNamed(properties, 'a:buAutoNum') !== undefined)
+  return { ends, lists, highlight: table.getElementsByTagName('a:highlight').length > 0 }
+}
+
 function readSlideXml(xml: string): SlideXml {
   const document = new DOMParser().parseFromString(xml, 'application/xml')
   const paragraphs = new Map<string, ParagraphInfo[]>()
+  const tables = new Map<string, TableXml>()
+  for (const frame of Array.from(document.getElementsByTagName('p:graphicFrame'))) {
+    const id = frame.getElementsByTagName('p:cNvPr')[0]?.getAttribute('id')
+    const table = readTableXml(frame)
+    if (id !== null && id !== undefined && table !== undefined) tables.set(id, table)
+  }
   for (const shape of Array.from(document.getElementsByTagName('p:sp'))) {
     const id = shape.getElementsByTagName('p:cNvPr')[0]?.getAttribute('id')
     const body = childNamed(shape, 'p:txBody')
@@ -195,12 +262,14 @@ function readSlideXml(xml: string): SlideXml {
         level: Number.isFinite(level) ? Math.min(8, Math.max(0, level)) : 0,
         ...listOf(properties, bulletedPlaceholder),
         stretches: stretchesOf(paragraph),
+        endStyle: endStyleOf(paragraph),
       }
     }))
   }
   const tagged = (name: string): boolean => document.getElementsByTagName(name).length > 0
   return {
     paragraphs,
+    tables,
     animated: Array.from(document.getElementsByTagName('p:cTn')).some(node => node.hasAttribute('presetClass')),
     hidden: document.documentElement.getAttribute('show') === '0',
     fields: tagged('a:fld'),
@@ -242,15 +311,40 @@ function readRun(span: Element, context: TextContext): TextRun {
   }
   if (span.querySelector('a') !== null) findings.add('links', slide)
   const size = Number.parseFloat(style.get('font-size') ?? '18')
+  // pptxtojson writes every space as a no-break space.
   return textRun((span.textContent ?? '').replace(/\u00a0/g, ' '), {
     bold: style.get('font-weight') === 'bold',
     italic: style.get('font-style') === 'italic',
     underline: (style.get('text-decoration') ?? '').includes('underline'),
     color: parseColor(style.get('color')) ?? defaultTheme.text,
     size: Math.round((Number.isFinite(size) ? size : 18) * context.fontScale * 10) / 10,
-    // pptxtojson writes every space as a no-break space.
     font: (style.get('font-family') ?? '').replace(/["']/g, '').split(',')[0]?.trim() || defaultTheme.font,
   })
+}
+
+/**
+ * pptxtojson writes a tab as four spaces. Where the XML has a tab and the runs have those spaces,
+ * the tab comes back; if the two texts do not line up, the runs stay as they are.
+ */
+function withTabs(runs: readonly TextRun[], stretches: readonly Stretch[] | undefined): readonly TextRun[] {
+  const xml = stretches?.map(stretch => stretch.text).join('') ?? ''
+  if (!xml.includes('\t')) return runs
+  let at = 0
+  const restored = runs.map(run => {
+    let text = ''
+    for (let index = 0; index < run.text.length;) {
+      if (xml[at] === '\t' && run.text.startsWith('    ', index)) {
+        text += '\t'
+        index += 4
+      } else {
+        text += run.text[index]
+        index += 1
+      }
+      at += 1
+    }
+    return { ...run, text }
+  })
+  return at === xml.length ? restored : runs
 }
 
 /** Splits runs where the XML's highlight changes, when the two agree on the paragraph's text. */
@@ -298,7 +392,13 @@ function readParagraphs(html: string, infos: readonly ParagraphInfo[] | undefine
     // An empty line arrives as one no-break space.
     const empty = spans.length === 1 && spans[0]?.textContent === '\u00a0'
     const read = spans.map(span => readRun(span, context))
-    const runs = read.length === 0 ? [textRun('', { size: 18 })] : empty ? read.map(run => ({ ...run, text: '' })) : withHighlight(read, info?.stretches, context)
+    // An empty line's own look is in the XML; pptxtojson only guesses it.
+    const endStyle = info?.endStyle ?? {}
+    const runs = read.length === 0
+      ? [textRun('', { size: 18, ...endStyle })]
+      : empty
+        ? read.map(run => ({ ...run, ...endStyle, text: '' }))
+        : withHighlight(withTabs(read, info?.stretches), info?.stretches, context)
     const htmlList: ListStyle = element.closest('ol') !== null ? 'number' : element.closest('li') !== null ? 'bullet' : 'none'
     return {
       runs,
@@ -334,7 +434,11 @@ interface ElementContext {
   readonly slide: number
   readonly place: Placement
   readonly paragraphs: ReadonlyMap<string, readonly ParagraphInfo[]>
+  readonly tables: ReadonlyMap<string, TableXml>
 }
+
+/** Layout, master and SmartArt shapes come from other parts, whose XML is not read. */
+const noXml = { paragraphs: new Map<string, readonly ParagraphInfo[]>(), tables: new Map<string, TableXml>() }
 
 interface Positioned {
   readonly left: number
@@ -396,7 +500,10 @@ function textBodyOf(source: SourceShape | SourceText, context: ElementContext) {
     : readParagraphs(source.content, context.paragraphs.get(source.id), { findings: context.findings, slide: context.slide, fontScale })
   if (source.shadow !== undefined) context.findings.add('shadows', context.slide)
   if (source.link !== undefined) context.findings.add('links', context.slide)
-  return { paragraphs, verticalAlign: verticalAlignOf(source.vAlign), inset: insetOf(source) }
+  if (source.wrap === false && paragraphs.length > 0) context.findings.add('noWrap', context.slide)
+  // A shape saved without text has no anchor in the file; text typed into it later starts in the middle, as in PowerPoint.
+  const verticalAlign = source.type === 'shape' && paragraphs.length === 0 ? 'middle' : verticalAlignOf(source.vAlign)
+  return { paragraphs, verticalAlign, inset: insetOf(source) }
 }
 
 const lineShapes: ReadonlySet<string> = new Set(['line', 'straightConnector1', 'bentConnector2', 'bentConnector3', 'bentConnector4', 'bentConnector5', 'curvedConnector2', 'curvedConnector3', 'curvedConnector4', 'curvedConnector5'])
@@ -483,8 +590,8 @@ function imageOf(src: string, source: Positioned, rotate: number, context: Eleme
   return [{ kind: 'image', ...frameOf(source, rotate, context), src }]
 }
 
-/** A cell's text as plain lines, with the look of its first run; a table style's colours come from pptxtojson. */
-function cellOf(source: SourceCell, context: ElementContext): { readonly cell: TableCell; readonly runs: readonly TextRun[] } {
+/** A cell's text as plain lines, with the look of its first run, or of its empty paragraph's `a:endParaRPr`; a table style's colours come from pptxtojson. */
+function cellOf(source: SourceCell, endStyle: Partial<RunStyle>, context: ElementContext): { readonly cell: TableCell; readonly runs: readonly TextRun[] } {
   const text: TextContext = { findings: context.findings, slide: context.slide, fontScale: 1 }
   const paragraphs = source.text.trim() === '' ? [] : readParagraphs(source.text, undefined, text)
   const runs = paragraphs.flatMap(paragraph => paragraph.runs).filter(run => run.text !== '')
@@ -492,12 +599,14 @@ function cellOf(source: SourceCell, context: ElementContext): { readonly cell: T
   if (source.rowSpan !== undefined || source.colSpan !== undefined || source.hMerge !== undefined || source.vMerge !== undefined) {
     context.findings.add('mergedCells', context.slide)
   }
+  // A cell holds one bold and one colour; runs that differ lose theirs.
+  if (runs.some(run => run.bold !== first?.bold || run.color !== first.color)) context.findings.add('tableRuns', context.slide)
   return {
     runs,
     cell: {
       text: paragraphs.map(paragraph => paragraph.runs.map(run => run.text).join('')).join('\n'),
-      bold: source.fontBold === true || (first?.bold ?? false),
-      color: parseColor(source.fontColor) ?? first?.color,
+      bold: source.fontBold === true || (first?.bold ?? endStyle.bold ?? false),
+      color: parseColor(source.fontColor) ?? first?.color ?? endStyle.color,
       fill: parseColor(source.fillColor),
       align: paragraphs[0]?.align ?? 'left',
       verticalAlign: verticalAlignOf(source.vAlign),
@@ -505,16 +614,41 @@ function cellOf(source: SourceCell, context: ElementContext): { readonly cell: T
   }
 }
 
+type SourceBorder = SourceCell['borders']['top']
+
+function sameEdge(a: SourceBorder, b: SourceBorder): boolean {
+  const width = (edge: SourceBorder): number => edge?.borderWidth ?? 0
+  return width(a) === width(b) && (width(a) === 0 || parseColor(a?.borderColor) === parseColor(b?.borderColor))
+}
+
+/** The colour most cells use, so the table keeps it once and cells keep only their own. */
+function commonColor(colors: readonly (string | undefined)[]): string | undefined {
+  const counts = new Map<string, number>()
+  for (const color of colors) if (color !== undefined) counts.set(color, (counts.get(color) ?? 0) + 1)
+  return [...counts].sort((a, b) => b[1] - a[1])[0]?.[0]
+}
+
 function tableOf(source: SourceTable, context: ElementContext): TableElement {
+  const xml = context.tables.get(source.id)
+  if (xml?.lists === true) context.findings.add('tableLists', context.slide)
+  if (xml?.highlight === true) context.findings.add('tableRuns', context.slide)
   const columns = source.colWidths.length > 0 ? source.colWidths : [source.width]
-  const read = source.data.map(row => row.map(cell => cellOf(cell, context)))
+  const read = source.data.map((row, rowIndex) => row.map((cell, column) => cellOf(cell, xml?.ends[rowIndex]?.[column] ?? {}, context)))
   const runs = read.flatMap(row => row.flatMap(cell => cell.runs))
   const first = runs[0]
   if (runs.some(run => run.size !== first?.size || run.font !== first.font || run.italic || run.underline)) context.findings.add('tableText', context.slide)
+  // Every cell edge takes the table's one border; an edge set differently in the file loses that.
   const edge = source.borders.top ?? source.borders.left ?? source.data[0]?.[0]?.borders.top
+  const edges = source.data.flatMap(row => row.flatMap(cell => [cell.borders.top, cell.borders.bottom, cell.borders.left, cell.borders.right]))
+  if (edges.some(cellEdge => cellEdge !== undefined && !sameEdge(cellEdge, edge))) context.findings.add('tableBorders', context.slide)
+  const firstEnd = xml?.ends.flat().find(style => style.size !== undefined)
+  const color = commonColor(read.flatMap(row => row.map(cell => cell.cell.color))) ?? defaultTheme.text
   const rows = read.map((row, index) => ({
     height: source.rowHeights[index] ?? 32,
-    cells: columns.map((_, column) => row[column]?.cell ?? { text: '', bold: false, align: 'left' as const, verticalAlign: 'top' as const }),
+    cells: columns.map((_, column) => {
+      const cell = row[column]?.cell ?? { text: '', bold: false, align: 'left' as const, verticalAlign: 'top' as const }
+      return { ...cell, color: cell.color === color ? undefined : cell.color }
+    }),
   }))
   return {
     kind: 'table',
@@ -523,9 +657,9 @@ function tableOf(source: SourceTable, context: ElementContext): TableElement {
     height: rows.reduce((total, row) => total + row.height, 0),
     columns,
     rows,
-    font: first?.font ?? defaultTheme.font,
-    size: first?.size ?? 18,
-    color: defaultTheme.text,
+    font: first?.font ?? firstEnd?.font ?? defaultTheme.font,
+    size: first?.size ?? firstEnd?.size ?? 18,
+    color,
     border: { color: parseColor(edge?.borderColor) ?? '#9aa0a8', width: edge?.borderWidth ?? 1 },
   }
 }
@@ -571,7 +705,7 @@ function convert(source: SourceElement, context: ElementContext): SlideElement[]
     case 'diagram': {
       findings.add('smartArt', slide)
       const place: Placement = (child, rotation) => context.place({ x: source.left + child.x, y: source.top + child.y }, rotation)
-      return ordered(source.elements).flatMap(child => convert(child, { ...context, place, paragraphs: new Map() }))
+      return ordered(source.elements).flatMap(child => convert(child, { ...context, ...noXml, place }))
     }
     case 'math':
       findings.add('equations', slide)
@@ -622,7 +756,22 @@ function matchingTheme(slides: readonly Slide[]): string {
 }
 
 /** Reads .pptx bytes into a presentation, with an import report of what it could not keep. */
+/**
+ * The slide files pptxtojson reads, in its order: those the package's content types list, by file
+ * number. A slide file left over in the zip, not listed there, is not a slide.
+ */
+function listedSlideFiles(parts: Readonly<Record<string, Uint8Array>>): string[] {
+  const types = parts['[Content_Types].xml']
+  const listed = types === undefined ? [] : Array.from(strFromU8(types).matchAll(/<Override\b[^>]*>/g), ([tag]) => tag)
+    .filter(tag => tag.includes('presentationml.slide+xml'))
+    .map(tag => (/\bPartName="\/?([^"]+)"/.exec(tag)?.[1] ?? ''))
+  return listed.filter(name => name !== '').sort((a, b) => slideNumber(a) - slideNumber(b))
+}
+
+const unreadable = 'This presentation couldn\'t be read. It may be damaged, or use something Slides doesn\'t support.'
+
 export async function readPptx(bytes: Uint8Array): Promise<ImportedPresentation> {
+  assertZipFitsInMemory(bytes)
   let parts: Record<string, Uint8Array>
   try {
     parts = unzipSync(bytes, { filter: file => /\.(xml|rels)$/.test(file.name) || file.name.startsWith('ppt/comments') })
@@ -631,9 +780,14 @@ export async function readPptx(bytes: Uint8Array): Promise<ImportedPresentation>
   }
   const presentationXml = parts['ppt/presentation.xml']
   if (presentationXml === undefined) throw new Error('This file is not a PowerPoint presentation, or it is damaged.')
-  const source = await parse(new Uint8Array(bytes).buffer, { imageMode: 'base64', videoMode: 'none', audioMode: 'none' })
-  // pptxtojson orders slides by their file number; so does this.
-  const slideFiles = Object.keys(parts).filter(name => /^ppt\/slides\/slide\d+\.xml$/.test(name)).sort((a, b) => slideNumber(a) - slideNumber(b))
+  let source: Awaited<ReturnType<typeof parse>>
+  try {
+    source = await parse(new Uint8Array(bytes).buffer, { imageMode: 'base64', videoMode: 'none', audioMode: 'none' })
+  } catch {
+    // pptxtojson's own errors name its internals, which say nothing to someone opening a file.
+    throw new Error(unreadable)
+  }
+  const slideFiles = listedSlideFiles(parts)
   const findings = new Findings()
 
   // Pair each pptxtojson slide with its file, then put them in the presentation's own order.
@@ -645,7 +799,7 @@ export async function readPptx(bytes: Uint8Array): Promise<ImportedPresentation>
     if (sourceSlide === undefined) return []
     const number = index + 1
     const xml = readSlideXml(file === undefined ? '<p:sld/>' : strFromU8(parts[file] ?? new Uint8Array()))
-    const context: ElementContext = { findings, slide: number, place: onSlide, paragraphs: xml.paragraphs }
+    const context: ElementContext = { findings, slide: number, place: onSlide, paragraphs: xml.paragraphs, tables: xml.tables }
     if (xml.animated) findings.add('animations', number)
     if (sourceSlide.transition !== undefined && sourceSlide.transition !== null && sourceSlide.transition.type !== 'none') findings.add('transitions', number)
     if (xml.hidden) findings.add('hiddenSlides', number)
@@ -659,7 +813,7 @@ export async function readPptx(bytes: Uint8Array): Promise<ImportedPresentation>
     if (fill.type === 'image' && backgroundImage === undefined) findings.add('pictureFormats', number)
     const background = fill.type === 'image' ? defaultTheme.background : fillOf(fill, context) ?? defaultTheme.background
     // Decorations from the slide's layout and master, behind everything the slide itself holds.
-    const designs = ordered(sourceSlide.layoutElements).flatMap(element => convert(element, { ...context, paragraphs: new Map() }))
+    const designs = ordered(sourceSlide.layoutElements).flatMap(element => convert(element, { ...context, ...noXml }))
     if (designs.length > 0) findings.add('masters', number)
     const elements = ordered(sourceSlide.elements).flatMap(element => convert(element, context))
     return [{ id: newId(), background, backgroundImage, elements: [...designs, ...elements], notes: notesText(sourceSlide.note) }]
