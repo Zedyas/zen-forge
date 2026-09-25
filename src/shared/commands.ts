@@ -66,7 +66,7 @@ export const commandDefinitions: readonly CommandDefinition[] = [
   { id: 'file.saveAs', label: 'Save As…', menu: 'file', accelerator: 'Shift+CmdOrCtrl+S', scope: 'editors', target: 'renderer' },
   { id: 'file.exportCsv', label: 'Export Sheet as CSV…', menu: 'file', scope: ['sheets'], target: 'renderer' },
   { id: 'file.exportPdf', label: 'Export as PDF…', menu: 'file', scope: ['sheets'], target: 'renderer' },
-  { id: 'file.print', label: 'Print…', menu: 'file', accelerator: 'CmdOrCtrl+P', scope: ['sheets'], target: 'renderer', separatorBefore: true },
+  { id: 'file.print', label: 'Print…', menu: 'file', accelerator: 'CmdOrCtrl+P', scope: ['sheets', 'pdf'], target: 'renderer', separatorBefore: true },
   { id: 'file.closeTab', label: 'Close Tab', menu: 'file', accelerator: 'CmdOrCtrl+W', scope: 'all', target: 'renderer', separatorBefore: true },
   { id: 'edit.undo', label: 'Undo', menu: 'edit', accelerator: 'CmdOrCtrl+Z', scope: 'editors', target: 'renderer' },
   { id: 'edit.redo', label: 'Redo', menu: 'edit', accelerator: 'Shift+CmdOrCtrl+Z', scope: 'editors', target: 'renderer' },

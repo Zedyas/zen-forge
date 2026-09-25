@@ -162,3 +162,9 @@ select.pdf-field { appearance: auto; }
 .pdf-dialog-option { display: flex; align-items: flex-start; gap: 8px; margin-top: 14px; color: var(--ink); line-height: 1.4; }
 .pdf-dialog-option input { margin: 2px 0 0; accent-color: var(--accent); }
 .pdf-dialog-option small { display: block; color: var(--dim); font-size: 12px; }
+
+/* ─── Printout ─── */
+/* print.ts mounts it only while printing: one page image per sheet of paper, centred. */
+.pdf-print > div { display: flex; align-items: center; justify-content: center; break-after: page; }
+.pdf-print > div:last-child { break-after: auto; }
+.pdf-print img { display: block; }

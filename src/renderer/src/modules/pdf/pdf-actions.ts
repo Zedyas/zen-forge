@@ -10,6 +10,7 @@ import { askConfirm } from './ConfirmDialog'
 import { inspectPdf, listFormFields, redactPages, savePdf, type RedactOptions } from './engine'
 import { isRedaction, newId, toPageRef, turnPage, type PageItem, type Size, type Snapshot } from './model'
 import { closePdfJs, openPdfJs, renderPage } from './pdfjs'
+import { printPdfDocument } from './print'
 import {
   commitPdf,
   markPdfSaved,
@@ -332,6 +333,8 @@ export async function runPdfCommand(command: CommandId): Promise<void> {
         return await insertPagesFromFile(id)
       case 'page.extract':
         return await extractCurrentPage(id)
+      case 'file.print':
+        return await printPdfDocument(id)
       default:
         return
     }
