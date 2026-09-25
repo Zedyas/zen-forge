@@ -1,6 +1,7 @@
 import { toast } from 'sonner'
 import type { CommandId } from '@shared/commands'
 import { toggleRunStyle } from './format-actions'
+import { exportPresentationPdf, printPresentation } from './print'
 import { activeSlidesId, runSlideCommand } from './slides-actions'
 
 /** Editor commands from the menu, keyboard and toolbar, applied to the active presentation. */
@@ -15,6 +16,10 @@ export async function runSlidesCommand(command: CommandId): Promise<void> {
         return toggleRunStyle(id, 'italic')
       case 'format.underline':
         return toggleRunStyle(id, 'underline')
+      case 'file.print':
+        return await printPresentation(id)
+      case 'file.exportPdf':
+        return await exportPresentationPdf(id)
       default:
         return await runSlideCommand(id, command)
     }

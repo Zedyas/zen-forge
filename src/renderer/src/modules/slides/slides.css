@@ -162,3 +162,8 @@
   background: #000;
   cursor: default;
 }
+
+/* ─── Printing: one slide per sheet, at the slide's own size (see print.tsx) ─── */
+
+.slides-print-page { break-inside: avoid; }
+.slides-print-page + .slides-print-page { break-before: page; }
