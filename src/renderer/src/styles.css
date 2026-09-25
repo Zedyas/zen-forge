@@ -41,12 +41,14 @@
   --warn: #a86a00;
   --bad: #c9352b;
   --shadow-float: 0 0 0 0.5px rgb(0 0 0 / 12%), 0 1px 3px rgb(0 0 0 / 6%);
-  --shadow-pop: 0 0 0 0.5px rgb(0 0 0 / 14%), 0 12px 32px rgb(0 0 0 / 16%);
+  /* Floating surfaces only. The inset line is the lit top edge of the glass. */
+  --shadow-pop: inset 0 0.5px 0 rgb(255 255 255 / 70%), 0 0 0 0.5px rgb(0 0 0 / 12%), 0 12px 32px rgb(0 0 0 / 16%);
   --shadow-page: 0 0 0 0.5px rgb(0 0 0 / 14%), 0 4px 18px rgb(0 0 0 / 12%);
   /* Floating surfaces (menus, popovers, tooltips, dialogs, toasts) are frosted glass: the surface
-     colour, partly see-through, over a blur of what is behind. */
-  --glass: color-mix(in srgb, var(--surface) 64%, transparent);
-  --glass-filter: blur(24px) saturate(1.8);
+     colour, more than half see-through, over a blur of what is behind: shapes and colours show
+     through softly while text on the glass stays clear. */
+  --glass: color-mix(in srgb, var(--surface) 42%, transparent);
+  --glass-filter: blur(18px) saturate(1.8) brightness(1.05);
 
   /* Application identity: the same four colours as the suite mark's stones and the app icons, in
      both appearances. They are light, so text on them uses --on-accent (dark ink), not white. */
@@ -107,9 +109,11 @@
     --warn: #e0a64a;
     --bad: #ef7a6e;
     --shadow-float: 0 0 0 0.5px rgb(255 255 255 / 9%), 0 1px 3px rgb(0 0 0 / 40%);
-    --shadow-pop: 0 0 0 0.5px rgb(255 255 255 / 10%), 0 14px 36px rgb(0 0 0 / 55%);
+    --shadow-pop: inset 0 0.5px 0 rgb(255 255 255 / 16%), 0 0 0 0.5px rgb(255 255 255 / 10%), 0 14px 36px rgb(0 0 0 / 55%);
     --shadow-page: 0 0 0 0.5px rgb(255 255 255 / 6%), 0 6px 22px rgb(0 0 0 / 50%);
-    --glass: color-mix(in srgb, var(--surface) 78%, transparent);
+    --glass: color-mix(in srgb, var(--surface) 56%, transparent);
+    /* Dimming what is behind keeps light text readable when a white page sits under the glass. */
+    --glass-filter: blur(18px) saturate(1.5) brightness(0.62);
     --on-accent: #15171b;
   }
 }
@@ -294,7 +298,7 @@ kbd { color: var(--faint); font: 500 11px var(--font-ui); letter-spacing: 0.02em
 
 .home-tab {
   display: grid; place-items: center; flex: none;
-  width: 32px; height: var(--control); margin-right: 6px;
+  width: 32px; height: var(--control); margin-right: 8px;
   border: 0; border-radius: var(--radius); background: transparent;
 }
 .home-tab:hover { background: var(--hover); }
@@ -338,7 +342,8 @@ kbd { color: var(--faint); font: 500 11px var(--font-ui); letter-spacing: 0.02em
 .doc-tab:hover .doc-tab-close .dirty-dot { display: none; }
 .doc-tab:not(:hover):not(.is-active) .doc-tab-close:not(.is-dirty) { visibility: hidden; }
 
-.new-tab { margin-left: 2px; }
+/* The same space before + as after Home, so + reads as its own control, not part of the last tab. */
+.new-tab { margin-left: 8px; }
 .title-essentials {
   display: flex; align-items: center; gap: 1px; margin: 0 12px; padding: 2px;
   border-radius: calc(var(--radius) + 2px); background: var(--surface); box-shadow: var(--shadow-float);
