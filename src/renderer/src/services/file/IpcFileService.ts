@@ -16,7 +16,7 @@ export function requireBridge(action: string): ShellBridge {
  * Electron prefixes an error thrown in the main process with "Error invoking remote method '<channel>':
  * Error: ". What follows is the message written for people, so that is what the renderer shows.
  */
-async function mainProcessMessage<T>(call: Promise<T>): Promise<T> {
+export async function mainProcessMessage<T>(call: Promise<T>): Promise<T> {
   try {
     return await call
   } catch (error) {

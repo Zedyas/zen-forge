@@ -206,7 +206,10 @@ export async function exportSheetPdf(documentId: string, sheetId: number): Promi
   const workbook = workbookFor(documentId)
   const table = workbook === undefined ? undefined : printableTable(workbook, sheetId)
   if (document === undefined || table === undefined) return
-  const path = await fileService.chooseSavePath({ defaultName: `${document.name}.pdf`, extensions: ['pdf'] })
+  const sheets = workbook?.sheets() ?? []
+  const sheetName = sheets.length > 1 ? sheets.find(sheet => sheet.id === sheetId)?.name : undefined
+  const defaultName = sheetName === undefined ? `${document.name}.pdf` : `${document.name} - ${sheetName}.pdf`
+  const path = await fileService.chooseSavePath({ defaultName, extensions: ['pdf'] })
   if (path === undefined) return
   const bytes = await printToPdf(paper => sheetPrintout(table, paper))
   if (bytes === undefined) return
