@@ -62,29 +62,34 @@ async function drawPage(pdf: PDFDocumentProxy, index: number, boxes: readonly Re
   }
 }
 
-/** Draws every page from the bytes a save would write, before redaction, then paints the redaction boxes. */
-async function drawPages(state: ReadyPdf): Promise<PageImage[]> {
+/**
+ * Draws every page from the bytes a save would write, before redaction, then paints the redaction
+ * boxes. Resolves undefined when the document closes meanwhile, so nothing is printed for it.
+ */
+async function drawPages(id: string, state: ReadyPdf): Promise<PageImage[] | undefined> {
   const { pages, formValues, flattenForm } = state.present
   const progress = pages.length > quietPageCount ? toast('Preparing to print…', { duration: Infinity }) : undefined
   const images: PageImage[] = []
   let bytes: Uint8Array | undefined
+  let drawn = false
   try {
     bytes = await savePdf({ sources: state.sources, pages: pages.map(toPageRef), formValues, flattenForm })
     const pdf = await openPdfJs(bytes)
     for (const [index, item] of pages.entries()) {
+      // A closed document's pdf.js copies are gone, and reading its pages would open new ones that nothing closes.
+      if (readyPdf(id) === undefined) return undefined
       if (progress !== undefined) toast(`Preparing page ${index + 1} of ${pages.length}…`, { id: progress, duration: Infinity })
-      // Redaction boxes are painted where they were drawn on the page shown, so the printed page must match it.
-      const shown = await shownPage(state.sources[item.source], item.index, item.rotation)
-      if (!sameGeometry(await shownPage(bytes, index, 0), shown)) {
+      const boxes = item.markups.flatMap(placed => isRedaction(placed.markup) ? [placed.markup] : [])
+      // Redaction boxes are painted where they were drawn on the page shown, so a page with boxes must print as shown.
+      if (boxes.length > 0 && !sameGeometry(await shownPage(bytes, index, 0), await shownPage(state.sources[item.source], item.index, item.rotation))) {
         throw new Error(`Zendo can’t print page ${index + 1} safely: the printed page would not match the page shown, so redaction boxes could miss. Print this PDF from Adobe Acrobat instead.`)
       }
-      images.push(await drawPage(pdf, index, item.markups.flatMap(placed => isRedaction(placed.markup) ? [placed.markup] : [])))
+      images.push(await drawPage(pdf, index, boxes))
     }
+    drawn = true
     return images
-  } catch (error) {
-    images.forEach(image => URL.revokeObjectURL(image.url))
-    throw error
   } finally {
+    if (!drawn) images.forEach(image => URL.revokeObjectURL(image.url))
     if (progress !== undefined) toast.dismiss(progress)
     if (bytes !== undefined) await closePdfJs(bytes)
   }
@@ -127,5 +132,8 @@ export async function printPdfDocument(id: string): Promise<void> {
   if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
   const state = readyPdf(id)
   if (state === undefined) return
-  await openPrintDialog(async paper => pagesPrintout(await drawPages(state), paper))
+  await openPrintDialog(async paper => {
+    const images = await drawPages(id, state)
+    return images === undefined ? undefined : pagesPrintout(images, paper)
+  })
 }
