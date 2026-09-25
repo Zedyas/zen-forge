@@ -9,6 +9,7 @@ const fileService = new NodeFileService()
 const formatNames: Record<string, string> = {
   xlsx: 'Excel Workbook',
   csv: 'CSV (comma-separated values)',
+  tsv: 'TSV (tab-separated values)',
   pdf: 'PDF document',
 }
 

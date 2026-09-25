@@ -1,6 +1,6 @@
 # Packages Zendo for macOS. `pnpm package:mac` builds dist/mac-arm64/Zendo.app to try locally;
 # `pnpm release:mac` builds the downloadable dist/Zendo-<version>-arm64.dmg (the release workflow runs it).
-# The file associations are what let Finder open .xlsx/.csv/.pdf files in Zendo ("Open With", default app).
+# The file associations are what let Finder open spreadsheets and PDFs in Zendo ("Open With", default app).
 appId: dev.zendo.suite
 productName: Zendo
 directories:
@@ -39,7 +39,7 @@ electronFuses:
   onlyLoadAppFromAsar: true
   grantFileProtocolExtraPrivileges: false
 fileAssociations:
-  - ext: [xlsx, csv]
+  - ext: [xlsx, csv, tsv]
     name: Spreadsheet
     role: Editor
   - ext: xlsm
