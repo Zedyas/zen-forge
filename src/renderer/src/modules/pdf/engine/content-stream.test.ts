@@ -37,6 +37,18 @@ describe('scanContent', () => {
     expect(content.slice(instructions[1]?.start, instructions[1]?.end)).toBe(image)
   })
 
+  // Each image's data holds an `EI` written to end it early, so that ` EMC` would close a hidden block.
+  it.each([
+    ['a delimiter after the EI', 'BI /W 2 /H 2 /CS /G /BPC 8 /F /Fl ID \x80\x81EI/aaaaaaaaaaaaaaaaaa EMC \x80\x82\x83\nEI'],
+    ['binary data after the EI, where a declared length points', 'BI /W 2 /H 2 /CS /G /BPC 8 /F /Fl /L 2 ID \x80\x81EI EMC \x80\x82\x83\x84\nEI'],
+    ['a word that is no operator after the EI', 'BI /W 2 /H 2 /CS /G /BPC 8 /F /Fl ID \x80\x81EI aaaaaaaaaaaaaaaaaa EMC \x80\x82\x83\nEI'],
+  ])('steps over an inline image whose data holds an EI with %s, as pdf.js does', (_, image) => {
+    const content = `q ${image} Q BT (SURVIVOR) Tj ET`
+    const instructions = scanContent(bytes(content))
+    expect(instructions.map(instruction => instruction.operator)).toEqual(['q', 'BI', 'Q', 'BT', 'Tj', 'ET'])
+    expect(content.slice(instructions[1]?.start, instructions[1]?.end)).toBe(image)
+  })
+
   it('stops with an error at an inline image that has no end', () => {
     expect(() => scanContent(bytes('BI /W 1 /H 1 /F /Fl ID \x80\x81(\x82'))).toThrow()
   })

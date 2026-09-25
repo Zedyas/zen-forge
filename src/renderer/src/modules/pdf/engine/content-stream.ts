@@ -22,6 +22,7 @@ export interface Instruction {
 
 const LF = 0x0a
 const CR = 0x0d
+const SPACE = 0x20
 const PAREN_OPEN = 0x28
 const PAREN_CLOSE = 0x29
 const SLASH = 0x2f
@@ -126,22 +127,58 @@ function isOperandWord(word: string): boolean {
   return /^[+\-.\d]/.test(word) || word === 'true' || word === 'false' || word === 'null'
 }
 
-/** An `EI` token at `from`, after optional whitespace: returns the offset just past it. */
-function endMarkerAt(bytes: Uint8Array, from: number): number | undefined {
-  let pos = from
-  while (isWhitespace(bytes[pos])) pos += 1
-  return bytes[pos] === LETTER_E && bytes[pos + 1] === LETTER_I && isBoundary(bytes[pos + 2]) ? pos + 2 : undefined
-}
+/** Every content-stream operator. pdf.js takes an `EI` for an image's end only when one of these comes next. */
+const operators = new Set([
+  'b', 'B', 'b*', 'B*', 'BDC', 'BI', 'BMC', 'BT', 'BX', 'c', 'cm', 'CS', 'cs', 'd', 'd0', 'd1', 'Do', 'DP', 'EI', 'EMC', 'ET', 'EX',
+  'f', 'F', 'f*', 'G', 'g', 'gs', 'h', 'i', 'ID', 'j', 'J', 'K', 'k', 'l', 'm', 'M', 'MP', 'n', 'q', 'Q', 're', 'RG', 'rg', 'ri',
+  's', 'S', 'SC', 'sc', 'SCN', 'scn', 'sh', 'T*', 'Tc', 'Td', 'TD', 'Tf', 'Tj', 'TJ', 'TL', 'Tm', 'Tr', 'Ts', 'Tw', 'Tz',
+  'v', 'w', 'W', 'W*', 'y', "'", '"',
+])
 
 /** How many bytes after a candidate `EI` must read as content-stream text for it to count as the end. */
 const followingText = 16
+/** How far past a candidate `EI` to look for the operator that must follow it, as pdf.js does. */
+const lookAhead = 75
 
-/** The first `EI` token followed by text, as pdf.js finds it: compressed data rarely holds that by chance. */
+/** The first operator in `bytes`, stepping over operands; undefined when there is none. */
+function firstOperator(bytes: Uint8Array): string | undefined {
+  for (let pos = skipSpace(bytes, 0); pos < bytes.length; pos = skipSpace(bytes, pos)) {
+    const tokenStart = pos
+    pos = valueEnd(bytes, pos)
+    const token = text(bytes, tokenStart, pos)
+    if (!isBoundary(bytes[tokenStart]) && !isOperandWord(token)) return token
+  }
+  return undefined
+}
+
+/**
+ * Whether an `EI` at `pos` ends an inline image, by pdf.js's tests: a space or line break after
+ * it, then text, then a known operator (or the end of the stream). Image data, compressed or not,
+ * rarely passes all three by chance, and data written to pass them fools pdf.js as well.
+ */
+function endsImage(bytes: Uint8Array, pos: number): boolean {
+  const after = pos + 2
+  if (bytes[pos] !== LETTER_E || bytes[pos + 1] !== LETTER_I) return false
+  if (after >= bytes.length) return true
+  if (bytes[after] !== SPACE && bytes[after] !== LF && bytes[after] !== CR) return false
+  if (!bytes.subarray(after, after + followingText).every(byte => isWhitespace(byte) || (byte >= 0x20 && byte < 0x7f))) return false
+  const next = skipSpace(bytes, after)
+  if (next >= bytes.length) return true
+  const operator = firstOperator(bytes.subarray(next, next + lookAhead))
+  return operator !== undefined && operators.has(operator)
+}
+
+/** An `EI` at `from`, after optional whitespace, that ends the image: returns the offset just past it. */
+function endMarkerAt(bytes: Uint8Array, from: number): number | undefined {
+  let pos = from
+  while (isWhitespace(bytes[pos])) pos += 1
+  return endsImage(bytes, pos) ? pos + 2 : undefined
+}
+
+/** The first `EI` that ends the image, as pdf.js finds it. */
 function searchEndMarker(bytes: Uint8Array, from: number): number | undefined {
   for (let pos = bytes.indexOf(LETTER_E, from); pos >= 0; pos = bytes.indexOf(LETTER_E, pos + 1)) {
-    if (bytes[pos + 1] !== LETTER_I || !isBoundary(bytes[pos + 2])) continue
-    const following = bytes.subarray(pos + 2, pos + 2 + followingText)
-    if (following.every(byte => isWhitespace(byte) || (byte >= 0x20 && byte < 0x7f))) return pos + 2
+    if (endsImage(bytes, pos)) return pos + 2
   }
   return undefined
 }
@@ -175,9 +212,10 @@ function unfilteredLength(entries: ReadonlyMap<string, string>): number | undefi
  *   2. the length unfiltered data must have, from its width, height, bits and colour space,
  *   3. for ASCII filters, the first `EI` after the filter's end-of-data marker (`>` or `~>`),
  *      which cannot occur earlier in their data,
- *   4. otherwise the first `EI` followed by text (see `searchEndMarker`).
- * An image without an end cannot be stepped over, so scanning stops with an error rather than
- * reading its data as operators.
+ *   4. otherwise the first `EI` that passes pdf.js's tests (see `endsImage`).
+ * A length counts only when an `EI` that passes the same tests sits where it ends, so a wrong or
+ * crafted /L cannot end the image inside its data. An image without an end cannot be stepped
+ * over, so scanning stops with an error rather than reading its data as operators.
  */
 function inlineImageEnd(bytes: Uint8Array, dataStart: number, entries: ReadonlyMap<string, string>): number {
   const declared = Number(entries.get('/L') ?? entries.get('/Length'))
