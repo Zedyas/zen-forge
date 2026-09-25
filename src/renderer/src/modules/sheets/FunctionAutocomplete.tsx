@@ -10,7 +10,10 @@ interface FunctionAutocompleteProps {
 /** The function name being typed at the end of a formula: after the = sign, an operator, a comma or a bracket. */
 export function functionPrefix(input: string): string | undefined {
   const match = input.match(/(?:^|[=+\-*/,(&^<>\s])([A-Z][A-Z0-9.]*)$/i)
-  return input.startsWith('=') ? match?.[1] : undefined
+  if (!input.startsWith('=') || match?.[1] === undefined) return undefined
+  // An odd number of quotes before the name means it is inside a text string, not a function call.
+  const quotes = input.slice(0, input.length - match[1].length).split('"').length - 1
+  return quotes % 2 === 0 ? match[1] : undefined
 }
 
 export function FunctionAutocomplete({ workbook, input, onChoose }: FunctionAutocompleteProps) {

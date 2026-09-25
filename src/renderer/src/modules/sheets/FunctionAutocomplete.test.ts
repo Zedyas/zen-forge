@@ -8,5 +8,7 @@ describe('functionPrefix', () => {
     expect(functionPrefix('=A1 & LE')).toBe('LE')
     expect(functionPrefix('=SUM(A1, AV')).toBe('AV')
     expect(functionPrefix('SU')).toBeUndefined()
+    expect(functionPrefix('="Paid on ti')).toBeUndefined()
+    expect(functionPrefix('="a" & LE')).toBe('LE')
   })
 })
