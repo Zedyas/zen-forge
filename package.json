@@ -8,7 +8,7 @@
     "url": "https://github.com/Zedyas/zen-forge.git"
   },
   "productName": "Zendo",
-  "description": "Zendo: Ledger for spreadsheets and Hanko for PDFs, local-first and Mac-first.",
+  "description": "Zendo: a simplified office suite for macOS. Ledger for spreadsheets, Hanko for PDFs, Sumi for documents and Slides for presentations.",
   "main": "out/main/index.js",
   "scripts": {
     "dev": "env -u ELECTRON_RUN_AS_NODE electron-vite dev",

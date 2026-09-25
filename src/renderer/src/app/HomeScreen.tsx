@@ -125,7 +125,7 @@ export function HomeScreen() {
       <div className="home-body">
         <UpdateOffer />
         <h1>{suiteName}</h1>
-        <p className="home-lede">Spreadsheets and PDFs, kept on this Mac.</p>
+        <p className="home-lede">Spreadsheets, PDFs, documents and presentations, kept on this Mac.</p>
 
         <div className="home-apps">
           {applications.map(application => {
@@ -177,7 +177,7 @@ export function HomeScreen() {
         {recents.length === 0 ? (
           <div className="home-empty">
             <strong>{query === '' ? 'Nothing opened yet' : 'No recent file matches'}</strong>
-            {query === '' ? 'Files you open or save appear here. Drop a spreadsheet or PDF anywhere in this window to open it.' : 'Try another part of the file name.'}
+            {query === '' ? 'Files you open or save appear here. Drop a file anywhere in this window to open it.' : 'Try another part of the file name.'}
           </div>
         ) : (
           <div className="recent-grid">
