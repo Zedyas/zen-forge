@@ -2,7 +2,7 @@ import type { PDFPageProxy } from 'pdfjs-dist'
 import { create } from 'zustand'
 import type { Rect } from './engine/geometry'
 import { isRedaction, newId, type PlacedMarkup } from './model'
-import { buildPageText, evenAdvance, findMatches, rangeRects, type Advance, type PageText } from './page-text'
+import { buildPageText, evenAdvance, findMatches, rangeRects, textPieces, type Advance, type PageText } from './page-text'
 import { commitPdf, readyPdf } from './pdf-store'
 import { openPdfJs } from './pdfjs'
 
@@ -48,15 +48,7 @@ function loadPageText(source: Uint8Array, index: number): Promise<LoadedPage> {
   if (cached !== undefined) return cached
   const loading = (async () => {
     const page = await (await openPdfJs(source)).getPage(index + 1)
-    const content = await page.getTextContent()
-    const pieces = content.items.flatMap(item => {
-      if (!('str' in item)) return []
-      const style = content.styles[item.fontName]
-      const ascent = style !== undefined && style.ascent > 0 ? style.ascent : 0.8
-      const descent = style !== undefined && style.descent < 0 ? style.descent : ascent - 1
-      return [{ str: item.str, transform: item.transform, width: item.width, hasEOL: item.hasEOL, ascent, descent, fontFamily: style?.fontFamily ?? 'sans-serif' }]
-    })
-    return { page, text: buildPageText(pieces) }
+    return { page, text: buildPageText(textPieces(await page.getTextContent())) }
   })()
   // A failed read is tried again by the next search.
   void loading.catch(() => pages.delete(index))

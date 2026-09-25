@@ -1,10 +1,13 @@
+import { PDFDict, PDFDocument, PDFName, StandardFonts } from '@cantoo/pdf-lib'
 import { describe, expect, it } from 'vitest'
 import type { Rect } from './engine/geometry'
-import { buildPageText, findMatches, rangeRects, type TextPiece } from './page-text'
+import { redactPages } from './engine/redact'
+import { extractPageTexts, readTextContent, shownPages } from './engine/test-support'
+import { buildPageText, findMatches, rangeRects, textPieces, type TextPiece } from './page-text'
 
 /** 10pt text with every character 5pt wide, at a baseline origin in user space. */
 function piece(str: string, x: number, y: number, hasEOL = false): TextPiece {
-  return { str, transform: [10, 0, 0, 10, x, y], width: str.length * 5, hasEOL, ascent: 0.8, descent: -0.2, fontFamily: 'sans-serif' }
+  return { str, dir: 'ltr', transform: [10, 0, 0, 10, x, y], width: str.length * 5, height: 10, hasEOL, ascent: 0.8, descent: -0.2, fontFamily: 'sans-serif' }
 }
 
 function rounded(rects: readonly Rect[]): Rect[] {
@@ -35,5 +38,46 @@ describe('page text', () => {
       { x: 698, y: 140, width: 10, height: 20 },
       { x: 684, y: 100, width: 10, height: 10 },
     ])
+  })
+})
+
+describe('text that does not run left to right', () => {
+  /** A–J as the Hebrew letters א–י. */
+  const hebrew = (latin: string): string => Array.from(latin, letter => String.fromCharCode(0x05d0 + letter.charCodeAt(0) - 0x41)).join('')
+
+  it('covers a whole right-to-left item, since pdf.js gives its letters in reading order but places them from the left', async () => {
+    // Courier glyphs drawn left to right, as PDFs draw right-to-left text, read through a ToUnicode map as Hebrew.
+    const doc = await PDFDocument.create()
+    const font = await doc.embedFont(StandardFonts.Courier)
+    const page = doc.addPage([400, 600])
+    page.drawText('ABC DEFGH', { x: 40, y: 500, size: 20, font })
+    page.drawText('IJ', { x: 40, y: 300, size: 20, font })
+    await font.embed()
+    const hex = (code: number, digits: number): string => code.toString(16).toUpperCase().padStart(digits, '0')
+    const pairs = Array.from('ABCDEFGHIJ', letter => `<${hex(letter.charCodeAt(0), 2)}> <${hex(hebrew(letter).charCodeAt(0), 4)}>`)
+    const cmap = [
+      '/CIDInit /ProcSet findresource begin 12 dict begin begincmap /CMapName /Hebrew-UCS def /CMapType 2 def',
+      `1 begincodespacerange <00> <FF> endcodespacerange ${pairs.length + 1} beginbfchar <20> <0020> ${pairs.join(' ')} endbfchar`,
+      'endcmap CMapName currentdict /CMap defineresource pop end end',
+    ].join(' ')
+    doc.context.lookup(font.ref, PDFDict).set(PDFName.of('ToUnicode'), doc.context.register(doc.context.stream(cmap)))
+    const bytes = await doc.save()
+
+    const { content, viewport } = await readTextContent(bytes)
+    const text = buildPageText(textPieces(content))
+    // The word drawn as DEFGH, as read from right to left.
+    const boxes = findMatches(text.text, hebrew('HGFED')).flatMap(range => rangeRects(text, range, viewport))
+    const [shown] = await shownPages(bytes)
+    if (shown === undefined) throw new Error('The page is missing')
+    const output = await redactPages(bytes, [{ index: 0, shown, boxes }], { removeHiddenInformation: false })
+
+    // The other line stays: IJ, read from right to left.
+    expect(await extractPageTexts(output)).toEqual([hebrew('JI')])
+  })
+
+  it('covers a whole vertical column, whose glyphs hang below the text position, centred on it', () => {
+    const column: TextPiece = { str: 'ABCD', dir: 'ttb', transform: [20, 0, 0, 20, 100, 500], width: 20, height: 80, hasEOL: false, ascent: 0.8, descent: -0.2, fontFamily: 'sans-serif' }
+    const page = buildPageText([column])
+    expect(rounded(rangeRects(page, { start: 1, end: 2 }, [1, 0, 0, -1, 0, 600]))).toEqual([{ x: 90, y: 100, width: 20, height: 80 }])
   })
 })

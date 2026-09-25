@@ -63,6 +63,14 @@ export async function shownPages(bytes: Uint8Array): Promise<PageGeometry[]> {
   })
 }
 
+/** A page's text content and viewport transform, which search reads. */
+export async function readTextContent(bytes: Uint8Array, pageIndex = 0): Promise<{ readonly content: Awaited<ReturnType<pdfjs.PDFPageProxy['getTextContent']>>; readonly viewport: number[] }> {
+  return withDocument(bytes, async doc => {
+    const page = await doc.getPage(pageIndex + 1)
+    return { content: await page.getTextContent(), viewport: page.getViewport({ scale: 1 }).transform }
+  })
+}
+
 export async function extractPlacedText(bytes: Uint8Array, pageIndex: number): Promise<PlacedText[]> {
   return withDocument(bytes, async doc => {
     const page = await doc.getPage(pageIndex + 1)

@@ -1,3 +1,4 @@
+import type { PDFPageProxy } from 'pdfjs-dist'
 import type { Rect } from './engine/geometry'
 
 /*
@@ -10,10 +11,14 @@ import type { Rect } from './engine/geometry'
 /** What search needs from one pdf.js text item. */
 export interface TextPiece {
   readonly str: string
+  /** pdf.js's writing direction: `ltr`, `rtl`, or `ttb` for vertical text. */
+  readonly dir: string
   /** Text space to PDF user space, with the font size folded in: [a, b, c, d, e, f], origin on the baseline. */
   readonly transform: readonly number[]
   /** Advance along the baseline, in user space. */
   readonly width: number
+  /** For vertical text, the advance down the column, in user space. */
+  readonly height: number
   /** pdf.js marks the last item of a line. */
   readonly hasEOL: boolean
   /** Font ascent and descent as fractions of the font size; descent is negative. */
@@ -21,6 +26,21 @@ export interface TextPiece {
   readonly descent: number
   /** The CSS font family pdf.js matches the font to, for measuring characters. */
   readonly fontFamily: string
+}
+
+/** What pdf.js's `getTextContent()` returns. */
+type TextContent = Awaited<ReturnType<PDFPageProxy['getTextContent']>>
+
+/** The text items of a page, with their fonts' ascent and descent (pdf.js leaves them 0 when unknown). */
+export function textPieces(content: TextContent): TextPiece[] {
+  return content.items.flatMap(item => {
+    if (!('str' in item)) return []
+    const style = content.styles[item.fontName]
+    const ascent = style !== undefined && style.ascent > 0 ? style.ascent : 0.8
+    const descent = style !== undefined && style.descent < 0 ? style.descent : ascent - 1
+    const { str, dir, transform, width, height, hasEOL } = item
+    return [{ str, dir, transform, width, height, hasEOL, ascent, descent, fontFamily: style?.fontFamily ?? 'sans-serif' }]
+  })
 }
 
 /** Where the character at `offset` starts along a piece, as a fraction of the piece's width. */
@@ -76,10 +96,29 @@ export function findMatches(text: string, query: string): TextRange[] {
   return Array.from(text.matchAll(pattern), match => ({ start: match.index, end: match.index + match[0].length }))
 }
 
+/** Characters pdf.js reorders into right-to-left (logical) order when it builds an item's text. */
+const rightToLeft = /[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufefc]/
+
+/**
+ * The part of a piece that characters `from` to `to` cover, in the piece's text space (in ems: x
+ * along the baseline, y up from it), as [left, right, bottom, top]. Only left-to-right text is cut
+ * by character. pdf.js gives right-to-left text in reading order but places it from the left, so
+ * measuring from the left would cover the wrong letters: a range there covers the whole piece.
+ * So does a range in vertical text, whose glyphs hang below the text position, centred on it.
+ */
+function textSpaceBox(piece: TextPiece, from: number, to: number, advance: Advance): readonly [number, number, number, number] {
+  const [a = 1, b = 0, c = 0, d = 1] = piece.transform
+  if (piece.dir === 'ttb') return [-0.5, 0.5, -piece.height / (Math.hypot(c, d) || 1), 0]
+  const length = piece.width / (Math.hypot(a, b) || 1)
+  if (piece.dir !== 'ltr' || rightToLeft.test(piece.str)) return [0, length, piece.descent, piece.ascent]
+  return [length * advance(piece, from), length * advance(piece, to), piece.descent, piece.ascent]
+}
+
 /**
  * The rectangles a range of the page text covers, one per piece it touches, in the coordinates
  * `viewport` maps user space to (pdf.js's viewport transform: displayed page points, top-left
- * origin, rotation applied). Each spans the font's ascent to its descent.
+ * origin, rotation applied). Each spans the font's ascent to its descent, and a piece that does not
+ * run left to right is covered whole.
  */
 export function rangeRects(page: PageText, range: TextRange, viewport: readonly number[], advance: Advance = evenAdvance): Rect[] {
   const [m0 = 1, m1 = 0, m2 = 0, m3 = 1, m4 = 0, m5 = 0] = viewport
@@ -88,15 +127,13 @@ export function rangeRects(page: PageText, range: TextRange, viewport: readonly 
     const to = Math.min(range.end, start + piece.str.length) - start
     if (from >= to) return []
     const [a = 1, b = 0, c = 0, d = 1, e = 0, f = 0] = piece.transform
-    const scale = Math.hypot(a, b) || 1
-    const corners = [from, to].flatMap(offset => {
-      const along = piece.width * advance(piece, offset)
-      return [piece.descent, piece.ascent].map(up => {
-        const x = e + (a / scale) * along + c * up
-        const y = f + (b / scale) * along + d * up
-        return [m0 * x + m2 * y + m4, m1 * x + m3 * y + m5] as const
-      })
-    })
+    const [x0, x1, y0, y1] = textSpaceBox(piece, from, to, advance)
+    const corners = [x0, x1].flatMap(x => [y0, y1].map(y => {
+      // Text space to user space, then user space to the page as displayed.
+      const userX = a * x + c * y + e
+      const userY = b * x + d * y + f
+      return [m0 * userX + m2 * userY + m4, m1 * userX + m3 * userY + m5] as const
+    }))
     const xs = corners.map(([x]) => x)
     const ys = corners.map(([, y]) => y)
     const left = Math.min(...xs)
