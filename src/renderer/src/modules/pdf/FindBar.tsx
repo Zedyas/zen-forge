@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronUp, X } from 'lucide-react'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { Tip } from '../../ui/Tip'
 import { ToolButton } from '../../ui/Toolbar'
@@ -25,6 +25,8 @@ export function FindBar({ documentId, document }: FindBarProps) {
   const searching = useFindStore(state => state.searching)
   const focusRequest = useFindStore(state => state.focusRequest)
   const input = useRef<HTMLInputElement>(null)
+  /** Set while "Redact all" asks MuPDF where the matches are, which loads it the first time. */
+  const [redacting, setRedacting] = useState(false)
   // Reordering, rotating, adding or removing pages moves the matches; markups do not.
   const layout = document.present.pages.map(page => `${page.key}:${page.rotation}`).join(' ')
 
@@ -37,10 +39,17 @@ export function FindBar({ documentId, document }: FindBarProps) {
     void findInDocument(documentId, useFindStore.getState().query, false)
   }, [documentId, layout])
 
-  const redactAll = (): void => {
-    const marked = redactMatches(documentId)
-    if (marked === 0) toast.info('Every match is already marked for redaction')
-    else toast.success(`Marked ${marked} ${marked === 1 ? 'match' : 'matches'} for redaction`, { description: 'They are removed from the file when you save.' })
+  const redactAll = async (): Promise<void> => {
+    setRedacting(true)
+    try {
+      const marked = await redactMatches(documentId)
+      if (marked === 0) toast.info('Every match is already marked for redaction')
+      else if (marked !== undefined) toast.success(`Marked ${marked} ${marked === 1 ? 'match' : 'matches'} for redaction`, { description: 'They are removed from the file when you save.' })
+    } catch (error) {
+      toast.error('Could not mark the matches', { description: error instanceof Error ? error.message : 'Try Redact all again.' })
+    } finally {
+      setRedacting(false)
+    }
   }
 
   return (
@@ -62,7 +71,7 @@ export function FindBar({ documentId, document }: FindBarProps) {
       <ToolButton icon={ChevronDown} label="Next match" disabled={matches.length === 0} onClick={() => stepFind(1)} />
       <span className="tool-sep" />
       <Tip label="Cover every match with a redaction box">
-        <button type="button" className="button" disabled={matches.length === 0 || searching} onClick={redactAll}>
+        <button type="button" className="button" disabled={matches.length === 0 || searching || redacting} onClick={() => void redactAll()}>
           Redact all
         </button>
       </Tip>

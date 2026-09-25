@@ -1,10 +1,10 @@
 import type { PDFPageProxy } from 'pdfjs-dist'
 import { create } from 'zustand'
-import type { Rect } from './engine/geometry'
-import { isRedaction, newId, type PlacedMarkup } from './model'
-import { buildPageText, evenAdvance, findMatches, rangeRects, textPieces, type Advance, type PageText } from './page-text'
+import { searchText, type Rect } from './engine'
+import { isRedaction, newId, type PageItem, type PlacedMarkup } from './model'
+import { buildPageText, evenAdvance, findMatches, rangeRects, redactionBoxes, textPieces, type Advance, type PageText } from './page-text'
 import { commitPdf, readyPdf } from './pdf-store'
-import { openPdfJs } from './pdfjs'
+import { openPdfJs, shownPage } from './pdfjs'
 
 export interface FindMatch {
   readonly pageKey: string
@@ -147,30 +147,48 @@ export function stepFind(direction: 1 | -1): void {
   reveal()
 }
 
-/** Room around each match so the box covers the glyphs whole; small enough not to reach the next line. */
-const redactionPad = 1
-
 function covers(outer: Rect, inner: Rect): boolean {
   const slack = 0.01
   return outer.x <= inner.x + slack && outer.y <= inner.y + slack
     && outer.x + outer.width >= inner.x + inner.width - slack && outer.y + outer.height >= inner.y + inner.height - slack
 }
 
+/** Which page is where, and how it is turned: what redaction boxes are placed relative to. */
+function layoutOf(pages: readonly PageItem[]): string {
+  return pages.map(page => `${page.key}:${page.rotation}`).join(' ')
+}
+
 /**
- * Covers every match with a redaction box, as one undoable edit; saving applies them as it does
- * boxes drawn by hand. Matches a box already covers are left alone. Returns how many matches got boxes.
+ * Covers every match with redaction boxes, as one undoable edit; saving applies them as it does
+ * boxes drawn by hand. The boxes come from MuPDF's search where it can (see `redactionBoxes`), and
+ * matches a box already covers are left alone. Resolves how many matches got boxes, or undefined
+ * when the document closed meanwhile.
  */
-export function redactMatches(documentId: string): number {
-  const { matches } = useFindStore.getState()
+export async function redactMatches(documentId: string): Promise<number | undefined> {
+  const document = readyPdf(documentId)
+  if (document === undefined) return undefined
+  const { query, matches } = useFindStore.getState()
+  const layout = layoutOf(document.present.pages)
+  const exact = new Map<string, Rect[][]>()
+  for (const [source, bytes] of document.sources.entries()) {
+    const items = document.present.pages.filter(item => item.source === source)
+    if (items.length === 0) continue
+    const pages = await Promise.all(items.map(async item => ({ index: item.index, shown: await shownPage(bytes, item.index, item.rotation) })))
+    const found = await searchText(bytes, pages, query)
+    items.forEach((item, position) => exact.set(item.key, found[position] ?? []))
+  }
+
+  const now = readyPdf(documentId)
+  if (now === undefined) return undefined
+  // The boxes fit the pages as they were; a page turned or moved meanwhile would take them elsewhere.
+  if (layoutOf(now.present.pages) !== layout) throw new Error('The pages changed while Zendo was finding the matches. Choose Redact all again.')
   let marked = 0
   commitPdf(documentId, snapshot => {
     const pages = snapshot.pages.map(page => {
+      const found = matches.filter(match => match.pageKey === page.key).map(match => match.rects)
       const boxes: PlacedMarkup[] = []
-      for (const match of matches) {
-        if (match.pageKey !== page.key) continue
-        const added = match.rects
-          .map(rect => ({ x: rect.x - redactionPad, y: rect.y - redactionPad, width: rect.width + 2 * redactionPad, height: rect.height + 2 * redactionPad }))
-          .filter(box => !page.markups.some(placed => isRedaction(placed.markup) && covers(placed.markup, box)))
+      for (const match of redactionBoxes(exact.get(page.key) ?? [], found)) {
+        const added = match.filter(box => !page.markups.some(placed => isRedaction(placed.markup) && covers(placed.markup, box)))
         if (added.length > 0) marked += 1
         boxes.push(...added.map(box => ({ id: newId(), markup: { kind: 'redact' as const, ...box } })))
       }

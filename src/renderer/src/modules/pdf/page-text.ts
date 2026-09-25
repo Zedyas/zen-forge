@@ -141,3 +141,27 @@ export function rangeRects(page: PageText, range: TextRange, viewport: readonly 
     return [{ x: left, y: top, width: Math.max(...xs) - left, height: Math.max(...ys) - top }]
   })
 }
+
+function overlaps(a: Rect, b: Rect): boolean {
+  return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
+}
+
+/** Room around each box so it covers the glyphs whole; small enough not to reach the next line. */
+const redactionPad = 1
+
+/**
+ * The boxes "Redact all" puts on one page, one list per match. MuPDF's rectangles (`exact`) place
+ * each glyph, so they are used wherever MuPDF found a match. Where the two engines disagree, the
+ * safer choice is to cover every match either one found: a pdf.js match that no MuPDF rectangle
+ * touches (MuPDF read the text differently, or stopped at its limit) keeps pdf.js's rectangles,
+ * which can sit a little off on justified text but cover the match's line.
+ */
+export function redactionBoxes(exact: readonly (readonly Rect[])[], found: readonly (readonly Rect[])[]): Rect[][] {
+  const missed = found.filter(rects => !rects.some(rect => exact.some(match => match.some(box => overlaps(rect, box)))))
+  return [...exact, ...missed].map(rects => rects.map(rect => ({
+    x: rect.x - redactionPad,
+    y: rect.y - redactionPad,
+    width: rect.width + 2 * redactionPad,
+    height: rect.height + 2 * redactionPad,
+  })))
+}
