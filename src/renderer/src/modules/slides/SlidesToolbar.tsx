@@ -12,6 +12,7 @@ import {
   Minus,
   MoveRight,
   PaintBucket,
+  Play,
   Plus,
   Redo2,
   Shapes,
@@ -126,6 +127,10 @@ function TextBoxButton({ documentId, document }: ToolProps) {
   return <ToolButton icon={Type} label="Text box" onClick={() => addElement(documentId, newTextBox(document.present), true)} />
 }
 
+function PlayButton() {
+  return <ToolButton icon={Play} label="Play slideshow" text="Play" command="slide.play" onClick={() => run('slide.play')} />
+}
+
 function FontSizeMenu({ documentId, size, disabled }: { readonly documentId: string; readonly size: number | undefined; readonly disabled: boolean }) {
   return (
     <Menu.Root>
@@ -215,6 +220,8 @@ export function SlidesToolbar({ documentId, document }: ToolProps) {
               onClick={() => setAlign(documentId, alignment.value)}
             />
           ))}
+          <span className="toolbar-grow" />
+          <PlayButton />
         </Toolbar>
       )}
 
@@ -222,6 +229,7 @@ export function SlidesToolbar({ documentId, document }: ToolProps) {
         <NewSlideMenu documentId={documentId} />
         <TextBoxButton documentId={documentId} document={document} />
         <ShapeMenu documentId={documentId} document={document} />
+        <PlayButton />
       </TitleEssentials>
     </>
   )

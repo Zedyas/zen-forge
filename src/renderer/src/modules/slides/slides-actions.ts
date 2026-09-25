@@ -5,6 +5,7 @@ import { useDocumentsStore } from '../../app/documents-store'
 import { fileService } from '../../services/file/IpcFileService'
 import { useFidelityStore } from '../../services/fidelity/fidelity-store'
 import { recordRecent } from '../../services/index/document-index'
+import { platformClient } from '../../services/platform/client'
 import { askConfirm } from '../pdf/ConfirmDialog'
 import {
   allRuns,
@@ -346,6 +347,35 @@ export async function insertPicture(id: string): Promise<void> {
   addElement(id, newImage(src, { width: image.naturalWidth * 0.75, height: image.naturalHeight * 0.75 }, document.present))
 }
 
+/* ─── Slideshow ─── */
+
+export function startSlideshow(id: string): void {
+  finishTyping(id)
+  const index = Math.max(0, currentIndex(id))
+  updateSlides(id, () => ({ playing: index, selectedId: undefined, editingId: undefined }))
+  void platformClient.setFullScreen(true)
+}
+
+/** Ends the slideshow on the slide it was showing, as Keynote does. */
+export function stopSlideshow(id: string): void {
+  updateSlides(id, document => ({
+    playing: undefined,
+    slideId: document.playing === undefined ? document.slideId : document.present.slides[document.playing]?.id ?? document.slideId,
+  }))
+  void platformClient.setFullScreen(false)
+}
+
+/** Steps the slideshow; stepping past the last slide ends it. */
+export function stepSlideshow(id: string, to: number): void {
+  const document = readySlides(id)
+  if (document?.playing === undefined) return
+  if (to >= document.present.slides.length) {
+    stopSlideshow(id)
+    return
+  }
+  updateSlides(id, () => ({ playing: Math.max(0, to) }))
+}
+
 /* ─── Commands ─── */
 
 export function isTextEntry(target: EventTarget | null): boolean {
@@ -379,6 +409,8 @@ export async function runSlidesCommand(command: CommandId): Promise<void> {
         return duplicateCurrentSlide(id)
       case 'slide.delete':
         return deleteSlide(id)
+      case 'slide.play':
+        return startSlideshow(id)
       default:
         return
     }

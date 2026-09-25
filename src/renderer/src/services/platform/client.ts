@@ -59,6 +59,10 @@ export const platformClient = {
     await getBridge()?.setViewState(state)
   },
 
+  async setFullScreen(fullScreen: boolean): Promise<void> {
+    await getBridge()?.setFullScreen(fullScreen)
+  },
+
   async resolveClose(approved: boolean): Promise<void> {
     await getBridge()?.resolveClose(approved)
   },

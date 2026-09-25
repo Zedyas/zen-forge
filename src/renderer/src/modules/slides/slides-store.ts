@@ -14,6 +14,8 @@ export interface ReadySlides {
   readonly selectedId?: string
   /** The text box whose text is being typed into. */
   readonly editingId?: string
+  /** Index into `present.slides` while the slideshow plays. */
+  readonly playing?: number
 }
 
 export type SlidesDocument =

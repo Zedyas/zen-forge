@@ -26,6 +26,7 @@ import { currentSlide, readySlides, selectedElement, useSlidesStore, type ReadyS
 import { SlideCanvas } from './SlideCanvas'
 import { SlideRail } from './SlideRail'
 import { SlidesInspector } from './SlidesInspector'
+import { Slideshow } from './Slideshow'
 import { SlidesToolbar } from './SlidesToolbar'
 import { activeEditor } from './text-editing'
 import './slides.css'
@@ -33,14 +34,14 @@ import './slides.css'
 /**
  * Keys on the canvas: Delete, arrow nudges (Shift for 10 pt), ⌘D, Return to type into the selected
  * box, Escape to deselect. With the slide rail focused, arrows change slide and Delete removes it.
- * Ignored while typing.
+ * Ignored while typing and while the slideshow plays.
  */
 function useSlideKeys(documentId: string | undefined): void {
   useEffect(() => {
     if (documentId === undefined) return
     const handleKeyDown = (event: KeyboardEvent): void => {
       const document = readySlides(documentId)
-      if (document === undefined || isTextEntry(event.target)) return
+      if (document === undefined || document.playing !== undefined || isTextEntry(event.target)) return
       const inRail = event.target instanceof Element && event.target.closest('.slides-rail') !== null
       const element = selectedElement(document)
       if (event.metaKey && !event.shiftKey && !event.altKey && event.key.toLowerCase() === 'd') {
@@ -173,6 +174,7 @@ export function SlidesWorkspace({ document }: { readonly document: OpenDocument 
         </div>
         {inspector && <SlidesInspector documentId={documentId} document={state} openDocument={document} />}
       </div>
+      {state.playing !== undefined && <Slideshow documentId={documentId} document={state} />}
     </>
   )
 }

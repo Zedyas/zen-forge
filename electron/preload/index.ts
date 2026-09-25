@@ -71,6 +71,7 @@ const shellBridge: ShellBridge = {
   setAppearance: appearance => ipcRenderer.invoke('shell:set-appearance', appearance),
   setWindowState: state => ipcRenderer.invoke('shell:set-window-state', state),
   setViewState: state => ipcRenderer.invoke('shell:set-view-state', state),
+  setFullScreen: fullScreen => ipcRenderer.invoke('shell:set-full-screen', fullScreen),
   resolveClose: approved => ipcRenderer.invoke('shell:resolve-close', approved),
   checkForUpdates: () => ipcRenderer.invoke('update:check'),
   downloadUpdate: () => ipcRenderer.invoke('update:download'),

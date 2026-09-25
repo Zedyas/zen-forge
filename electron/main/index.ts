@@ -321,6 +321,15 @@ handle('shell:set-view-state', (event, view: ViewState) => {
   record.view = view
   refreshMenu()
 })
+// Through IPC rather than the HTML Fullscreen API: that needs a click or key press in the page, and
+// the slideshow also starts from the menu bar. macOS's simple full screen fills the screen at once,
+// without the animated move to a new Space, as Keynote's slideshow does.
+handle('shell:set-full-screen', (event, fullScreen: boolean) => {
+  const window = senderRecord(event)?.window
+  if (window === undefined) return
+  if (process.platform === 'darwin') window.setSimpleFullScreen(fullScreen === true)
+  else window.setFullScreen(fullScreen === true)
+})
 handle('shell:resolve-close', (event, approved: boolean) => {
   const record = senderRecord(event)
   if (record === undefined) return

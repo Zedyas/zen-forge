@@ -110,3 +110,12 @@
 .slides-actions kbd { margin-left: auto; }
 .button.slides-inspector-action { width: 100%; justify-content: flex-start; margin-top: 4px; padding: 0 6px; }
 .slides-file-name { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ─── Slideshow ─── */
+
+.slideshow {
+  position: fixed; inset: 0; z-index: 100;
+  display: grid; place-items: center;
+  background: #000;
+  cursor: default;
+}

@@ -93,6 +93,8 @@ export interface ShellBridge {
   setAppearance(appearance: Appearance): Promise<void>
   setWindowState(state: WindowState): Promise<void>
   setViewState(state: ViewState): Promise<void>
+  /** Fills the screen with the window, for a slideshow; `false` returns it to its place. */
+  setFullScreen(fullScreen: boolean): Promise<void>
   /**
    * Answers a close request: `true` closes the window (the renderer has saved or discarded every
    * unsaved document), `false` keeps it open and cancels a pending quit.
