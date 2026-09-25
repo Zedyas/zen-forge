@@ -346,7 +346,7 @@ kbd { color: var(--faint); font: 500 11px var(--font-ui); letter-spacing: 0.02em
 }
 .toolbar-grow { flex: 1; min-width: 8px; }
 
-/* The find bar under an editor's toolbar, shared by Ledger and Hanko. As tall as the toolbar. */
+/* The find bar under an editor's toolbar, shared by Ledger, Hanko and Sumi. As tall as the toolbar. */
 .find-bar {
   flex: none; display: flex; align-items: center; gap: 4px;
   height: var(--toolbar); padding: 0 8px;

@@ -65,6 +65,7 @@ const shellBridge: ShellBridge = {
   printPaper: () => ipcRenderer.invoke('print:paper'),
   print: () => ipcRenderer.invoke('print:print'),
   printToPdf: () => ipcRenderer.invoke('print:to-pdf'),
+  openExternal: url => ipcRenderer.invoke('shell:open-external', url),
   pathForDroppedFile: file => webUtils.getPathForFile(file),
   getAppearance: () => ipcRenderer.invoke('shell:get-appearance'),
   setAppearance: appearance => ipcRenderer.invoke('shell:set-appearance', appearance),

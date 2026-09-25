@@ -116,7 +116,7 @@ export function HomeScreen() {
   }, [refresh])
 
   const start = (application: EditorApplicationId): void => {
-    if (application === 'sheets') useDocumentsStore.getState().openUntitled('sheets')
+    if (application === 'sheets' || application === 'docs') useDocumentsStore.getState().openUntitled(application)
     else void chooseAndOpenFiles(application).catch(reportFailure('Could not open the file'))
   }
 
@@ -146,6 +146,7 @@ export function HomeScreen() {
             )
             if (application.id === 'sheets') return <Tip key={application.id} label="New spreadsheet" shortcut={commandShortcut('file.new')}>{card}</Tip>
             if (application.id === 'pdf') return <Tip key={application.id} label="Open a PDF">{card}</Tip>
+            if (application.id === 'docs') return <Tip key={application.id} label="New document">{card}</Tip>
             return card
           })}
         </div>

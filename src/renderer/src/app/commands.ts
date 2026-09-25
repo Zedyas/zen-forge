@@ -28,6 +28,9 @@ export async function executeCommand(id: CommandId): Promise<void> {
     case 'file.new':
       documents.openUntitled('sheets')
       return
+    case 'file.newDocument':
+      documents.openUntitled('docs')
+      return
     case 'file.open':
       return chooseAndOpenFiles()
     case 'file.closeTab':

@@ -1,0 +1,112 @@
+/* ─── Sumi ────────────────────────────────────────────────────────────────
+   A white page on the grey desk. The paper stays light in dark mode, as printed
+   paper does. `.sumi-prose` holds every rule for the document itself, so a
+   printable copy of the same HTML (editor.getHTML()) looks the same; the sizes
+   match the styles the .docx writer gives Word. */
+
+.sumi-desk { flex: 1; min-height: 0; overflow: auto; padding: 28px 24px 64px; background: var(--desk); }
+
+.sumi-paper {
+  display: flex; flex-direction: column;
+  margin: 0 auto;
+  background: #fff;
+  box-shadow: var(--shadow-page);
+  cursor: text;
+  color-scheme: light;
+}
+.sumi-paper > .ProseMirror { flex: 1; }
+
+.sumi-prose {
+  color: #1f1f1f;
+  font: 11pt/1.15 Arial, "Helvetica Neue", Helvetica, sans-serif;
+  font-variant-numeric: normal;
+  overflow-wrap: break-word;
+  user-select: text;
+  -webkit-user-select: text;
+  outline: none;
+}
+.sumi-prose:focus-visible { outline: none; }
+
+.sumi-prose p { margin: 0 0 8pt; }
+.sumi-prose h1, .sumi-prose h2, .sumi-prose h3 { font-weight: 700; line-height: 1.15; }
+.sumi-prose h1 { margin: 18pt 0 6pt; font-size: 20pt; }
+.sumi-prose h2 { margin: 14pt 0 4pt; font-size: 16pt; }
+.sumi-prose h3 { margin: 12pt 0 4pt; font-size: 13pt; }
+.sumi-prose > :first-child { margin-top: 0; }
+
+.sumi-prose ul, .sumi-prose ol { margin: 0 0 8pt; padding-left: 0.5in; }
+.sumi-prose li > p { margin: 0; }
+.sumi-prose li > ul, .sumi-prose li > ol { margin: 0; padding-left: 0.5in; }
+.sumi-prose ul { list-style-type: disc; }
+.sumi-prose ul ul { list-style-type: circle; }
+.sumi-prose ul ul ul { list-style-type: square; }
+.sumi-prose ol { list-style-type: decimal; }
+.sumi-prose ol ol { list-style-type: lower-alpha; }
+.sumi-prose ol ol ol { list-style-type: lower-roman; }
+.sumi-prose ul[data-type="taskList"] { padding-left: 0; list-style: none; }
+.sumi-prose ul[data-type="taskList"] li { display: flex; align-items: flex-start; gap: 7px; }
+.sumi-prose ul[data-type="taskList"] li > label { flex: none; margin-top: 0.1em; user-select: none; }
+.sumi-prose ul[data-type="taskList"] li > label input { margin: 0; accent-color: #4a6cd4; }
+.sumi-prose ul[data-type="taskList"] li > div { flex: 1; min-width: 0; }
+.sumi-prose ul[data-type="taskList"] ul[data-type="taskList"] { margin: 0; padding-left: 0.3in; }
+
+.sumi-prose blockquote { margin: 0 0 8pt; padding-left: 12pt; border-left: 3px solid #ccc; color: #555; }
+.sumi-prose pre {
+  margin: 0 0 8pt; padding: 6pt 8pt;
+  border-radius: 3px; background: #f3f3f3;
+  font: 10pt/1.3 "Courier New", Courier, monospace; white-space: pre-wrap;
+}
+.sumi-prose code { padding: 0 2px; border-radius: 2px; background: #f3f3f3; font: 10pt "Courier New", Courier, monospace; }
+.sumi-prose pre code { padding: 0; background: none; font: inherit; }
+.sumi-prose hr { margin: 8pt 0 16pt; border: 0; border-top: 1px solid #bfbfbf; }
+.sumi-prose a { color: #1155cc; text-decoration: underline; }
+.sumi-prose img { max-width: 100%; height: auto; vertical-align: bottom; }
+.sumi-prose img.ProseMirror-selectednode { outline: 2px solid var(--app-docs); }
+
+.sumi-prose table { width: 100%; margin: 0 0 8pt; border-collapse: collapse; table-layout: fixed; }
+.sumi-prose .tableWrapper { overflow-x: auto; }
+.sumi-prose td, .sumi-prose th { position: relative; padding: 2pt 5.5pt; border: 1px solid #000; vertical-align: top; text-align: left; }
+.sumi-prose th { font-weight: 700; }
+.sumi-prose td > p, .sumi-prose th > p { margin: 0; }
+.sumi-prose .selectedCell::after { content: ""; position: absolute; inset: 0; background: rgb(74 108 212 / 16%); pointer-events: none; }
+
+/* A manual page break: a dashed line across the page, labelled; print starts a new page instead. */
+.sumi-page-break { position: relative; margin: 18pt -1in; border-top: 1px dashed #b8bcc4; }
+.sumi-page-break::after {
+  content: "Page break";
+  position: absolute; left: 50%; top: -7px; transform: translateX(-50%);
+  padding: 0 8px; background: #fff; color: #8a8f98;
+  font: 600 9.5px/14px var(--font-ui); letter-spacing: 0.05em; text-transform: uppercase;
+}
+.sumi-page-break.ProseMirror-selectednode { border-top-color: var(--app-docs); }
+@media print {
+  .sumi-page-break { margin: 0; border: 0; break-after: page; }
+  .sumi-page-break::after { content: none; }
+}
+
+.sumi-prose p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left; height: 0;
+  color: #9aa0a8; pointer-events: none;
+}
+
+/* Selection kept visible while the find or link field has focus (TipTap's Selection extension). */
+.sumi-prose .selection { background: #c8d7fb; }
+.sumi-find-match { border-radius: 1px; background: #fbe38e; }
+.sumi-find-match.is-current { background: #f5a524; }
+
+.sumi-keep-focus { display: contents; }
+
+.sumi-style-trigger { min-width: 112px; justify-content: space-between; }
+.sumi-style-menu { min-width: 200px; }
+.sumi-style-menu .menu-item[data-style="1"] span { font-size: 18px; font-weight: 700; }
+.sumi-style-menu .menu-item[data-style="2"] span { font-size: 15.5px; font-weight: 700; }
+.sumi-style-menu .menu-item[data-style="3"] span { font-size: 13.5px; font-weight: 700; }
+
+.sumi-link-popover form { display: flex; align-items: center; gap: 6px; padding: 8px; }
+.sumi-link-popover .text-field { width: 250px; }
+.sumi-link-popover .button { height: 26px; padding: 0 10px; font-size: 12px; }
+
+.sumi-outline .button { justify-content: flex-start; width: 100%; height: 26px; padding: 0 6px; overflow: hidden; color: var(--ink); text-overflow: ellipsis; white-space: nowrap; }
+.sumi-outline li[data-level="2"] { padding-left: 12px; }
+.sumi-outline li[data-level="3"] { padding-left: 24px; }

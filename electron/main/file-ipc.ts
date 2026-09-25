@@ -11,6 +11,9 @@ const formatNames: Record<string, string> = {
   csv: 'CSV (comma-separated values)',
   tsv: 'TSV (tab-separated values)',
   pdf: 'PDF document',
+  docx: 'Word Document',
+  md: 'Markdown',
+  markdown: 'Markdown',
 }
 
 function ownerOf(event: IpcMainInvokeEvent): BrowserWindow | undefined {

@@ -2,6 +2,7 @@ import type { ApplicationId, EditorApplicationId } from './applications'
 
 export const commandIds = [
   'file.new',
+  'file.newDocument',
   'window.new',
   'file.open',
   'file.save',
@@ -60,6 +61,7 @@ export interface CommandDefinition {
 
 export const commandDefinitions: readonly CommandDefinition[] = [
   { id: 'file.new', label: 'New Spreadsheet', menu: 'file', accelerator: 'CmdOrCtrl+N', scope: 'all', target: 'renderer' },
+  { id: 'file.newDocument', label: 'New Document', menu: 'file', scope: 'all', target: 'renderer' },
   { id: 'window.new', label: 'New Window', menu: 'file', accelerator: 'Shift+CmdOrCtrl+N', scope: 'all', target: 'main' },
   { id: 'file.open', label: 'Open…', menu: 'file', accelerator: 'CmdOrCtrl+O', scope: 'all', target: 'renderer' },
   { id: 'file.save', label: 'Save', menu: 'file', accelerator: 'CmdOrCtrl+S', scope: 'editors', target: 'renderer', separatorBefore: true },
@@ -70,11 +72,11 @@ export const commandDefinitions: readonly CommandDefinition[] = [
   { id: 'file.closeTab', label: 'Close Tab', menu: 'file', accelerator: 'CmdOrCtrl+W', scope: 'all', target: 'renderer', separatorBefore: true },
   { id: 'edit.undo', label: 'Undo', menu: 'edit', accelerator: 'CmdOrCtrl+Z', scope: 'editors', target: 'renderer' },
   { id: 'edit.redo', label: 'Redo', menu: 'edit', accelerator: 'Shift+CmdOrCtrl+Z', scope: 'editors', target: 'renderer' },
-  { id: 'edit.find', label: 'Find…', menu: 'edit', accelerator: 'CmdOrCtrl+F', scope: ['sheets', 'pdf'], target: 'renderer', separatorBefore: true },
-  { id: 'format.bold', label: 'Bold', menu: 'format', accelerator: 'CmdOrCtrl+B', scope: ['sheets'], target: 'renderer' },
-  { id: 'format.italic', label: 'Italic', menu: 'format', accelerator: 'CmdOrCtrl+I', scope: ['sheets'], target: 'renderer' },
-  { id: 'format.underline', label: 'Underline', menu: 'format', accelerator: 'CmdOrCtrl+U', scope: ['sheets'], target: 'renderer' },
-  { id: 'format.clear', label: 'Clear Formatting', menu: 'format', scope: ['sheets'], target: 'renderer', separatorBefore: true },
+  { id: 'edit.find', label: 'Find…', menu: 'edit', accelerator: 'CmdOrCtrl+F', scope: ['sheets', 'pdf', 'docs'], target: 'renderer', separatorBefore: true },
+  { id: 'format.bold', label: 'Bold', menu: 'format', accelerator: 'CmdOrCtrl+B', scope: ['sheets', 'docs'], target: 'renderer' },
+  { id: 'format.italic', label: 'Italic', menu: 'format', accelerator: 'CmdOrCtrl+I', scope: ['sheets', 'docs'], target: 'renderer' },
+  { id: 'format.underline', label: 'Underline', menu: 'format', accelerator: 'CmdOrCtrl+U', scope: ['sheets', 'docs'], target: 'renderer' },
+  { id: 'format.clear', label: 'Clear Formatting', menu: 'format', scope: ['sheets', 'docs'], target: 'renderer', separatorBefore: true },
   { id: 'view.toolbar', label: 'Toolbar', menu: 'view', accelerator: 'Alt+CmdOrCtrl+T', scope: 'editors', target: 'renderer', toggle: 'toolbar' },
   { id: 'view.inspector', label: 'Inspector', menu: 'view', accelerator: 'Alt+CmdOrCtrl+I', scope: 'editors', target: 'renderer', toggle: 'inspector' },
   { id: 'view.zoomIn', label: 'Zoom In', menu: 'view', accelerator: 'CmdOrCtrl+=', scope: ['pdf'], target: 'renderer', separatorBefore: true },

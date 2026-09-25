@@ -1,5 +1,6 @@
 import type { EditorApplicationId } from '@shared/applications'
 import type { CommandId } from '@shared/commands'
+import { docsEditor } from '../modules/docs/DocsWorkspace'
 import { pdfEditor } from '../modules/pdf/PdfWorkspace'
 import { sheetsEditor } from '../modules/sheets/SheetsWorkspace'
 
@@ -20,6 +21,8 @@ export function editorFor(kind: EditorApplicationId): EditorHandler | undefined 
       return sheetsEditor
     case 'pdf':
       return pdfEditor
+    case 'docs':
+      return docsEditor
     default:
       return undefined
   }

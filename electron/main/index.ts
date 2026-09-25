@@ -3,6 +3,7 @@ import { basename, extname, join } from 'node:path'
 import { applicationForExtension, findApplication, suiteName } from '../../src/shared/applications'
 import { commandApplies, commandDefinitions, type CommandDefinition, type MenuId } from '../../src/shared/commands'
 import type { Appearance, FileReference, ViewState, WindowSession, WindowState } from '../../src/shared/shell'
+import { attachSpellingMenu, registerLinkIpc } from './document-editing'
 import { registerFileIpc } from './file-ipc'
 import { NodeFileService } from './node-file-service'
 import { registerPrintIpc } from './print-ipc'
@@ -225,6 +226,7 @@ function createWindow(restore?: WindowSession): WindowRecord {
     closeApproved: false,
   }
   records.push(record)
+  attachSpellingMenu(window.webContents)
   loadRenderer(window)
   const update = currentUpdateStatus()
   if (update.state !== 'none') send(record, 'update:status', update)
@@ -348,6 +350,7 @@ app.whenReady().then(() => {
   registerFileIpc()
   registerUpdates(broadcast)
   registerPrintIpc()
+  registerLinkIpc()
   const sessions = readSession()
   if (sessions.length === 0) createWindow()
   else sessions.forEach(session => createWindow(session))

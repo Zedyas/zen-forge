@@ -39,6 +39,10 @@ export const platformClient = {
     return mainProcessMessage(requireBridge('Exporting PDF').printToPdf())
   },
 
+  async openExternal(url: string): Promise<void> {
+    await requireBridge('Opening links').openExternal(url)
+  },
+
   async getAppearance(): Promise<Appearance> {
     return (await getBridge()?.getAppearance()) ?? 'system'
   },
