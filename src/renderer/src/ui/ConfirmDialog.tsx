@@ -56,12 +56,12 @@ export function ConfirmHost() {
   return (
     <Dialog.Root open={request !== undefined} onOpenChange={open => { if (!open) answer('cancel') }}>
       <Dialog.Portal>
-        <Dialog.Backdrop className="pdf-dialog-backdrop" />
-        <Dialog.Popup className="pdf-dialog">
+        <Dialog.Backdrop className="dialog-backdrop" />
+        <Dialog.Popup className="dialog">
           <Dialog.Title render={<h2 />}>{request?.title}</Dialog.Title>
           <Dialog.Description>{request?.message}</Dialog.Description>
           {request?.option !== undefined && (
-            <label className="pdf-dialog-option">
+            <label className="dialog-option">
               <input
                 type="checkbox"
                 checked={optionChecked}
@@ -73,7 +73,7 @@ export function ConfirmHost() {
               </span>
             </label>
           )}
-          <div className="pdf-dialog-actions">
+          <div className="dialog-actions">
             <button type="button" className="button" onClick={() => answer('cancel')}>Cancel</button>
             {request?.actions.map(action => (
               <button

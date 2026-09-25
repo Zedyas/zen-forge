@@ -4,7 +4,7 @@ import type { EditorHandler } from '../../app/editors'
 import { useViewStore } from '../../app/view-store'
 import { FidelitySurface } from '../../ui/FidelitySurface'
 import { WindowEmpty } from '../../ui/WindowEmpty'
-import { ConfirmHost } from '../pdf/ConfirmDialog'
+import { ConfirmHost } from '../../ui/ConfirmDialog'
 import { holdsText } from './model'
 import { runSlidesCommand } from './slide-commands'
 import {

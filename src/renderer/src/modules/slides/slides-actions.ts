@@ -6,7 +6,7 @@ import { fileService } from '../../services/file/IpcFileService'
 import { useFidelityStore } from '../../services/fidelity/fidelity-store'
 import { recordRecent } from '../../services/index/document-index'
 import { platformClient } from '../../services/platform/client'
-import { askConfirm } from '../pdf/ConfirmDialog'
+import { askConfirm } from '../../ui/ConfirmDialog'
 import {
   alignTo,
   applyTheme,

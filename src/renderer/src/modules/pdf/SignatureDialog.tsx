@@ -109,8 +109,8 @@ export function SignatureDialog() {
   return (
     <Dialog.Root open={open} onOpenChange={next => { if (!next) close() }}>
       <Dialog.Portal>
-        <Dialog.Backdrop className="pdf-dialog-backdrop" />
-        <Dialog.Popup className="pdf-dialog pdf-signature-dialog">
+        <Dialog.Backdrop className="dialog-backdrop" />
+        <Dialog.Popup className="dialog pdf-signature-dialog">
           <Dialog.Title render={<h2 />}>Add signature</Dialog.Title>
           <Dialog.Description>Sign with your trackpad or mouse. It is saved on this Mac so you can place it on any PDF.</Dialog.Description>
           <canvas
@@ -142,7 +142,7 @@ export function SignatureDialog() {
             }}
           />
           <div className="pdf-signature-line" aria-hidden="true" />
-          <div className="pdf-dialog-actions">
+          <div className="dialog-actions">
             <div className="segmented" role="group" aria-label="Ink colour">
               {inks.map(ink => (
                 <button key={ink.value} type="button" aria-pressed={color === ink.value} onClick={() => setColor(ink.value)}>
