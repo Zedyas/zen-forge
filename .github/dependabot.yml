@@ -1,0 +1,23 @@
+# Monthly dependency update pull requests, grouped so there is one to review per ecosystem.
+# Security fixes arrive separately as soon as an advisory is published.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+    ignore:
+      # Patched for this version (patches/); an update has to re-apply the patch by hand.
+      - dependency-name: "@glideapps/glide-data-grid"

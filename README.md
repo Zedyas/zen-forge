@@ -153,11 +153,11 @@ The patch in `patches/` makes Glide Data Grid load its cell editor up front inst
 
 ## Contributing
 
-Issues and pull requests are welcome on [GitHub](https://github.com/Zedyas/zen-forge).
+Zendo is maintained by its owner. Anyone can suggest changes; the maintainer reviews every suggestion and makes the final call.
 
-- **Reporting a bug:** say what you did, what you expected and what happened. Attach the file if you can share it, or describe what is in it (formulas, form fields, redactions).
-- **Before a pull request:** run `pnpm typecheck`, `pnpm lint` and `pnpm test`, and add a focused test when you fix a bug in a model, a file format or the PDF engine.
-- **Scope:** Zendo aims at the everyday jobs, not feature parity with Microsoft Office. The [roadmap](#roadmap) lists what is planned; for anything larger, open an issue first.
+- **Ideas and bugs:** open an [issue](https://github.com/Zedyas/zen-forge/issues). For a bug, say what you did, what you expected and what happened, and attach the file if you can share it.
+- **Code:** pull requests are welcome as suggestions. They need to pass the checks (`pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm build`) and the maintainer's review before anything is merged. For anything large, open an issue first.
+- **Security problems:** report them privately, as described in [SECURITY.md](SECURITY.md).
 
 ## License
 
