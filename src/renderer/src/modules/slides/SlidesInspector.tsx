@@ -18,7 +18,6 @@ import {
   Trash2,
 } from 'lucide-react'
 import { useState } from 'react'
-import { toast } from 'sonner'
 import type { OpenDocument } from '../../app/documents-store'
 import { platformClient } from '../../services/platform/client'
 import { smallIcon } from '../../ui/icons'
@@ -48,6 +47,7 @@ import {
   type TableElement,
   type VerticalAlign,
 } from './model'
+import { reportFailure } from './feedback'
 import { backgroundColors, fillColors, fontChoices, lineSpacings, textColors } from './palette'
 import {
   alignSelection,
@@ -65,12 +65,6 @@ import { themes } from './themes'
 
 function points(value: number): string {
   return `${Math.round(value)} pt`
-}
-
-function reportFailure(title: string) {
-  return (error: unknown): void => {
-    toast.error(title, { description: error instanceof Error ? error.message : undefined })
-  }
 }
 
 /** A number typed in the inspector; applied on Return or when the field loses focus, reverted by Escape. */
@@ -132,15 +126,23 @@ function Swatches({ label, options, current, onChoose }: {
   )
 }
 
-function Stepper({ label, value, step, minimum, onChange }: { readonly label: string; readonly value: number; readonly step: number; readonly minimum: number; onChange(value: number): void }) {
+/** A value in points with − and + buttons; `less` and `more` name what they do ("Smaller", "Thicker"). */
+function Stepper({ less, more, value, step, minimum, onChange }: {
+  readonly less: string
+  readonly more: string
+  readonly value: number
+  readonly step: number
+  readonly minimum: number
+  onChange(value: number): void
+}) {
   return (
     <span className="slides-stepper">
-      <Tip label={`Less ${label.toLowerCase()}`}>
-        <button type="button" className="tool" aria-label={`Less ${label.toLowerCase()}`} onClick={() => onChange(Math.max(minimum, value - step))}><Minus {...smallIcon} /></button>
+      <Tip label={less}>
+        <button type="button" className="tool" aria-label={less} onClick={() => onChange(Math.max(minimum, value - step))}><Minus {...smallIcon} /></button>
       </Tip>
       <span>{Math.round(value * 10) / 10} pt</span>
-      <Tip label={`More ${label.toLowerCase()}`}>
-        <button type="button" className="tool" aria-label={`More ${label.toLowerCase()}`} onClick={() => onChange(value + step)}><Plus {...smallIcon} /></button>
+      <Tip label={more}>
+        <button type="button" className="tool" aria-label={more} onClick={() => onChange(value + step)}><Plus {...smallIcon} /></button>
       </Tip>
     </span>
   )
@@ -191,7 +193,7 @@ function FillAndBorder({ documentId, element }: { readonly documentId: string; r
       />
       {border !== undefined && (
         <InspectorRow label="Width">
-          <Stepper label="Width" value={border.width} step={0.5} minimum={0.5} onChange={width => setBorder(documentId, { ...border, width })} />
+          <Stepper less="Thinner" more="Thicker" value={border.width} step={0.5} minimum={0.5} onChange={width => setBorder(documentId, { ...border, width })} />
         </InspectorRow>
       )}
     </InspectorSection>
@@ -218,7 +220,7 @@ function TextOptions({ documentId, elements }: { readonly documentId: string; re
         </select>
       </InspectorRow>
       <InspectorRow label="Size">
-        <Stepper label="Size" value={size} step={2} minimum={4} onChange={value => applyRunStyle(documentId, { size: value })} />
+        <Stepper less="Smaller" more="Larger" value={size} step={2} minimum={4} onChange={value => applyRunStyle(documentId, { size: value })} />
       </InspectorRow>
       <InspectorRow label="Line spacing">
         <select className="tool-select" value={String(spacing)} aria-label="Line spacing" onChange={event => setLineSpacing(documentId, Number(event.currentTarget.value))}>
@@ -269,7 +271,7 @@ function TableOptions({ documentId, table, cell }: { readonly documentId: string
         </select>
       </InspectorRow>
       <InspectorRow label="Size">
-        <Stepper label="Size" value={table.size} step={1} minimum={6} onChange={value => applyRunStyle(documentId, { size: value })} />
+        <Stepper less="Smaller" more="Larger" value={table.size} step={1} minimum={6} onChange={value => applyRunStyle(documentId, { size: value })} />
       </InspectorRow>
     </InspectorSection>
   )
@@ -359,7 +361,11 @@ export function SlidesInspector({ documentId, document, openDocument }: {
       {single !== undefined && (
         <>
           <InspectorSection title={describe(single)}>
-            <p className="inspector-note">Drag to move and handles to resize; Shift keeps proportions. Arrow keys nudge by 1 pt, with Shift by 10 pt.</p>
+            <p className="inspector-note">
+              {single.kind === 'image'
+                ? 'Drag to move and handles to resize; a picture keeps its proportions from a corner.'
+                : 'Drag to move and handles to resize; Shift keeps proportions from a corner.'} Arrow keys nudge by 1 pt, with Shift by 10 pt.
+            </p>
           </InspectorSection>
           <Placement documentId={documentId} element={single} />
           <FillAndBorder documentId={documentId} element={single} />

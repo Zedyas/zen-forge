@@ -1,5 +1,6 @@
 import { toast } from 'sonner'
-import type { CommandId } from '@shared/commands'
+import { findCommand, type CommandId } from '@shared/commands'
+import { errorMessage } from './feedback'
 import { toggleRunStyle } from './format-actions'
 import { exportPresentationPdf, printPresentation } from './print'
 import { activeSlidesId, runSlideCommand } from './slides-actions'
@@ -24,6 +25,6 @@ export async function runSlidesCommand(command: CommandId): Promise<void> {
         return await runSlideCommand(id, command)
     }
   } catch (error) {
-    toast.error('Could not complete that', { description: error instanceof Error && error.message !== '' ? error.message : 'The presentation could not be changed.' })
+    toast.error(`${findCommand(command).label.replace('…', '')} didn't work`, { description: errorMessage(error, 'The presentation was not changed.') })
   }
 }

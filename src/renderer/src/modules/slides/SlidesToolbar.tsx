@@ -40,7 +40,6 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
-import { toast } from 'sonner'
 import type { CommandId } from '@shared/commands'
 import { icon, tinyIcon } from '../../ui/icons'
 import { commandShortcut, Tip } from '../../ui/Tip'
@@ -49,6 +48,7 @@ import { TitleEssentials } from '../../ui/TitleSlot'
 import { useViewStore } from '../../app/view-store'
 import { applyRunStyle, insertTable, setAlign, setFill, toggleList, toggleRunStyle } from './format-actions'
 import { allRuns, holdsText, newShape, newTextBox, slideLayouts, type AlignEdge, type BasicShape, type HorizontalAlign, type TextRun } from './model'
+import { reportFailure } from './feedback'
 import { fillColors, fontChoices, fontSizes, highlightColors, textColors } from './palette'
 import { runSlidesCommand } from './slide-commands'
 import { addElement, addSlide, alignSelection, arrangeSelection, insertPicture } from './slides-actions'
@@ -81,12 +81,6 @@ export const objectAlignments: ReadonlyArray<{ readonly edge: AlignEdge; readonl
 
 function run(command: CommandId): void {
   void runSlidesCommand(command)
-}
-
-function reportFailure(title: string) {
-  return (error: unknown): void => {
-    toast.error(title, { description: error instanceof Error ? error.message : undefined })
-  }
 }
 
 interface ToolProps {
