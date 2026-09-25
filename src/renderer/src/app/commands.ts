@@ -13,6 +13,7 @@ export async function executeCommand(id: CommandId): Promise<void> {
   const documents = useDocumentsStore.getState()
   const active = activeDocument(documents)
   if (!commandApplies(command, active?.kind ?? 'home')) throw new Error(`${command.label} is not available here.`)
+  if (active !== undefined && editorFor(active.kind)?.presenting?.(active.id) === true) return
 
   switch (id) {
     case 'palette.open':

@@ -17,7 +17,7 @@ import {
   type TextRun,
 } from './model'
 import { changeElement, removeElements } from './slides-actions'
-import { readySlides, updateSlides } from './slides-store'
+import { markTyping, readySlides, typingDone, updateSlides } from './slides-store'
 import { ElementView, singleLineHeight, TextParagraphs } from './SlideView'
 import { registerEditor, type InlineFormat } from './text-editing'
 import { defaultTheme, findTheme } from './themes'
@@ -311,6 +311,10 @@ export function TextEditor({ documentId, element, caret }: TextEditorProps) {
   const close = useRef<() => void>(() => undefined)
   // Set once anything was typed or formatted, so an editor removed without closing only writes real changes.
   const changed = useRef(false)
+  const touch = (): void => {
+    if (!changed.current) markTyping(documentId)
+    changed.current = true
+  }
 
   useLayoutEffect(() => {
     const root = rootRef.current
@@ -322,6 +326,7 @@ export function TextEditor({ documentId, element, caret }: TextEditorProps) {
       written = true
       // The editor is laid out at one CSS pixel per point, so its layout height is in points.
       writeText(documentId, element.id, readEditor(root, first), root.offsetHeight + element.inset.top + element.inset.bottom, closing)
+      typingDone(documentId)
     }
     close.current = () => {
       write(true)
@@ -339,7 +344,7 @@ export function TextEditor({ documentId, element, caret }: TextEditorProps) {
       documentId,
       elementId: element.id,
       format: change => {
-        changed.current = true
+        touch()
         applyFormat(root, saved.current, change)
       },
       commit: () => close.current(),
@@ -373,7 +378,7 @@ export function TextEditor({ documentId, element, caret }: TextEditorProps) {
             close.current()
           }}
           onInput={() => {
-            changed.current = true
+            touch()
             if (rootRef.current !== null) renumber(rootRef.current)
           }}
           onPaste={event => {
@@ -389,7 +394,7 @@ export function TextEditor({ documentId, element, caret }: TextEditorProps) {
               // Tab moves list paragraphs a level in or out; in other text it types a tab.
               event.preventDefault()
               const root = rootRef.current
-              changed.current = true
+              touch()
               if (selectedBlocks(root).some(block => listOf(block) !== 'none')) indent(root, event.shiftKey ? -1 : 1)
               else if (!event.shiftKey) document.execCommand('insertText', false, '\t')
             }

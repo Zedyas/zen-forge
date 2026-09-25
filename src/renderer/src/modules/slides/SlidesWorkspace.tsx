@@ -25,8 +25,9 @@ import {
   startEditing,
   startNewPresentation,
 } from './slides-actions'
-import { currentSlide, readySlides, selectedElement, useSlidesStore, type ReadySlides } from './slides-store'
+import { currentSlide, markTyping, readySlides, selectedElement, typingDone, useSlidesStore, type ReadySlides } from './slides-store'
 import { SlideCanvas } from './SlideCanvas'
+import { SlidesErrorBoundary } from './SlidesErrorBoundary'
 import { SlideRail } from './SlideRail'
 import { SlidesInspector } from './SlidesInspector'
 import { Slideshow } from './Slideshow'
@@ -125,10 +126,13 @@ function NotesField({ documentId, slideId, notes }: { readonly documentId: strin
   const commit = (): void => {
     if (typed.current !== undefined) setSlideNotes(documentId, slideId, typed.current)
     typed.current = undefined
+    typingDone(documentId)
   }
   // Switching tabs removes the field without a blur; what was typed is kept.
   useLayoutEffect(() => () => {
-    if (typed.current !== undefined) setSlideNotes(documentId, slideId, typed.current)
+    if (typed.current === undefined) return
+    setSlideNotes(documentId, slideId, typed.current)
+    typingDone(documentId)
   }, [documentId, slideId])
   return (
     <textarea
@@ -139,6 +143,7 @@ function NotesField({ documentId, slideId, notes }: { readonly documentId: strin
       spellCheck
       onFocus={() => activeEditor(documentId)?.commit()}
       onChange={event => {
+        if (typed.current === undefined) markTyping(documentId)
         typed.current = event.currentTarget.value
         setDraft(event.currentTarget.value)
       }}
@@ -161,7 +166,13 @@ function StatusBar({ documentId, document }: { readonly documentId: string; read
   )
 }
 
-export const slidesEditor: EditorHandler = { run: runSlidesCommand, save: saveSlidesDocument, release: releaseSlidesDocument, flush: finishTyping }
+export const slidesEditor: EditorHandler = {
+  run: runSlidesCommand,
+  save: saveSlidesDocument,
+  release: releaseSlidesDocument,
+  flush: finishTyping,
+  presenting: id => readySlides(id)?.playing !== undefined,
+}
 
 /** Slides: the presentation tab's content below the title bar. */
 export function SlidesWorkspace({ document }: { readonly document: OpenDocument }) {
@@ -187,7 +198,7 @@ export function SlidesWorkspace({ document }: { readonly document: OpenDocument 
 
   const slide = currentSlide(state)
   return (
-    <>
+    <SlidesErrorBoundary key={documentId} documentId={documentId}>
       <ConfirmHost />
       <SlidesToolbar documentId={documentId} document={state} />
       <div className="window-body">
@@ -202,6 +213,6 @@ export function SlidesWorkspace({ document }: { readonly document: OpenDocument 
         {inspector && <SlidesInspector documentId={documentId} document={state} openDocument={document} />}
       </div>
       {state.playing !== undefined && <Slideshow documentId={documentId} document={state} />}
-    </>
+    </SlidesErrorBoundary>
   )
 }

@@ -29,7 +29,7 @@ import {
   startEditing,
   toggleSelected,
 } from './slides-actions'
-import { currentSlide, selectedElements, updateSlides, type ReadySlides, type TableCellAddress } from './slides-store'
+import { currentSlide, markTyping, selectedElements, typingDone, updateSlides, type ReadySlides, type TableCellAddress } from './slides-store'
 import { fontStack, SlideView } from './SlideView'
 import { registerEditor } from './text-editing'
 import { TextEditor } from './TextEditor'
@@ -206,6 +206,7 @@ function CellEditor({ documentId, table, cell, rect, scale }: CellEditorProps) {
       // scale. It only asks for a taller row once the text outgrew the cell.
       const { text: value, height: needed } = typed.current
       setCellText(documentId, table.id, cell, value, needed > rect.height + 1 ? needed / scale : 0)
+      typingDone(documentId)
     }
     close.current = () => {
       write.current()
@@ -246,6 +247,7 @@ function CellEditor({ documentId, table, cell, rect, scale }: CellEditorProps) {
         field.style.height = '0px'
         const grown = Math.max(rect.height, field.scrollHeight)
         field.style.height = ''
+        if (typed.current.text === (source?.text ?? '')) markTyping(documentId)
         typed.current = { text: field.value, height: grown }
         setText(field.value)
         setHeight(grown)

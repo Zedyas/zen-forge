@@ -44,12 +44,10 @@ import {
   updateSlides,
   type TableCellAddress,
 } from './slides-store'
+import { pastedElements } from './clipboard-schema'
+import { errorMessage } from './feedback'
 import { activeEditor } from './text-editing'
 import { findTheme } from './themes'
-
-function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message !== '' ? error.message : fallback
-}
 
 /* ─── Load, save, release ─── */
 
@@ -79,6 +77,7 @@ export function startNewPresentation(id: string): void {
 
 export function releaseSlidesDocument(id: string): void {
   loads.delete(id)
+  stopSlideshow(id)
   releaseSlides(id)
   useFidelityStore.getState().forget(id)
 }
@@ -348,26 +347,8 @@ export function alignSelection(id: string, edge: AlignEdge): void {
 /* ─── Clipboard: elements travel as JSON in a private type, so they paste into any Zendo window ─── */
 
 const clipboardType = 'application/x-zendo-slides+json'
-const elementKinds: ReadonlySet<string> = new Set(['text', 'shape', 'image', 'table'])
 
-/** Pasted JSON comes from Zendo's own copy, but it passed through the system clipboard, so its shape is checked. */
-function isSlideElement(value: unknown): value is SlideElement {
-  return typeof value === 'object' && value !== null && 'kind' in value && typeof value.kind === 'string' && elementKinds.has(value.kind)
-    && 'x' in value && typeof value.x === 'number' && 'y' in value && typeof value.y === 'number'
-}
-
-function readClipboardElements(data: DataTransfer): SlideElement[] | undefined {
-  const json = data.getData(clipboardType)
-  if (json === '') return undefined
-  try {
-    const parsed: unknown = JSON.parse(json)
-    return Array.isArray(parsed) && parsed.every(isSlideElement) ? parsed : undefined
-  } catch {
-    return undefined
-  }
-}
-
-/** Puts the selected elements on the clipboard; `cut` also removes them. Resolves false when nothing is selected. */
+/** Puts the selected elements on the clipboard; `cut` also removes them. Returns false when nothing is selected. */
 export function copySelection(id: string, data: DataTransfer, cut: boolean): boolean {
   const document = readySlides(id)
   const elements = document === undefined ? [] : selectedElements(document)
@@ -378,13 +359,18 @@ export function copySelection(id: string, data: DataTransfer, cut: boolean): boo
   return true
 }
 
-/** Pastes copied elements, a picture, or plain text as a new text box. Resolves false when the clipboard holds none of those. */
+/**
+ * Pastes copied elements, a picture, or plain text as a new text box. Returns false when the
+ * clipboard holds none of those. Copied elements that are not exactly slide objects are refused.
+ */
 export function paste(id: string, data: DataTransfer): boolean {
   const document = readySlides(id)
   if (document === undefined) return false
-  const elements = readClipboardElements(data)
-  if (elements !== undefined) {
-    addElements(id, copiesFor(currentSlide(document), elements))
+  const json = data.getData(clipboardType)
+  if (json !== '') {
+    const elements = pastedElements(json)
+    if (elements === undefined) toast('Nothing pasted', { description: 'The copied objects are not ones Slides can use.' })
+    else addElements(id, copiesFor(currentSlide(document), elements))
     return true
   }
   const picture = Array.from(data.files).find(file => file.type === 'image/png' || file.type === 'image/jpeg')
@@ -449,19 +435,28 @@ export async function chooseBackgroundPicture(id: string): Promise<void> {
 
 /* ─── Slideshow ─── */
 
+/** The document whose slideshow holds the window in full screen, so every way a show ends leaves full screen once. */
+let showing: string | undefined
+
 export function startSlideshow(id: string): void {
   finishTyping(id)
   const index = Math.max(0, currentIndex(id))
   updateSlides(id, () => ({ playing: index, selection: [], editingId: undefined }))
+  showing = id
   void platformClient.setFullScreen(true)
 }
 
-/** Ends the slideshow on the slide it was showing, as Keynote does. */
+/**
+ * Ends the slideshow on the slide it was showing, as Keynote does. Also runs when the show goes
+ * away without Escape (its tab closed or switched away from), so the window never stays in full screen.
+ */
 export function stopSlideshow(id: string): void {
   updateSlides(id, document => ({
     playing: undefined,
     slideId: document.playing === undefined ? document.slideId : document.present.slides[document.playing]?.id ?? document.slideId,
   }))
+  if (showing !== id) return
+  showing = undefined
   void platformClient.setFullScreen(false)
 }
 

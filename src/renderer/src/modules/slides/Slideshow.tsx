@@ -48,6 +48,9 @@ export function Slideshow({ documentId, document }: { readonly documentId: strin
     return () => window.removeEventListener('keydown', handleKeyDown, true)
   }, [documentId, index, last])
 
+  // Closing or leaving the tab removes the show without Escape; the window leaves full screen too.
+  useEffect(() => () => stopSlideshow(documentId), [documentId])
+
   if (slide === undefined) return null
   const { width, height } = document.present
   const scale = Math.min(size.width / width, size.height / height)

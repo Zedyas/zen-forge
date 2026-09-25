@@ -42,6 +42,20 @@ function syncDirty(id: string, document: ReadySlides): void {
   useDocumentsStore.getState().setDirty(id, document.present !== document.saved)
 }
 
+/**
+ * Text editors (a text box, a table cell, the notes) keep what is typed until they close. The tab is
+ * marked unsaved at the first keystroke, so closing the window or quitting asks before it is lost.
+ */
+export function markTyping(id: string): void {
+  useDocumentsStore.getState().setDirty(id, true)
+}
+
+/** After an editor wrote its text (or had nothing to write), the unsaved mark follows the presentation again. */
+export function typingDone(id: string): void {
+  const document = readySlides(id)
+  if (document !== undefined) syncDirty(id, document)
+}
+
 export function setSlidesDocument(id: string, document: SlidesDocument): void {
   useSlidesStore.setState(state => ({ documents: { ...state.documents, [id]: document } }))
 }

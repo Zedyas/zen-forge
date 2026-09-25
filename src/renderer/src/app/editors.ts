@@ -14,10 +14,17 @@ export interface EditorHandler {
   /** Drops the module's in-memory state for a closed document. */
   release(documentId: string): void
   /**
-   * Writes text still being typed (an open text box or field) into the document, so closing it
-   * sees those changes as unsaved. Editors that keep typing in the document as it happens omit it.
+   * Writes text still being typed (an open text box or field) into the document before it closes.
+   * The tab is already marked unsaved from the first keystroke, so a window close or quit asks
+   * first; this makes Save include the typing. Editors that keep typing in the document as it
+   * happens omit it.
    */
   flush?(documentId: string): void
+  /**
+   * True while the document is presented full screen (a slideshow). Menu commands and shortcuts are
+   * then ignored, so nothing changes the document mid-show; the show's own keys still work.
+   */
+  presenting?(documentId: string): boolean
 }
 
 /** The module that owns a document kind. Resolved at call time, so the import cycle with the modules is harmless. */
