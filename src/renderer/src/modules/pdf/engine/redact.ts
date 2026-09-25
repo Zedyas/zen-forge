@@ -8,6 +8,7 @@ import {
   type PDFObject,
   type PDFPage,
 } from '@cantoo/pdf-lib'
+import { removeWidgets } from './forms'
 import { pageGeometry, rectToUserSpace, sameGeometry, type Rect } from './geometry'
 import { loadDocument } from './inspect'
 import { removeHiddenLayers } from './layers'
@@ -49,35 +50,6 @@ function annotationRefs(page: PDFPage): PDFRef[] {
   return annots === undefined ? [] : annots.asArray().filter((item): item is PDFRef => item instanceof PDFRef)
 }
 
-/** Removes form fields (value included) whose widgets all touch a box, and the touching widgets of the rest. */
-function removeTouchedFields(doc: PDFDocument, areas: ReadonlyMap<PDFPage, readonly Rect[]>): void {
-  if (doc.catalog.AcroForm() === undefined) return
-  const form = doc.getForm()
-  const pageOfWidget = new Map<string, PDFPage>()
-  for (const page of areas.keys()) annotationRefs(page).forEach(ref => pageOfWidget.set(ref.tag, page))
-
-  for (const field of form.getFields()) {
-    const widgets = field.acroField.getWidgets()
-    const doomed = widgets.map(widget => {
-      const ref = doc.context.getObjectRef(widget.dict)
-      const page = ref === undefined ? undefined : pageOfWidget.get(ref.tag)
-      return page !== undefined && touchesAny(widget.getRectangle(), areas.get(page) ?? [])
-    })
-    if (!doomed.includes(true)) continue
-    if (doomed.every(Boolean)) {
-      form.removeField(field)
-      continue
-    }
-    for (let index = widgets.length - 1; index >= 0; index -= 1) {
-      const widget = widgets[index]
-      const ref = widget === undefined ? undefined : doc.context.getObjectRef(widget.dict)
-      if (!doomed[index] || ref === undefined) continue
-      pageOfWidget.get(ref.tag)?.node.removeAnnot(ref)
-      field.acroField.removeWidget(index)
-    }
-  }
-}
-
 /** Removes links, comments and other annotations that touch a box, with their pop-up notes. */
 function removeTouchedAnnotations(doc: PDFDocument, page: PDFPage, areas: readonly Rect[]): void {
   for (const ref of annotationRefs(page)) {
@@ -105,7 +77,8 @@ async function markRedactions(bytes: Uint8Array, requests: readonly RedactionReq
     areas.set(page, boxes.map(box => rectToUserSpace(geometry, box)))
   }
 
-  removeTouchedFields(doc, areas)
+  // Form fields (value included) whose widgets all touch a box, and the touching widgets of the rest.
+  removeWidgets(doc, (widget, page) => page !== undefined && touchesAny(widget.getRectangle(), areas.get(page) ?? []))
   for (const [page, rects] of areas) {
     removeTouchedAnnotations(doc, page, rects)
     // A stored thumbnail, application data (/PieceInfo) and page metadata can each hold a copy of the page.
@@ -180,7 +153,6 @@ const functionalAnnotations = new Set(['Link', 'Widget'])
  * and automatic actions. Links and form fields keep working.
  */
 function removeHiddenInformation(doc: PDFDocument): void {
-  removeHiddenLayers(doc)
   const info = doc.context.lookup(doc.context.trailerInfo.Info)
   if (info instanceof PDFDict) {
     for (const key of ['Title', 'Author', 'Subject', 'Keywords', 'Creator']) info.delete(PDFName.of(key))
@@ -209,6 +181,8 @@ function removeHiddenInformation(doc: PDFDocument): void {
   for (const field of doc.catalog.AcroForm() === undefined ? [] : doc.getForm().getFields()) {
     field.acroField.dict.delete(PDFName.of('AA'))
   }
+  // Last, so bookmarks and actions that switch layers are already gone: this stops at anything still pointing to a layer.
+  removeHiddenLayers(doc)
 }
 
 /**

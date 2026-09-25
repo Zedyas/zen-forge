@@ -1,4 +1,4 @@
-import { decodePDFRawStream, PDFDict, PDFName, PDFRawStream, type PDFPage } from '@cantoo/pdf-lib'
+import { decodePDFRawStream, PDFDict, PDFDocument, PDFName, PDFRawStream, PDFString, type PDFPage } from '@cantoo/pdf-lib'
 import { describe, expect, it } from 'vitest'
 import { scanContent } from './content-stream'
 import { removeHiddenLayers } from './layers'
@@ -59,5 +59,53 @@ describe('removeHiddenLayers', () => {
     const bytes = await doc.save()
     expect(await fileContainsText(bytes, 'HIDDEN-IN-FORM')).toBe(false)
     expect(await extractPageTexts(bytes)).toEqual(['SHOWN-IN-FORM'])
+  })
+
+  it('removes a form field whose widgets are all hidden, value included', async () => {
+    const { doc, page, layers } = await layeredPdf('')
+    const field = doc.getForm().createTextField('ssn')
+    field.setText('SECRET-FIELD-VALUE')
+    field.addToPage(page, { x: 40, y: 400, width: 200, height: 20 })
+    field.acroField.getWidgets()[0]?.dict.set(PDFName.of('OC'), layers.hidden)
+    // Loaded from bytes, as when saving: pdf-lib then wraps the content of a page it removes an annotation from.
+    const loaded = await PDFDocument.load(await doc.save())
+    removeHiddenLayers(loaded)
+
+    const bytes = await loaded.save()
+    expect(await fileContainsText(bytes, 'SECRET-FIELD-VALUE')).toBe(false)
+    expect((await PDFDocument.load(bytes)).getForm().getFields()).toEqual([])
+  })
+
+  it('removes hidden content from annotation appearances, tiling patterns and Type 3 glyphs', async () => {
+    const { doc, page, layers } = await layeredPdf('')
+    const { context } = doc
+    const resources = page.node.Resources()
+    const font = resources?.lookup(PDFName.of('Font'), PDFDict).get(PDFName.of('F1'))
+    const own = { Font: { F1: font }, Properties: { hidden: layers.hidden } }
+    const hiddenText = (marker: string): string => `/OC /hidden BDC BT /F1 10 Tf 2 5 Td (${marker}) Tj ET EMC`
+
+    const appearance = context.register(context.stream(hiddenText('HIDDEN-APPEARANCE'), { Type: 'XObject', Subtype: 'Form', BBox: [0, 0, 200, 20], Resources: own }))
+    page.node.addAnnot(context.register(context.obj({ Type: 'Annot', Subtype: 'Square', Rect: [40, 400, 240, 420], AP: { N: appearance } })))
+    const pattern = context.register(context.stream(hiddenText('HIDDEN-PATTERN'), { PatternType: 1, PaintType: 1, TilingType: 1, BBox: [0, 0, 100, 100], XStep: 100, YStep: 100, Resources: own }))
+    const glyph = context.register(context.stream(`1000 0 d0 ${hiddenText('HIDDEN-GLYPH')}`))
+    const type3 = context.register(context.obj({
+      Type: 'Font', Subtype: 'Type3', FontBBox: [0, 0, 1000, 1000], FontMatrix: [0.001, 0, 0, 0.001, 0, 0],
+      CharProcs: { a: glyph }, Encoding: { Type: 'Encoding', Differences: [97, 'a'] }, FirstChar: 97, LastChar: 97, Widths: [1000], Resources: own,
+    }))
+    resources?.set(PDFName.of('Pattern'), context.obj({ P1: pattern }))
+    resources?.lookup(PDFName.of('Font'), PDFDict).set(PDFName.of('T3'), type3)
+    removeHiddenLayers(doc)
+
+    const bytes = await doc.save()
+    for (const marker of ['HIDDEN-APPEARANCE', 'HIDDEN-PATTERN', 'HIDDEN-GLYPH']) expect(await fileContainsText(bytes, marker)).toBe(false)
+  })
+
+  it('stops when something it does not clean still points to a layer, which would show once the layers are gone', async () => {
+    const { doc, page, layers } = await layeredPdf('')
+    const { context } = doc
+    const turnOff = context.obj({ S: 'SetOCGState', State: ['OFF', layers.shown] })
+    const link = context.obj({ Type: 'Annot', Subtype: 'Link', Rect: [40, 40, 120, 60], A: { S: 'URI', URI: PDFString.of('https://example.com'), Next: turnOff } })
+    page.node.addAnnot(context.register(link))
+    expect(() => removeHiddenLayers(doc)).toThrow('hidden layer in a place Zendo can’t clean')
   })
 })

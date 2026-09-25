@@ -10,6 +10,7 @@ import {
   PDFTextField,
   type PDFField,
   type PDFPage,
+  type PDFWidgetAnnotation,
 } from '@cantoo/pdf-lib'
 import { pageGeometry, rectToDisplayed } from './geometry'
 import type { FormField, FormFieldType, FormFieldWidget } from './types'
@@ -113,6 +114,39 @@ export function applyFormValues(
       field.select(String(value))
     } else if (field instanceof PDFOptionList) {
       field.select(String(value))
+    }
+  }
+}
+
+/**
+ * Removes the form widgets `doomed` picks, from their pages and their fields. A field left with
+ * no widget goes whole, value included: nobody could see it, but its value would stay in the file.
+ */
+export function removeWidgets(doc: PDFDocument, doomed: (widget: PDFWidgetAnnotation, page: PDFPage | undefined) => boolean): void {
+  if (doc.catalog.AcroForm() === undefined) return
+  const form = doc.getForm()
+  const pageOfWidget = new Map<string, PDFPage>()
+  for (const page of doc.getPages()) {
+    for (const ref of page.node.Annots()?.asArray() ?? []) if (ref instanceof PDFRef) pageOfWidget.set(ref.tag, page)
+  }
+
+  for (const field of form.getFields()) {
+    const widgets = field.acroField.getWidgets()
+    const refs = widgets.map(widget => doc.context.getObjectRef(widget.dict))
+    const marked = widgets.map((widget, index) => {
+      const ref = refs[index]
+      return doomed(widget, ref === undefined ? undefined : pageOfWidget.get(ref.tag))
+    })
+    if (!marked.includes(true)) continue
+    if (marked.every(Boolean)) {
+      form.removeField(field)
+      continue
+    }
+    for (let index = widgets.length - 1; index >= 0; index -= 1) {
+      const ref = refs[index]
+      if (!marked[index] || ref === undefined) continue
+      pageOfWidget.get(ref.tag)?.node.removeAnnot(ref)
+      field.acroField.removeWidget(index)
     }
   }
 }

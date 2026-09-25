@@ -1,21 +1,26 @@
-import { decodePDFRawStream, PDFArray, PDFDict, PDFName, PDFRawStream, PDFRef, type PDFDocument, type PDFObject } from '@cantoo/pdf-lib'
+import { decodePDFRawStream, PDFArray, PDFContentStream, PDFDict, PDFName, PDFRawStream, PDFRef, type PDFDocument, type PDFObject } from '@cantoo/pdf-lib'
 import { zlibSync } from 'fflate'
 import { scanContent, type Instruction } from './content-stream'
+import { removeWidgets } from './forms'
+import { dropUnreachable } from './prune'
 
 /*
  * Optional content, which viewers call layers: content shown or hidden as a group. Acrobat's
  * "Remove hidden information" deletes what the default view hides and flattens the rest, so what
- * remains always shows. Hidden content sits in three places, and each is removed:
- *   - marked-content blocks `/OC /name BDC … EMC` in page and form XObject content,
+ * remains always shows. Hidden content sits in these places, and each is removed:
+ *   - marked-content blocks `/OC /name BDC … EMC` in every content stream the pages use: their
+ *     own, and those of form XObjects, tiling patterns, Type 3 glyphs, soft masks and annotations,
  *   - XObjects (forms and images) whose own /OC is hidden, at every `Do` that paints them,
- *   - annotations whose /OC is hidden.
+ *   - annotations whose /OC is hidden, and form fields whose widgets all are.
  * Then /OCProperties and the /OC entries go, and the blocks that stay become plain marked content.
- * Streams this does not read (annotation appearances, patterns, Type 3 glyphs) keep their content.
+ * Without /OCProperties every layer shows. So if anything still points to a layer at the end,
+ * hidden content sits somewhere this did not clean, and removal stops with an error.
  */
 
 const OC = PDFName.of('OC')
 const XObject = PDFName.of('XObject')
 const Properties = PDFName.of('Properties')
+const Resources = PDFName.of('Resources')
 
 /** The group references in a value that is one group or an array of them; nulls are skipped. */
 function groupRefs(doc: PDFDocument, value: PDFObject | undefined): PDFRef[] {
@@ -78,6 +83,8 @@ function hiddenTest(doc: PDFDocument, properties: PDFDict): (content: PDFObject 
 
 function decodeContent(stream: PDFObject | undefined): Uint8Array {
   const unreadable = (): Error => unsafe('A page has content Zendo can’t read, so it can’t remove the hidden layers.')
+  // pdf-lib wraps a page's content in `q` … `Q` streams of its own the first time it changes the page.
+  if (stream instanceof PDFContentStream) return stream.getUnencodedContents()
   if (!(stream instanceof PDFRawStream)) throw unreadable()
   try {
     return decodePDFRawStream(stream).decode()
@@ -233,7 +240,7 @@ export function removeHiddenLayers(doc: PDFDocument): void {
   if (properties === undefined) return
   const isHidden = hiddenTest(doc, properties)
   const uses = new Map<PDFDict | undefined, XObjectUse>()
-  const visitedForms = new Set<string>()
+  const visited = new Set<string>()
 
   /**
    * The edits for one content stream: a hidden `/OC … BDC` block goes with everything up to its
@@ -302,36 +309,68 @@ export function removeHiddenLayers(doc: PDFDocument): void {
     return output
   }
 
-  /** Rewrites the form XObjects a resource dictionary names, and the forms inside those, once each. */
-  const rewriteForms = (resources: PDFDict | undefined): void => {
-    for (const [, value] of resources?.lookupMaybe(XObject, PDFDict)?.entries() ?? []) {
-      if (!(value instanceof PDFRef) || visitedForms.has(value.tag)) continue
-      visitedForms.add(value.tag)
-      const form = doc.context.lookup(value)
-      if (!(form instanceof PDFRawStream) || form.dict.lookupMaybe(PDFName.of('Subtype'), PDFName)?.decodeText() !== 'Form') continue
-      if (isHidden(form.dict.get(OC))) continue
-      // A form without its own resources uses those of whatever paints it.
-      const own = form.dict.lookupMaybe(PDFName.of('Resources'), PDFDict) ?? resources
-      const rewritten = rewrite(decodeContent(form), own)
-      if (rewritten !== undefined) {
-        form.dict.delete(PDFName.of('DecodeParms'))
-        form.dict.set(PDFName.of('Filter'), PDFName.of('FlateDecode'))
-        form.updateContents(zlibSync(rewritten))
-      }
-      rewriteForms(own)
+  /** Rewrites a content stream other than a page's own, then the streams its resources name; each stream once. */
+  const rewriteStream = (value: PDFObject | undefined, inherited: PDFDict | undefined): void => {
+    if (!(value instanceof PDFRef) || visited.has(value.tag)) return
+    visited.add(value.tag)
+    const stream = doc.context.lookup(value)
+    if (!(stream instanceof PDFRawStream) || isHidden(stream.dict.get(OC))) return
+    // A stream without resources of its own uses those of whatever paints it.
+    const resources = stream.dict.lookupMaybe(Resources, PDFDict) ?? inherited
+    const rewritten = rewrite(decodeContent(stream), resources)
+    if (rewritten !== undefined) {
+      stream.dict.delete(PDFName.of('DecodeParms'))
+      stream.dict.set(PDFName.of('Filter'), PDFName.of('FlateDecode'))
+      stream.updateContents(zlibSync(rewritten))
+    }
+    rewriteNamed(resources)
+  }
+
+  /** Rewrites the content streams a resource dictionary names: forms, tiling patterns, Type 3 glyphs and soft masks. */
+  const rewriteNamed = (resources: PDFDict | undefined): void => {
+    const named = (category: string): PDFObject[] => resources?.lookupMaybe(PDFName.of(category), PDFDict)?.values() ?? []
+    for (const value of named('XObject')) {
+      const xobject = doc.context.lookup(value)
+      if (xobject instanceof PDFRawStream && xobject.dict.lookupMaybe(PDFName.of('Subtype'), PDFName)?.decodeText() === 'Form') rewriteStream(value, resources)
+    }
+    // Tiling patterns are streams; shading patterns are dictionaries without content.
+    for (const value of named('Pattern')) if (doc.context.lookup(value) instanceof PDFRawStream) rewriteStream(value, resources)
+    for (const value of named('Font')) {
+      const font = doc.context.lookup(value)
+      if (!(font instanceof PDFDict)) continue
+      const own = font.lookupMaybe(Resources, PDFDict) ?? resources
+      for (const glyph of font.lookupMaybe(PDFName.of('CharProcs'), PDFDict)?.values() ?? []) rewriteStream(glyph, own)
+    }
+    for (const value of named('ExtGState')) {
+      const state = doc.context.lookup(value)
+      const mask = state instanceof PDFDict ? doc.context.lookup(state.get(PDFName.of('SMask'))) : undefined
+      if (mask instanceof PDFDict) rewriteStream(mask.get(PDFName.of('G')), resources)
     }
   }
+
+  // Before the pages drop their hidden annotations, so each field still finds its widgets' pages.
+  removeWidgets(doc, widget => isHidden(widget.dict.get(OC)))
 
   for (const page of doc.getPages()) {
     const resources = page.node.Resources()
     const rewritten = rewrite(pageContent(doc, page.node.get(PDFName.of('Contents'))), resources)
     if (rewritten !== undefined) page.node.set(PDFName.of('Contents'), doc.context.register(doc.context.flateStream(rewritten)))
-    rewriteForms(resources)
+    rewriteNamed(resources)
     for (const ref of page.node.Annots()?.asArray() ?? []) {
       const annotation = doc.context.lookup(ref)
       if (!(ref instanceof PDFRef) || !(annotation instanceof PDFDict)) continue
-      if (isHidden(annotation.get(OC))) page.node.removeAnnot(ref)
-      else annotation.delete(OC)
+      if (isHidden(annotation.get(OC))) {
+        page.node.removeAnnot(ref)
+        continue
+      }
+      annotation.delete(OC)
+      // An action that turns layers on or off has none left to turn.
+      if (annotation.lookupMaybe(PDFName.of('A'), PDFDict)?.lookupMaybe(PDFName.of('S'), PDFName)?.decodeText() === 'SetOCGState') annotation.delete(PDFName.of('A'))
+      // Each appearance is a form, or a dictionary of forms by state, such as a checkbox's on and off.
+      for (const value of annotation.lookupMaybe(PDFName.of('AP'), PDFDict)?.values() ?? []) {
+        const states = doc.context.lookup(value)
+        for (const form of states instanceof PDFDict ? states.values() : [value]) rewriteStream(form, undefined)
+      }
     }
   }
 
@@ -352,4 +391,9 @@ export function removeHiddenLayers(doc: PDFDocument): void {
     }
   }
   doc.catalog.delete(PDFName.of('OCProperties'))
+
+  dropUnreachable(doc)
+  if (doc.context.enumerateIndirectObjects().some(([, object]) => typeOf(doc, object) === 'OCG')) {
+    throw unsafe('This PDF keeps part of a hidden layer in a place Zendo can’t clean.')
+  }
 }
