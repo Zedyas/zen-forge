@@ -1,63 +1,81 @@
 import { Menu } from '@base-ui/react/menu'
+import { Popover } from '@base-ui/react/popover'
 import {
   AlignCenter,
+  AlignCenterHorizontal,
+  AlignCenterVertical,
+  AlignEndHorizontal,
+  AlignEndVertical,
   AlignLeft,
   AlignRight,
+  AlignStartHorizontal,
+  AlignStartVertical,
+  ArrowBigRight,
   Baseline,
   Bold,
+  BringToFront,
   ChevronDown,
   Circle,
+  Highlighter,
   ImagePlus,
   Italic,
+  Layers,
+  List,
+  ListOrdered,
   Minus,
   MoveRight,
   PaintBucket,
   Play,
   Plus,
   Redo2,
+  SendToBack,
   Shapes,
   Square,
   SquareRoundCorner,
+  Table,
+  Triangle,
   Type,
   Underline,
   Undo2,
   type LucideIcon,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import type { CommandId } from '@shared/commands'
 import { commandShortcut, Tip } from '../../ui/Tip'
 import { ColorTool, Toolbar, ToolButton, ToolSeparator } from '../../ui/Toolbar'
 import { TitleEssentials } from '../../ui/TitleSlot'
 import { useViewStore } from '../../app/view-store'
-import { allRuns, holdsText, newShape, newTextBox, slideLayouts, type BasicShape, type HorizontalAlign } from './model'
-import {
-  addElement,
-  addSlide,
-  applyRunStyle,
-  insertPicture,
-  runSlidesCommand,
-  setAlign,
-  setFill,
-  toggleRunStyle,
-} from './slides-actions'
-import { fillColors, textColors } from './palette'
-import { selectedElement, type ReadySlides } from './slides-store'
-
-const fontSizes: readonly number[] = [10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 40, 44, 48, 54, 60, 72, 96]
+import { applyRunStyle, insertTable, setAlign, setFill, toggleList, toggleRunStyle } from './format-actions'
+import { allRuns, holdsText, newShape, newTextBox, slideLayouts, type AlignEdge, type BasicShape, type HorizontalAlign, type TextRun } from './model'
+import { fillColors, fontChoices, fontSizes, highlightColors, textColors } from './palette'
+import { runSlidesCommand } from './slide-commands'
+import { addElement, addSlide, alignSelection, arrangeSelection, insertPicture } from './slides-actions'
+import { selectedElements, type ReadySlides } from './slides-store'
 
 const shapes: ReadonlyArray<{ readonly shape: BasicShape; readonly label: string; readonly icon: LucideIcon }> = [
   { shape: 'rect', label: 'Rectangle', icon: Square },
   { shape: 'roundRect', label: 'Rounded rectangle', icon: SquareRoundCorner },
   { shape: 'ellipse', label: 'Ellipse', icon: Circle },
+  { shape: 'triangle', label: 'Triangle', icon: Triangle },
+  { shape: 'rightArrow', label: 'Arrow', icon: ArrowBigRight },
   { shape: 'line', label: 'Line', icon: Minus },
-  { shape: 'arrow', label: 'Arrow', icon: MoveRight },
+  { shape: 'arrow', label: 'Line with arrowhead', icon: MoveRight },
 ]
 
 const alignments: ReadonlyArray<{ readonly value: HorizontalAlign; readonly label: string; readonly icon: LucideIcon }> = [
-  { value: 'left', label: 'Align left', icon: AlignLeft },
-  { value: 'center', label: 'Align centre', icon: AlignCenter },
-  { value: 'right', label: 'Align right', icon: AlignRight },
+  { value: 'left', label: 'Align text left', icon: AlignLeft },
+  { value: 'center', label: 'Align text centre', icon: AlignCenter },
+  { value: 'right', label: 'Align text right', icon: AlignRight },
+]
+
+export const objectAlignments: ReadonlyArray<{ readonly edge: AlignEdge; readonly label: string; readonly icon: LucideIcon }> = [
+  { edge: 'left', label: 'Align left edges', icon: AlignStartVertical },
+  { edge: 'center', label: 'Align centres', icon: AlignCenterVertical },
+  { edge: 'right', label: 'Align right edges', icon: AlignEndVertical },
+  { edge: 'top', label: 'Align top edges', icon: AlignStartHorizontal },
+  { edge: 'middle', label: 'Align middles', icon: AlignCenterHorizontal },
+  { edge: 'bottom', label: 'Align bottom edges', icon: AlignEndHorizontal },
 ]
 
 function run(command: CommandId): void {
@@ -75,51 +93,112 @@ interface ToolProps {
   readonly document: ReadySlides
 }
 
-function NewSlideMenu({ documentId }: { readonly documentId: string }) {
+/**
+ * A toolbar button that opens a menu; the chevron says so. Choosing an item leaves focus where the
+ * action puts it (the text being typed, or the slide) rather than on the button, so arrow keys then
+ * nudge the new object instead of reopening the menu.
+ */
+function MenuTool({ icon: Icon, label, text, shortcut, disabled, children }: {
+  readonly icon?: LucideIcon
+  readonly label: string
+  readonly text?: string
+  readonly shortcut?: string
+  readonly disabled?: boolean
+  readonly children: ReactNode
+}) {
   return (
     <Menu.Root>
-      <Tip label="New slide" shortcut={commandShortcut('slide.new')}>
-        <Menu.Trigger className="tool" aria-label="New slide">
-          <Plus aria-hidden="true" size={16} strokeWidth={1.7} />
+      <Tip label={label} shortcut={shortcut}>
+        <Menu.Trigger className={`tool${text === undefined ? '' : ' is-label slides-menu-label'}`} aria-label={label} disabled={disabled}>
+          {Icon !== undefined && <Icon aria-hidden="true" size={16} strokeWidth={1.7} />}
+          {text !== undefined && <span>{text}</span>}
           <ChevronDown aria-hidden="true" size={11} strokeWidth={2.2} />
         </Menu.Trigger>
       </Tip>
       <Menu.Portal>
         <Menu.Positioner sideOffset={6} align="start">
-          <Menu.Popup className="menu-popup">
-            {slideLayouts.map(layout => (
-              <Menu.Item key={layout.id} className="menu-item" onClick={() => addSlide(documentId, layout.id)}>
-                <span>{layout.label}</span>
-              </Menu.Item>
-            ))}
-          </Menu.Popup>
+          <Menu.Popup className="menu-popup slides-menu" finalFocus={false}>{children}</Menu.Popup>
         </Menu.Positioner>
       </Menu.Portal>
     </Menu.Root>
   )
 }
 
+function NewSlideMenu({ documentId }: { readonly documentId: string }) {
+  return (
+    <MenuTool icon={Plus} label="New slide" shortcut={commandShortcut('slide.new')}>
+      {slideLayouts.map(layout => (
+        <Menu.Item key={layout.id} className="menu-item" onClick={() => addSlide(documentId, layout.id)}><span>{layout.label}</span></Menu.Item>
+      ))}
+    </MenuTool>
+  )
+}
+
 function ShapeMenu({ documentId, document }: ToolProps) {
   return (
-    <Menu.Root>
-      <Tip label="Shape">
-        <Menu.Trigger className="tool" aria-label="Shape">
-          <Shapes aria-hidden="true" size={16} strokeWidth={1.7} />
+    <MenuTool icon={Shapes} label="Shape">
+      {shapes.map(({ shape, label, icon: Icon }) => (
+        <Menu.Item key={shape} className="menu-item" onClick={() => addElement(documentId, newShape(shape, document.present))}>
+          <Icon aria-hidden="true" size={16} strokeWidth={1.7} /><span>{label}</span>
+        </Menu.Item>
+      ))}
+    </MenuTool>
+  )
+}
+
+const pickerRows = 8
+const pickerColumns = 8
+
+/** Pick a table's size by pointing at a grid, as in PowerPoint and Keynote. */
+function TableTool({ documentId }: { readonly documentId: string }) {
+  const [size, setSize] = useState({ rows: 3, columns: 3 })
+  return (
+    <Popover.Root>
+      <Tip label="Table">
+        <Popover.Trigger className="tool" aria-label="Table">
+          <Table aria-hidden="true" size={16} strokeWidth={1.7} />
           <ChevronDown aria-hidden="true" size={11} strokeWidth={2.2} />
-        </Menu.Trigger>
+        </Popover.Trigger>
       </Tip>
-      <Menu.Portal>
-        <Menu.Positioner sideOffset={6} align="start">
-          <Menu.Popup className="menu-popup">
-            {shapes.map(({ shape, label, icon: Icon }) => (
-              <Menu.Item key={shape} className="menu-item" onClick={() => addElement(documentId, newShape(shape, document.present))}>
-                <Icon aria-hidden="true" size={16} strokeWidth={1.7} /><span>{label}</span>
-              </Menu.Item>
-            ))}
-          </Menu.Popup>
-        </Menu.Positioner>
-      </Menu.Portal>
-    </Menu.Root>
+      <Popover.Portal>
+        <Popover.Positioner sideOffset={6} align="start">
+          <Popover.Popup className="popover" finalFocus={false}>
+            <div className="popover-label">Table: {size.rows} × {size.columns}</div>
+            <div className="slides-table-picker" style={{ gridTemplateColumns: `repeat(${pickerColumns}, 16px)` }}>
+              {Array.from({ length: pickerRows * pickerColumns }, (_, index) => {
+                const row = Math.floor(index / pickerColumns) + 1
+                const column = (index % pickerColumns) + 1
+                return (
+                  <Popover.Close
+                    key={index}
+                    className={`slides-table-cell${row <= size.rows && column <= size.columns ? ' is-chosen' : ''}`}
+                    aria-label={`${row} rows by ${column} columns`}
+                    onPointerEnter={() => setSize({ rows: row, columns: column })}
+                    onFocus={() => setSize({ rows: row, columns: column })}
+                    onClick={() => insertTable(documentId, row, column)}
+                  />
+                )
+              })}
+            </div>
+          </Popover.Popup>
+        </Popover.Positioner>
+      </Popover.Portal>
+    </Popover.Root>
+  )
+}
+
+function ArrangeMenu({ documentId, disabled }: { readonly documentId: string; readonly disabled: boolean }) {
+  return (
+    <MenuTool icon={Layers} label="Arrange and align" disabled={disabled}>
+      <Menu.Item className="menu-item" onClick={() => arrangeSelection(documentId, 'front')}><BringToFront aria-hidden="true" size={16} /><span>Bring to Front</span></Menu.Item>
+      <Menu.Item className="menu-item" onClick={() => arrangeSelection(documentId, 'back')}><SendToBack aria-hidden="true" size={16} /><span>Send to Back</span></Menu.Item>
+      <Menu.Separator className="menu-separator" />
+      {objectAlignments.map(({ edge, label, icon: Icon }) => (
+        <Menu.Item key={edge} className="menu-item" onClick={() => alignSelection(documentId, edge)}>
+          <Icon aria-hidden="true" size={16} /><span>{label}</span>
+        </Menu.Item>
+      ))}
+    </MenuTool>
   )
 }
 
@@ -131,42 +210,24 @@ function PlayButton() {
   return <ToolButton icon={Play} label="Play slideshow" text="Play" command="slide.play" onClick={() => run('slide.play')} />
 }
 
-function FontSizeMenu({ documentId, size, disabled }: { readonly documentId: string; readonly size: number | undefined; readonly disabled: boolean }) {
-  return (
-    <Menu.Root>
-      <Tip label="Font size">
-        <Menu.Trigger className="tool is-label slides-size" aria-label="Font size" disabled={disabled}>
-          <span>{size === undefined ? '–' : Math.round(size)}</span>
-          <ChevronDown aria-hidden="true" size={11} strokeWidth={2.2} />
-        </Menu.Trigger>
-      </Tip>
-      <Menu.Portal>
-        <Menu.Positioner sideOffset={6} align="start">
-          <Menu.Popup className="menu-popup slides-size-menu">
-            {fontSizes.map(value => (
-              <Menu.Item key={value} className="menu-item" onClick={() => applyRunStyle(documentId, { size: value })}>
-                <span>{value} pt</span>
-              </Menu.Item>
-            ))}
-          </Menu.Popup>
-        </Menu.Positioner>
-      </Menu.Portal>
-    </Menu.Root>
-  )
-}
-
 export function SlidesToolbar({ documentId, document }: ToolProps) {
   const toolbarShown = useViewStore(state => state.toolbar)
   // The split colour buttons remember the last colour chosen, like Keynote and Word.
   const [textColor, setTextColor] = useState('#c9352b')
+  const [highlight, setHighlight] = useState<string | undefined>('#fff176')
   const [fillColor, setFillColor] = useState<string | undefined>('#4a78c2')
-  const selected = selectedElement(document)
-  const text = selected !== undefined && holdsText(selected) ? selected : undefined
-  const runs = text === undefined ? [] : allRuns(text.paragraphs)
+  const selected = selectedElements(document)
+  const texts = selected.filter(holdsText)
+  const table = selected.length === 1 && selected[0]?.kind === 'table' ? selected[0] : undefined
+  const runs: readonly TextRun[] = texts.flatMap(element => allRuns(element.paragraphs))
+  const paragraphs = texts.flatMap(element => element.paragraphs)
+  const cell = table === undefined ? undefined : table.rows[document.cell?.row ?? 0]?.cells[document.cell?.column ?? 0]
   const every = (style: 'bold' | 'italic' | 'underline'): boolean => runs.length > 0 && runs.every(textRun => textRun[style])
-  const align = text?.paragraphs[0]?.align
-  const noText = text === undefined
-  const noFill = selected === undefined || selected.kind === 'image'
+  const noText = texts.length === 0 && table === undefined
+  const noFill = !selected.some(element => element.kind !== 'image' && !(element.kind === 'shape' && (element.geometry.type === 'line' || element.geometry.type === 'arrow')))
+  const font = runs[0]?.font ?? table?.font
+  const size = runs[0]?.size ?? table?.size
+  const align = paragraphs[0]?.align ?? cell?.align
 
   return (
     <>
@@ -176,14 +237,27 @@ export function SlidesToolbar({ documentId, document }: ToolProps) {
           <ToolButton icon={Redo2} label="Redo" command="edit.redo" disabled={document.future.length === 0} onClick={() => run('edit.redo')} />
           <ToolSeparator />
           <NewSlideMenu documentId={documentId} />
+          <ToolSeparator />
           <TextBoxButton documentId={documentId} document={document} />
           <ShapeMenu documentId={documentId} document={document} />
           <ToolButton icon={ImagePlus} label="Picture…" onClick={() => void insertPicture(documentId).catch(reportFailure('Could not add the picture'))} />
+          <TableTool documentId={documentId} />
           <ToolSeparator />
-          <FontSizeMenu documentId={documentId} size={runs[0]?.size} disabled={noText} />
-          <ToolButton icon={Bold} label="Bold" command="format.bold" pressed={every('bold')} disabled={noText} onClick={() => toggleRunStyle(documentId, 'bold')} />
-          <ToolButton icon={Italic} label="Italic" command="format.italic" pressed={every('italic')} disabled={noText} onClick={() => toggleRunStyle(documentId, 'italic')} />
-          <ToolButton icon={Underline} label="Underline" command="format.underline" pressed={every('underline')} disabled={noText} onClick={() => toggleRunStyle(documentId, 'underline')} />
+          <MenuTool label="Font" text={font ?? 'Font'} disabled={noText}>
+            {fontChoices(font).map(name => (
+              <Menu.Item key={name} className="menu-item" onClick={() => applyRunStyle(documentId, { font: name })}>
+                <span style={{ fontFamily: `"${name}"` }}>{name}</span>
+              </Menu.Item>
+            ))}
+          </MenuTool>
+          <MenuTool label="Font size" text={size === undefined ? '–' : String(Math.round(size))} disabled={noText}>
+            {fontSizes.map(value => (
+              <Menu.Item key={value} className="menu-item" onClick={() => applyRunStyle(documentId, { size: value })}><span>{value} pt</span></Menu.Item>
+            ))}
+          </MenuTool>
+          <ToolButton icon={Bold} label="Bold" command="format.bold" pressed={every('bold') || (runs.length === 0 && cell?.bold === true)} disabled={noText} onClick={() => toggleRunStyle(documentId, 'bold')} />
+          <ToolButton icon={Italic} label="Italic" command="format.italic" pressed={every('italic')} disabled={texts.length === 0} onClick={() => toggleRunStyle(documentId, 'italic')} />
+          <ToolButton icon={Underline} label="Underline" command="format.underline" pressed={every('underline')} disabled={texts.length === 0} onClick={() => toggleRunStyle(documentId, 'underline')} />
           <ColorTool
             icon={Baseline}
             label="Text colour"
@@ -198,6 +272,32 @@ export function SlidesToolbar({ documentId, document }: ToolProps) {
             }}
           />
           <ColorTool
+            icon={Highlighter}
+            label="Highlight"
+            options={highlightColors}
+            current={highlight}
+            disabled={texts.length === 0}
+            onApply={value => applyRunStyle(documentId, { highlight: value })}
+            onChoose={value => {
+              setHighlight(value)
+              applyRunStyle(documentId, { highlight: value })
+            }}
+          />
+          <ToolSeparator />
+          <ToolButton icon={List} label="Bullets" pressed={paragraphs.length > 0 && paragraphs.every(paragraph => paragraph.list === 'bullet')} disabled={texts.length === 0} onClick={() => toggleList(documentId, 'bullet')} />
+          <ToolButton icon={ListOrdered} label="Numbering" pressed={paragraphs.length > 0 && paragraphs.every(paragraph => paragraph.list === 'number')} disabled={texts.length === 0} onClick={() => toggleList(documentId, 'number')} />
+          {alignments.map(alignment => (
+            <ToolButton
+              key={alignment.value}
+              icon={alignment.icon}
+              label={alignment.label}
+              pressed={align === alignment.value}
+              disabled={noText}
+              onClick={() => setAlign(documentId, alignment.value)}
+            />
+          ))}
+          <ToolSeparator />
+          <ColorTool
             icon={PaintBucket}
             label="Fill colour"
             options={fillColors}
@@ -209,17 +309,7 @@ export function SlidesToolbar({ documentId, document }: ToolProps) {
               setFill(documentId, value)
             }}
           />
-          <ToolSeparator />
-          {alignments.map(alignment => (
-            <ToolButton
-              key={alignment.value}
-              icon={alignment.icon}
-              label={alignment.label}
-              pressed={align === alignment.value}
-              disabled={noText}
-              onClick={() => setAlign(documentId, alignment.value)}
-            />
-          ))}
+          <ArrangeMenu documentId={documentId} disabled={selected.length === 0} />
           <span className="toolbar-grow" />
           <PlayButton />
         </Toolbar>

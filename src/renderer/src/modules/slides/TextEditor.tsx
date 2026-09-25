@@ -1,27 +1,31 @@
 import { memo, useLayoutEffect, useRef, useState } from 'react'
 import {
-  bulletIndent,
-  defaultFont,
   holdsText,
+  listIndent,
+  listNumbers,
+  mergeRuns,
   parseColor,
   paragraphOf,
-  shapeTextStyle,
+  textColorOn,
   type HorizontalAlign,
+  type ListStyle,
   type Paragraph,
   type RunStyle,
   type ShapeElement,
   type TextBoxElement,
   type TextRun,
 } from './model'
-import { changeElement, removeElement } from './slides-actions'
+import { changeElement, removeElements } from './slides-actions'
 import { readySlides, updateSlides } from './slides-store'
-import { ElementView, TextParagraphs } from './SlideView'
+import { ElementView, singleLineHeight, TextParagraphs } from './SlideView'
 import { registerEditor, type InlineFormat } from './text-editing'
+import { defaultTheme, findTheme } from './themes'
 
 /*
  * Inline text editing: while a box is edited, its text is a contenteditable element laid out exactly
- * like the static slide. The browser's editing commands apply bold, italic, underline, colour, size
- * and alignment; closing the editor reads the markup back into paragraphs and runs.
+ * like the static slide. The browser's editing commands apply bold, italic, underline, colour,
+ * highlight, font, size and alignment; lists and indents change the paragraphs' classes and levels.
+ * Closing the editor reads the markup back into paragraphs and runs.
  */
 
 const blockTags: ReadonlySet<string> = new Set(['P', 'DIV', 'LI', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'BLOCKQUOTE', 'UL', 'OL'])
@@ -30,35 +34,29 @@ function isBlock(node: Node): node is HTMLElement {
   return node instanceof HTMLElement && blockTags.has(node.tagName)
 }
 
-/** A run's style as the browser computes it, which covers every way editing commands mark it up. */
+/**
+ * A run's style as the browser computes it, which covers every way editing commands mark it up.
+ * Underline and highlight belong to whichever ancestor draws them, so those walk up to the editor.
+ */
 function styleAt(element: Element, root: HTMLElement): RunStyle {
   const style = getComputedStyle(element)
   let underline = false
-  for (let node: Element | null = element; node !== null && root.contains(node); node = node.parentElement) {
-    if (getComputedStyle(node).textDecorationLine.includes('underline')) underline = true
+  let highlight: string | undefined
+  for (let node: Element | null = element; node !== null && node !== root && root.contains(node); node = node.parentElement) {
+    const own = getComputedStyle(node)
+    if (own.textDecorationLine.includes('underline')) underline = true
+    highlight ??= parseColor(own.backgroundColor)
   }
   return {
     bold: Number(style.fontWeight) >= 600,
     italic: style.fontStyle !== 'normal',
     underline,
     color: parseColor(style.color) ?? '#000000',
+    highlight,
     // The editor is laid out at one CSS pixel per point.
     size: Math.round(Number.parseFloat(style.fontSize) * 10) / 10,
-    font: style.fontFamily.split(',')[0]?.replace(/["']/g, '').trim() || defaultFont,
+    font: style.fontFamily.split(',')[0]?.replace(/["']/g, '').trim() || defaultTheme.font,
   }
-}
-
-function sameStyle(a: TextRun, b: TextRun): boolean {
-  return a.bold === b.bold && a.italic === b.italic && a.underline === b.underline && a.color === b.color && a.size === b.size && a.font === b.font
-}
-
-function merged(runs: readonly TextRun[]): TextRun[] {
-  return runs.reduce<TextRun[]>((all, run) => {
-    const last = all.at(-1)
-    if (last !== undefined && sameStyle(last, run)) all[all.length - 1] = { ...last, text: last.text + run.text }
-    else all.push(run)
-    return all
-  }, [])
 }
 
 function hasContentAfter(node: Node): boolean {
@@ -85,12 +83,19 @@ function alignOf(value: string): HorizontalAlign {
 
 type ParagraphProps = Omit<Paragraph, 'runs'>
 
+function listOf(block: HTMLElement): ListStyle {
+  if (block.classList.contains('is-number') || (block.tagName === 'LI' && block.closest('ol') !== null)) return 'number'
+  return block.classList.contains('is-bullet') || block.tagName === 'LI' ? 'bullet' : 'none'
+}
+
 function blockProps(block: HTMLElement, previous: ParagraphProps): ParagraphProps {
   const level = Number(block.dataset['level'])
+  const lineHeight = Number.parseFloat(block.style.lineHeight)
   return {
     align: alignOf(getComputedStyle(block).textAlign),
-    bullet: block.tagName === 'LI' || block.classList.contains('is-bullet'),
+    list: listOf(block),
     level: Number.isInteger(level) ? Math.min(8, Math.max(0, level)) : previous.level,
+    lineSpacing: Number.isFinite(lineHeight) ? Math.round((lineHeight / singleLineHeight) * 100) / 100 : previous.lineSpacing,
   }
 }
 
@@ -98,10 +103,10 @@ function blockProps(block: HTMLElement, previous: ParagraphProps): ParagraphProp
 function readEditor(root: HTMLElement, first: Paragraph): Paragraph[] {
   const paragraphs: Paragraph[] = []
   let runs: TextRun[] = []
-  let props: ParagraphProps = { align: first.align, bullet: first.bullet, level: first.level }
+  let props: ParagraphProps = { align: first.align, list: first.list, level: first.level, lineSpacing: first.lineSpacing }
   let emptyStyle: RunStyle = styleAt(root, root)
   const flush = (): void => {
-    paragraphs.push({ ...props, runs: runs.length > 0 ? merged(runs) : [{ text: '', ...emptyStyle }] })
+    paragraphs.push({ ...props, runs: runs.length > 0 ? mergeRuns(runs) : [{ text: '', ...emptyStyle }] })
     runs = []
   }
   const walk = (node: Node): void => {
@@ -144,6 +149,52 @@ function syncLineStyles(root: HTMLElement): void {
   })
 }
 
+/** The editor's paragraphs: its top-level blocks. */
+function blocks(root: HTMLElement): HTMLElement[] {
+  return Array.from(root.children).filter((child): child is HTMLElement => child instanceof HTMLElement)
+}
+
+/** The paragraphs the selection touches, or the one holding the caret. */
+function selectedBlocks(root: HTMLElement): HTMLElement[] {
+  const selection = window.getSelection()
+  const range = selection === null || selection.rangeCount === 0 ? undefined : selection.getRangeAt(0)
+  if (range === undefined) return []
+  const touched = blocks(root).filter(block => range.intersectsNode(block))
+  return touched.length > 0 ? touched : blocks(root).slice(-1)
+}
+
+/** Keeps each list paragraph's indent, number and bullet right as paragraphs are typed, added, indented or turned into lists. */
+function renumber(root: HTMLElement): void {
+  const all = blocks(root)
+  const numbers = listNumbers(all.map(block => ({ list: listOf(block), level: Number(block.dataset['level']) || 0 })))
+  all.forEach((block, index) => {
+    const number = numbers[index]
+    if (number === undefined) delete block.dataset['number']
+    else block.dataset['number'] = String(number)
+    block.style.paddingLeft = listOf(block) === 'none' ? '0px' : `${listIndent * ((Number(block.dataset['level']) || 0) + 1)}px`
+    block.classList.toggle('is-empty', (block.textContent ?? '') === '')
+  })
+}
+
+/** Turns bullets or numbering on for the selected paragraphs, or off when they all have it already. */
+function toggleList(root: HTMLElement, list: Exclude<ListStyle, 'none'>): void {
+  const touched = selectedBlocks(root)
+  const off = touched.every(block => listOf(block) === list)
+  touched.forEach(block => {
+    block.classList.remove('is-bullet', 'is-number')
+    if (!off) block.classList.add(list === 'bullet' ? 'is-bullet' : 'is-number')
+  })
+  renumber(root)
+}
+
+/** Moves the selected paragraphs one list level in or out. */
+function indent(root: HTMLElement, step: 1 | -1): void {
+  selectedBlocks(root).forEach(block => {
+    block.dataset['level'] = String(Math.min(8, Math.max(0, (Number(block.dataset['level']) || 0) + step)))
+  })
+  renumber(root)
+}
+
 function commandFor(align: HorizontalAlign): string {
   return { left: 'justifyLeft', center: 'justifyCenter', right: 'justifyRight', justify: 'justifyFull' }[align]
 }
@@ -168,6 +219,18 @@ function applyFormat(root: HTMLElement, saved: Range | undefined, change: Inline
     case 'color':
       document.execCommand('foreColor', false, change.value)
       break
+    case 'highlight':
+      document.execCommand('hiliteColor', false, change.value ?? 'transparent')
+      break
+    case 'font':
+      document.execCommand('fontName', false, change.value)
+      break
+    case 'list':
+      toggleList(root, change.value)
+      break
+    case 'indent':
+      indent(root, change.step)
+      break
     case 'align':
       document.execCommand(commandFor(change.value))
       break
@@ -189,17 +252,6 @@ function applyFormat(root: HTMLElement, saved: Range | undefined, change: Inline
   syncLineStyles(root)
 }
 
-/** Moves the paragraphs under the caret one bullet level in or out. */
-function indent(root: HTMLElement, step: 1 | -1): void {
-  const anchor = window.getSelection()?.anchorNode ?? null
-  let block: Node | null = anchor
-  while (block !== null && block.parentNode !== root) block = block.parentNode
-  if (!(block instanceof HTMLElement)) return
-  const level = Math.min(8, Math.max(0, (Number(block.dataset['level']) || 0) + step))
-  block.dataset['level'] = String(level)
-  if (block.classList.contains('is-bullet')) block.style.paddingLeft = `${bulletIndent * (level + 1)}px`
-}
-
 function placeCaret(root: HTMLElement, point: { readonly x: number; readonly y: number } | undefined): void {
   const selection = window.getSelection()
   if (selection === null) return
@@ -213,18 +265,25 @@ function placeCaret(root: HTMLElement, point: { readonly x: number; readonly y: 
   selection.collapseToEnd()
 }
 
-/** Writes typed text into the element, unless nothing changed. An emptied new text box is removed, as in Keynote. */
-function writeText(documentId: string, elementId: string, paragraphs: readonly Paragraph[]): void {
+/**
+ * Writes typed text into the element, unless nothing changed. An emptied new text box is removed,
+ * as in Keynote, and a text box grows to hold its text, as PowerPoint's do; `height` is the height
+ * the text needs.
+ */
+function writeText(documentId: string, elementId: string, paragraphs: readonly Paragraph[], height: number): void {
   const element = readySlides(documentId)?.present.slides.flatMap(slide => slide.elements).find(candidate => candidate.id === elementId)
   if (element === undefined || !holdsText(element)) return
   const empty = paragraphs.every(paragraph => paragraph.runs.every(run => run.text === ''))
   if (empty && element.kind === 'text' && element.prompt === undefined && element.fill === undefined && element.border === undefined) {
-    removeElement(documentId, elementId)
+    removeElements(documentId, [elementId])
     return
   }
   const next = element.kind === 'shape' && empty ? [] : paragraphs
-  if (JSON.stringify(next) === JSON.stringify(element.paragraphs)) return
-  changeElement(documentId, elementId, current => holdsText(current) ? { ...current, paragraphs: next } : current)
+  const grow = element.kind === 'text' && height > element.height + 0.5
+  if (!grow && JSON.stringify(next) === JSON.stringify(element.paragraphs)) return
+  changeElement(documentId, elementId, current => holdsText(current)
+    ? { ...current, paragraphs: next, height: grow ? height : current.height }
+    : current)
 }
 
 /** The first paragraph's markup, never re-rendered: after mounting, the browser owns the editor's content. */
@@ -242,7 +301,12 @@ interface TextEditorProps {
 export function TextEditor({ documentId, element, caret }: TextEditorProps) {
   const rootRef = useRef<HTMLDivElement>(null)
   const saved = useRef<Range | undefined>(undefined)
-  const [initial] = useState(() => element.paragraphs.length > 0 ? element.paragraphs : [paragraphOf('', shapeTextStyle(element.fill), { align: 'center' })])
+  const [initial] = useState(() => {
+    if (element.paragraphs.length > 0) return element.paragraphs
+    // Text typed into an empty shape: 18 pt like PowerPoint, readable on the shape's fill.
+    const theme = findTheme(readySlides(documentId)?.present.theme ?? defaultTheme.id)
+    return [paragraphOf('', { size: 18, color: textColorOn(element.fill, theme), font: theme.font }, { align: 'center' })]
+  })
   const close = useRef<() => void>(() => undefined)
 
   useLayoutEffect(() => {
@@ -253,7 +317,8 @@ export function TextEditor({ documentId, element, caret }: TextEditorProps) {
     const write = (): void => {
       if (written) return
       written = true
-      writeText(documentId, element.id, readEditor(root, first))
+      // The editor is laid out at one CSS pixel per point, so its layout height is in points.
+      writeText(documentId, element.id, readEditor(root, first), root.offsetHeight + element.inset.top + element.inset.bottom)
     }
     close.current = () => {
       write()
@@ -301,6 +366,9 @@ export function TextEditor({ documentId, element, caret }: TextEditorProps) {
             if (next instanceof Element && next.closest('.toolbar, .popover, .menu-popup, .title-essentials') !== null) return
             close.current()
           }}
+          onInput={() => {
+            if (rootRef.current !== null) renumber(rootRef.current)
+          }}
           onPaste={event => {
             // Pasted text takes the formatting where it lands, as PowerPoint's "Keep Text Only".
             event.preventDefault()
@@ -310,9 +378,12 @@ export function TextEditor({ documentId, element, caret }: TextEditorProps) {
             if (event.key === 'Escape') {
               event.preventDefault()
               close.current()
-            } else if (event.key === 'Tab') {
+            } else if (event.key === 'Tab' && rootRef.current !== null) {
+              // Tab moves list paragraphs a level in or out; in other text it types a tab.
               event.preventDefault()
-              if (rootRef.current !== null) indent(rootRef.current, event.shiftKey ? -1 : 1)
+              const root = rootRef.current
+              if (selectedBlocks(root).some(block => listOf(block) !== 'none')) indent(root, event.shiftKey ? -1 : 1)
+              else if (!event.shiftKey) document.execCommand('insertText', false, '\t')
             }
           }}
         >

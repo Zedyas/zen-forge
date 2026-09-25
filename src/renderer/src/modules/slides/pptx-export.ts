@@ -1,7 +1,6 @@
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 import PptxGenJS from 'pptxgenjs'
 import {
-  defaultFont,
   lineEnds,
   opaqueHex,
   scalePath,
@@ -11,8 +10,10 @@ import {
   type Presentation,
   type ShapeElement,
   type SlideElement,
+  type TableElement,
   type TextBody,
 } from './model'
+import { findTheme } from './themes'
 
 /** pptxgenjs takes inches; the model is in points. */
 function inches(points: number): number {
@@ -43,15 +44,49 @@ function textRuns(paragraphs: readonly Paragraph[]): PptxGenJS.TextProps[] {
       bold: run.bold,
       italic: run.italic,
       underline: run.underline ? { style: 'sng' } : undefined,
-      color: opaqueHex(run.color)?.slice(1),
+      color: hex(run.color),
       transparency: transparency(run.color),
+      highlight: run.highlight === undefined ? undefined : hex(run.highlight),
       fontSize: run.size,
       fontFace: run.font,
       align: paragraph.align,
-      ...(position === 0 ? { bullet: paragraph.bullet, indentLevel: paragraph.level } : {}),
+      ...(position === 0 ? {
+        bullet: paragraph.list === 'bullet' ? true : paragraph.list === 'number' ? { type: 'number' } : false,
+        indentLevel: paragraph.level,
+        lineSpacingMultiple: paragraph.lineSpacing === 1 ? undefined : paragraph.lineSpacing,
+      } : {}),
       breakLine: position === paragraph.runs.length - 1 && index < paragraphs.length - 1,
     },
   })))
+}
+
+function hex(color: string): string | undefined {
+  return opaqueHex(color)?.slice(1)
+}
+
+/** A table with its column widths, row heights and each cell's look; every cell edge takes the table's border. */
+function addTable(slide: PptxGenJS.Slide, table: TableElement): void {
+  const edge: PptxGenJS.BorderProps = { type: 'solid', pt: table.border.width, color: hex(table.border.color) }
+  const rows: PptxGenJS.TableRow[] = table.rows.map(row => row.cells.map((cell): PptxGenJS.TableCell => ({
+    text: cell.text,
+    options: {
+      bold: cell.bold,
+      color: hex(cell.color ?? table.color),
+      fill: cell.fill === undefined ? undefined : fillOf(cell.fill),
+      align: cell.align,
+      valign: cell.verticalAlign,
+      fontSize: table.size,
+      fontFace: table.font,
+      border: [edge, edge, edge, edge],
+    },
+  })))
+  slide.addTable(rows, {
+    x: inches(table.x),
+    y: inches(table.y),
+    w: inches(table.width),
+    colW: table.columns.map(inches),
+    rowH: table.rows.map(row => inches(row.height)),
+  })
 }
 
 function frameOf(element: SlideElement): PptxGenJS.PositionProps & { rotate: number } {
@@ -114,6 +149,8 @@ function geometryOf(shape: ShapeElement): { readonly name: PptxGenJS.SHAPE_NAME;
     case 'rect':
     case 'roundRect':
     case 'ellipse':
+    case 'triangle':
+    case 'rightArrow':
     case 'line':
       return { name: geometry.type }
     case 'arrow':
@@ -150,6 +187,11 @@ function addShape(slide: PptxGenJS.Slide, shape: ShapeElement): void {
   slide.addText(textRuns(shape.paragraphs), textOptions)
 }
 
+/** pptxgenjs wants a data URL without its `data:` scheme. */
+function withoutScheme(src: string): string {
+  return src.replace(/^data:/, '')
+}
+
 function addElement(slide: PptxGenJS.Slide, element: SlideElement): void {
   switch (element.kind) {
     case 'text':
@@ -165,8 +207,10 @@ function addElement(slide: PptxGenJS.Slide, element: SlideElement): void {
       addShape(slide, element)
       return
     case 'image':
-      // pptxgenjs wants the data URL without its `data:` scheme.
-      slide.addImage({ ...frameOf(element), data: element.src.replace(/^data:/, '') })
+      slide.addImage({ ...frameOf(element), data: withoutScheme(element.src) })
+      return
+    case 'table':
+      addTable(slide, element)
   }
 }
 
@@ -192,10 +236,11 @@ export async function writePptx(presentation: Presentation): Promise<Uint8Array>
   const pptx = new PptxGenJS()
   pptx.defineLayout({ name: 'Zendo', width: inches(presentation.width), height: inches(presentation.height) })
   pptx.layout = 'Zendo'
-  pptx.theme = { headFontFace: defaultFont, bodyFontFace: defaultFont }
+  const font = findTheme(presentation.theme).font
+  pptx.theme = { headFontFace: font, bodyFontFace: font }
   for (const slide of presentation.slides) {
     const output = pptx.addSlide()
-    output.background = fillOf(slide.background)
+    output.background = slide.backgroundImage === undefined ? fillOf(slide.background) : { data: withoutScheme(slide.backgroundImage) }
     slide.elements.forEach(element => addElement(output, element))
     if (slide.notes.trim() !== '') output.addNotes(slide.notes)
   }

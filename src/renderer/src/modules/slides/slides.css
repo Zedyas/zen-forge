@@ -9,6 +9,7 @@
 .slide-surface {
   position: absolute; left: 0; top: 0; overflow: hidden;
   transform-origin: 0 0;
+  background-size: 100% 100%; background-repeat: no-repeat;
   color: #222222;
   font: 18px/1.2 Arial, Helvetica, sans-serif;
   font-variant-numeric: normal;
@@ -24,8 +25,14 @@
 }
 .slide-text { flex: none; min-height: 1em; }
 .slide-paragraph { margin: 0; }
-/* The bullet hangs in the paragraph's left padding (27 pt per level, the model's bulletIndent). */
-.slide-paragraph.is-bullet::before { content: "•"; display: inline-block; width: 27px; margin-left: -27px; }
+/* A bullet or number hangs in the paragraph's left padding: 27 pt per level, the model's listIndent. */
+.slide-paragraph.is-bullet::before, .slide-paragraph.is-number::before { display: inline-block; width: 27px; margin-left: -27px; }
+.slide-paragraph.is-bullet::before { content: "•"; }
+.slide-paragraph.is-number::before { content: attr(data-number) "."; }
+/* An empty line shows no bullet, as in PowerPoint, so an empty placeholder is blank in the slideshow. */
+.slide-paragraph.is-empty::before { content: none; }
+.slide-table { border-collapse: collapse; table-layout: fixed; line-height: 1.2; white-space: pre-wrap; overflow-wrap: break-word; }
+.slide-table td { overflow: hidden; }
 
 /* ─── Slide rail ─── */
 
@@ -74,6 +81,20 @@
   pointer-events: auto;
 }
 .slides-handle.is-end { border-radius: 50%; cursor: crosshair; }
+/* The turning handle floats above the top edge, joined to it by a short stem. */
+.slides-handle.is-rotate { left: 50%; top: -26px; border-radius: 50%; cursor: grab; }
+.slides-handle.is-rotate::after { content: ""; position: absolute; left: 2.5px; top: 7px; width: 1.5px; height: 14px; background: var(--accent); }
+.slides-guide { position: absolute; background: #e5484d; pointer-events: none; }
+.slides-guide.is-vertical { top: 0; bottom: 0; width: 1px; }
+.slides-guide.is-horizontal { left: 0; right: 0; height: 1px; }
+.slides-marquee { position: absolute; border: 1px solid var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); pointer-events: none; }
+.slides-cell { position: absolute; outline: 2px solid var(--accent); outline-offset: -1px; pointer-events: none; }
+.slides-cell-editor {
+  position: absolute; z-index: 1;
+  margin: 0; border: 0; border-radius: 0;
+  box-shadow: 0 0 0 2px var(--accent);
+  line-height: 1.2; resize: none; outline: none; overflow: hidden;
+}
 
 .slide-text-editor { outline: none; cursor: text; user-select: text; caret-color: auto; }
 .slides-editor-layer .slide-element { outline: 1.5px solid var(--accent); outline-offset: 1px; }
@@ -90,24 +111,46 @@
 }
 .slides-notes::placeholder { color: var(--faint); }
 
-/* ─── Toolbar and inspector ─── */
+/* ─── Toolbar ─── */
 
-.tool.slides-size { min-width: 46px; justify-content: space-between; }
-.slides-size-menu { min-width: 120px; max-height: 360px; overflow-y: auto; }
+.tool.slides-menu-label { min-width: 44px; max-width: 132px; justify-content: space-between; }
+.tool.slides-menu-label span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.slides-menu { min-width: 200px; max-height: 420px; overflow-y: auto; }
+.slides-table-picker { display: grid; gap: 3px; padding: 8px 10px 10px; }
+.slides-table-cell { width: 16px; height: 16px; padding: 0; border: 1px solid var(--line); border-radius: 2px; background: var(--surface); }
+.slides-table-cell.is-chosen { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 30%, var(--surface)); }
+
+/* ─── Inspector ─── */
 
 .slides-number-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; }
 .slides-number { display: flex; align-items: center; gap: 5px; color: var(--dim); }
-.slides-number > span { min-width: 12px; }
-.slides-number input { width: 100%; text-align: right; }
+.slides-number > span { flex: none; }
+.slides-number input { width: 100%; min-width: 0; text-align: right; }
 .slides-number small { color: var(--faint); font-size: 11px; }
-.slides-swatches { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px; max-width: 150px; }
-.slides-swatches .swatch { width: 16px; height: 16px; }
+.slides-field { display: flex; flex-direction: column; gap: 6px; padding: 4px 0 6px; color: var(--dim); }
+.slides-swatches { display: grid; grid-template-columns: repeat(8, 18px); gap: 6px; }
+.slides-swatches .swatch { width: 18px; height: 18px; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 22%, transparent); }
+.slides-swatches .swatch[aria-pressed="true"] { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 22%, transparent), 0 0 0 2px var(--chrome), 0 0 0 3.5px var(--accent); }
 .slides-stepper { display: inline-flex; align-items: center; gap: 2px; }
 .slides-stepper span { min-width: 44px; text-align: center; }
 .slides-inline-tools { display: inline-flex; gap: 1px; }
+.slides-align-row { display: flex; gap: 1px; margin-bottom: 6px; }
 .slides-actions { display: flex; flex-direction: column; gap: 2px; }
 .slides-actions .button { justify-content: flex-start; padding: 0 6px; }
 .slides-actions kbd { margin-left: auto; }
+.slides-table-actions { display: grid; grid-template-columns: 1fr; gap: 2px; margin: 8px 0 4px; }
+.slides-table-actions .button { justify-content: flex-start; height: 28px; padding: 0 6px; font-size: 12px; }
+.slides-check-row { display: flex; align-items: center; gap: 8px; min-height: 28px; }
+.slides-check-row input { margin: 0; accent-color: var(--accent); }
+.slides-themes { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+.slides-theme {
+  position: relative; height: 34px; padding: 0 0 6px;
+  border: 0; border-radius: 6px;
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 14%);
+  font-size: 13px; font-weight: 600;
+}
+.slides-theme[aria-pressed="true"] { box-shadow: inset 0 0 0 1px rgb(0 0 0 / 14%), 0 0 0 2px var(--surface), 0 0 0 3.5px var(--accent); }
+.slides-theme i { position: absolute; left: 6px; right: 6px; bottom: 5px; height: 3px; border-radius: 2px; }
 .button.slides-inspector-action { width: 100%; justify-content: flex-start; margin-top: 4px; padding: 0 6px; }
 .slides-file-name { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 

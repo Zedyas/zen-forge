@@ -10,12 +10,19 @@ export interface ReadySlides {
   readonly saved: Presentation
   /** The slide shown on the canvas. */
   readonly slideId: string
-  /** The selected element on that slide. */
-  readonly selectedId?: string
-  /** The text box whose text is being typed into. */
+  /** The selected elements on that slide, in the order they were selected. */
+  readonly selection: readonly string[]
+  /** The text box, shape or table whose text is being typed into. */
   readonly editingId?: string
+  /** The current cell of the selected table: the one being typed into, or that row and column actions act on. */
+  readonly cell?: TableCellAddress
   /** Index into `present.slides` while the slideshow plays. */
   readonly playing?: number
+}
+
+export interface TableCellAddress {
+  readonly row: number
+  readonly column: number
 }
 
 export type SlidesDocument =
@@ -45,15 +52,22 @@ export function readySlides(id: string): ReadySlides | undefined {
 }
 
 export function readyDocument(presentation: Presentation): ReadySlides {
-  return { status: 'ready', past: [], present: presentation, future: [], saved: presentation, slideId: presentation.slides[0]?.id ?? '' }
+  return { status: 'ready', past: [], present: presentation, future: [], saved: presentation, slideId: presentation.slides[0]?.id ?? '', selection: [] }
 }
 
 export function currentSlide(document: ReadySlides): Slide | undefined {
   return findSlide(document.present, document.slideId) ?? document.present.slides[0]
 }
 
+/** The selected elements, back to front. */
+export function selectedElements(document: ReadySlides): SlideElement[] {
+  const ids = new Set(document.selection)
+  return currentSlide(document)?.elements.filter(element => ids.has(element.id)) ?? []
+}
+
+/** The selected element when exactly one is selected. */
 export function selectedElement(document: ReadySlides): SlideElement | undefined {
-  return findElement(currentSlide(document), document.selectedId)
+  return document.selection.length === 1 ? findElement(currentSlide(document), document.selection[0]) : undefined
 }
 
 /** Changes view state (current slide, selection, editing, playing) without touching undo history. */
@@ -62,12 +76,16 @@ export function updateSlides(id: string, change: (document: ReadySlides) => Part
   if (document !== undefined) setSlidesDocument(id, { ...document, ...change(document) })
 }
 
-/** Keeps the current slide and selection pointing at things that still exist after an undo or redo. */
+/** Keeps the current slide, selection and cell pointing at things that still exist after an edit, undo or redo. */
 function settle(document: ReadySlides): ReadySlides {
   const slide = currentSlide(document)
-  const slideId = slide?.id ?? ''
-  const selectedId = findElement(slide, document.selectedId)?.id
-  return { ...document, slideId, selectedId, editingId: selectedId === undefined ? undefined : document.editingId }
+  const selection = document.selection.filter(id => findElement(slide, id) !== undefined)
+  const only = selection.length === 1 ? findElement(slide, selection[0]) : undefined
+  const cell = only?.kind === 'table' && document.cell !== undefined && document.cell.row < only.rows.length && document.cell.column < only.columns.length
+    ? document.cell
+    : undefined
+  const editingId = document.editingId !== undefined && selection.includes(document.editingId) ? document.editingId : undefined
+  return { ...document, slideId: slide?.id ?? '', selection, cell, editingId }
 }
 
 /** Records one undoable edit. */

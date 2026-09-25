@@ -1,33 +1,37 @@
 import { memo, type CSSProperties, type ReactNode } from 'react'
 import {
-  bulletIndent,
+  cellInset,
   cornerRatio,
   holdsText,
   isLine,
   lineEnds,
+  listIndent,
+  listNumbers,
+  polygonPoints,
   scalePath,
   type Paragraph,
   type ShapeElement,
   type Slide,
   type SlideElement,
+  type TableElement,
   type TextBody,
   type TextRun,
 } from './model'
 
 /*
- * The one static drawing of a slide. Thumbnails, the editing canvas, the slideshow and (later)
- * printing all use it, so a slide looks the same everywhere. The slide is laid out at one CSS pixel
- * per point and scaled as a whole, so text wraps identically at every size.
+ * The one static drawing of a slide. Thumbnails, the editing canvas, the slideshow and printing all
+ * use it, so a slide looks the same everywhere. The slide is laid out at one CSS pixel per point
+ * and scaled as a whole, so text wraps identically at every size.
  */
 
 /** PowerPoint's single line spacing is about 1.2 times the font size. */
-export const lineHeight = 1.2
+export const singleLineHeight = 1.2
 
 export function fontStack(font: string): string {
   return `"${font.replace(/"/g, '')}", Arial, Helvetica, sans-serif`
 }
 
-export function runStyle(run: Omit<TextRun, 'text'>): CSSProperties {
+function runStyle(run: Omit<TextRun, 'text'>): CSSProperties {
   return {
     fontFamily: fontStack(run.font),
     fontSize: run.size,
@@ -35,29 +39,43 @@ export function runStyle(run: Omit<TextRun, 'text'>): CSSProperties {
     fontStyle: run.italic ? 'italic' : 'normal',
     textDecorationLine: run.underline ? 'underline' : 'none',
     color: run.color,
+    backgroundColor: run.highlight,
   }
 }
 
 /**
  * A paragraph takes its first run's font, so an empty line, its bullet and text typed into it have
- * that run's size and colour. Underline is left to the runs: it would draw under every child.
+ * that run's size and colour. Underline and highlight are left to the runs, which draw their own.
  */
 function paragraphStyle(paragraph: Paragraph): CSSProperties {
   const first = paragraph.runs[0]
   return {
     ...(first === undefined ? {} : runStyle(first)),
     textDecorationLine: undefined,
+    backgroundColor: undefined,
     textAlign: paragraph.align,
-    paddingLeft: paragraph.bullet ? bulletIndent * (paragraph.level + 1) : 0,
+    lineHeight: singleLineHeight * paragraph.lineSpacing,
+    paddingLeft: paragraph.list === 'none' ? 0 : listIndent * (paragraph.level + 1),
   }
+}
+
+function listClass(paragraph: Pick<Paragraph, 'list'>): string {
+  return paragraph.list === 'bullet' ? ' is-bullet' : paragraph.list === 'number' ? ' is-number' : ''
 }
 
 /** Paragraphs and runs; the inline editor starts from exactly this markup and reads it back. */
 export function TextParagraphs({ paragraphs }: { readonly paragraphs: readonly Paragraph[] }) {
+  const numbers = listNumbers(paragraphs)
   return paragraphs.map((paragraph, index) => {
     const runs = paragraph.runs.filter(run => run.text !== '')
     return (
-      <p key={index} className={`slide-paragraph${paragraph.bullet ? ' is-bullet' : ''}`} data-level={paragraph.level} style={paragraphStyle(paragraph)}>
+      <p
+        key={index}
+        className={`slide-paragraph${listClass(paragraph)}${runs.length === 0 ? ' is-empty' : ''}`}
+        data-level={paragraph.level}
+        data-number={numbers[index]}
+        style={paragraphStyle(paragraph)}
+      >
         {runs.length === 0 ? <br /> : runs.map((run, position) => <span key={position} style={runStyle(run)}>{run.text}</span>)}
       </p>
     )
@@ -67,19 +85,19 @@ export function TextParagraphs({ paragraphs }: { readonly paragraphs: readonly P
 const justify = { top: 'flex-start', middle: 'center', bottom: 'flex-end' } as const
 
 /** The text frame: insets and vertical alignment around the paragraphs, or around the editor. */
-export function TextFrame({ body, children }: { readonly body: TextBody; readonly children: ReactNode }) {
+function TextFrame({ body, children }: { readonly body: TextBody; readonly children: ReactNode }) {
   const { inset } = body
   return (
     <div
       className="slide-text-frame"
-      style={{ justifyContent: justify[body.verticalAlign], padding: `${inset.top}px ${inset.right}px ${inset.bottom}px ${inset.left}px`, lineHeight }}
+      style={{ justifyContent: justify[body.verticalAlign], padding: `${inset.top}px ${inset.right}px ${inset.bottom}px ${inset.left}px` }}
     >
       {children}
     </div>
   )
 }
 
-export function frameStyle(element: SlideElement): CSSProperties {
+function frameStyle(element: SlideElement): CSSProperties {
   return {
     left: element.x,
     top: element.y,
@@ -119,7 +137,7 @@ function LineShape({ shape }: { readonly shape: ShapeElement }) {
   )
 }
 
-function Outline({ element }: { readonly element: Exclude<SlideElement, { kind: 'image' }> }) {
+function Outline({ element }: { readonly element: Exclude<SlideElement, { kind: 'image' | 'table' }> }) {
   const { width, height, fill, border } = element
   if (fill === undefined && border === undefined) return null
   const paint = { fill: fill ?? 'none', stroke: border?.color ?? 'none', strokeWidth: border?.width ?? 0 }
@@ -134,6 +152,10 @@ function Outline({ element }: { readonly element: Exclude<SlideElement, { kind: 
     case 'ellipse':
       outline = <ellipse cx={width / 2} cy={height / 2} rx={width / 2} ry={height / 2} {...paint} />
       break
+    case 'triangle':
+    case 'rightArrow':
+      outline = <polygon points={polygonPoints(geometry.type, width, height).map(point => `${point.x},${point.y}`).join(' ')} strokeLinejoin="round" {...paint} />
+      break
     case 'custom':
       outline = <path d={scalePath(geometry.path, geometry.pathWidth === 0 ? 1 : width / geometry.pathWidth, geometry.pathHeight === 0 ? 1 : height / geometry.pathHeight)} {...paint} />
       break
@@ -143,6 +165,40 @@ function Outline({ element }: { readonly element: Exclude<SlideElement, { kind: 
   return <svg className="slide-geometry" width={Math.max(1, width)} height={Math.max(1, height)}>{outline}</svg>
 }
 
+/** Cells carry their row and column, so the canvas can find the cell under a click. */
+function TableView({ table }: { readonly table: TableElement }) {
+  const edge = table.border.width > 0 ? `${table.border.width}px solid ${table.border.color}` : 'none'
+  return (
+    <table className="slide-table" style={{ width: table.width, fontFamily: fontStack(table.font), fontSize: table.size, color: table.color }}>
+      <colgroup>{table.columns.map((width, index) => <col key={index} style={{ width }} />)}</colgroup>
+      <tbody>
+        {table.rows.map((row, rowIndex) => (
+          <tr key={rowIndex} style={{ height: row.height }}>
+            {row.cells.map((cell, column) => (
+              <td
+                key={column}
+                data-row={rowIndex}
+                data-column={column}
+                style={{
+                  padding: `${cellInset.top}px ${cellInset.right}px ${cellInset.bottom}px ${cellInset.left}px`,
+                  border: edge,
+                  background: cell.fill,
+                  color: cell.color,
+                  fontWeight: cell.bold ? 700 : 400,
+                  textAlign: cell.align,
+                  verticalAlign: cell.verticalAlign,
+                }}
+              >
+                {cell.text}
+              </td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
+}
+
 interface ElementViewProps {
   readonly element: SlideElement
   /** Replaces the element's text, for the inline editor. */
@@ -150,19 +206,19 @@ interface ElementViewProps {
 }
 
 export function ElementView({ element, text }: ElementViewProps) {
-  if (element.kind === 'image') {
-    return (
-      <div className="slide-element" style={frameStyle(element)}>
-        <img className="slide-image" src={element.src} alt="" draggable={false} />
-      </div>
-    )
+  const frame = { className: 'slide-element', style: frameStyle(element), 'data-element-id': element.id }
+  switch (element.kind) {
+    case 'image':
+      return <div {...frame}><img className="slide-image" src={element.src} alt="" draggable={false} /></div>
+    case 'table':
+      return <div {...frame}><TableView table={element} /></div>
+    default:
+      break
   }
-  if (isLine(element)) {
-    return <div className="slide-element" style={frameStyle(element)}><LineShape shape={element} /></div>
-  }
+  if (isLine(element)) return <div {...frame}><LineShape shape={element} /></div>
   const body = holdsText(element) ? element : undefined
   return (
-    <div className="slide-element" style={frameStyle(element)}>
+    <div {...frame}>
       <Outline element={element} />
       {body !== undefined && (text !== undefined || body.paragraphs.length > 0) && (
         <TextFrame body={body}>
@@ -188,7 +244,17 @@ interface SlideViewProps {
 export const SlideView = memo(function SlideView({ slide, width, height, scale, hiddenId }: SlideViewProps) {
   return (
     <div className="slide-view" style={{ width: width * scale, height: height * scale }}>
-      <div className="slide-surface" style={{ width, height, background: slide.background, transform: `scale(${scale})` }}>
+      <div
+        className="slide-surface"
+        style={{
+          width,
+          height,
+          // PowerPoint shows white through a background picture's transparent parts, not the colour.
+          backgroundColor: slide.backgroundImage === undefined ? slide.background : '#ffffff',
+          backgroundImage: slide.backgroundImage === undefined ? undefined : `url("${slide.backgroundImage}")`,
+          transform: `scale(${scale})`,
+        }}
+      >
         {slide.elements.map(element => element.id === hiddenId ? null : <ElementView key={element.id} element={element} />)}
       </div>
     </div>

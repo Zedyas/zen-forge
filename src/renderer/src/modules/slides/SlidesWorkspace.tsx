@@ -6,15 +6,17 @@ import { FidelitySurface } from '../../ui/FidelitySurface'
 import { WindowEmpty } from '../../ui/WindowEmpty'
 import { ConfirmHost } from '../pdf/ConfirmDialog'
 import { holdsText } from './model'
+import { runSlidesCommand } from './slide-commands'
 import {
+  copySelection,
   deleteSlide,
   duplicateSelection,
   isTextEntry,
   loadSlidesDocument,
   nudgeSelection,
+  paste,
   releaseSlidesDocument,
-  removeElement,
-  runSlidesCommand,
+  removeSelection,
   saveSlidesDocument,
   select,
   setSlideNotes,
@@ -33,8 +35,8 @@ import './slides.css'
 
 /**
  * Keys on the canvas: Delete, arrow nudges (Shift for 10 pt), ⌘D, Return to type into the selected
- * box, Escape to deselect. With the slide rail focused, arrows change slide and Delete removes it.
- * Ignored while typing and while the slideshow plays.
+ * box, Escape to deselect. With the slide rail focused, or nothing selected, arrows change slide
+ * and, in the rail, Delete removes it. Ignored while typing and while the slideshow plays.
  */
 function useSlideKeys(documentId: string | undefined): void {
   useEffect(() => {
@@ -43,45 +45,38 @@ function useSlideKeys(documentId: string | undefined): void {
       const document = readySlides(documentId)
       if (document === undefined || document.playing !== undefined || isTextEntry(event.target)) return
       const inRail = event.target instanceof Element && event.target.closest('.slides-rail') !== null
-      const element = selectedElement(document)
       if (event.metaKey && !event.shiftKey && !event.altKey && event.key.toLowerCase() === 'd') {
         event.preventDefault()
         duplicateSelection(documentId)
         return
       }
       if (event.metaKey || event.ctrlKey || event.altKey) return
-      const slides = document.present.slides
-      const index = slides.findIndex(slide => slide.id === document.slideId)
-      if (inRail || element === undefined) {
+      if (inRail || document.selection.length === 0) {
+        const slides = document.present.slides
+        const index = slides.findIndex(slide => slide.id === document.slideId)
         const step = event.key === 'ArrowUp' || event.key === 'PageUp' ? -1 : event.key === 'ArrowDown' || event.key === 'PageDown' ? 1 : 0
         const target = slides[index + step]
         if (step !== 0 && target !== undefined) {
           event.preventDefault()
           showSlide(documentId, target.id)
-          return
-        }
-        if (inRail && (event.key === 'Backspace' || event.key === 'Delete')) {
+        } else if (inRail && (event.key === 'Backspace' || event.key === 'Delete')) {
           event.preventDefault()
           deleteSlide(documentId)
         }
         return
       }
+      const single = selectedElement(document)
       if (event.key === 'Escape') {
-        select(documentId, undefined)
-        return
-      }
-      if (event.key === 'Backspace' || event.key === 'Delete') {
+        select(documentId, [])
+      } else if (event.key === 'Backspace' || event.key === 'Delete') {
         event.preventDefault()
-        removeElement(documentId, element.id)
-        return
-      }
-      if (event.key === 'Enter' && holdsText(element)) {
+        removeSelection(documentId)
+      } else if (event.key === 'Enter' && single !== undefined && (holdsText(single) || single.kind === 'table')) {
         event.preventDefault()
-        startEditing(documentId, element.id)
-        return
-      }
-      const nudge = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[event.key]
-      if (nudge !== undefined) {
+        startEditing(documentId, single.id, single.kind === 'table' ? document.cell ?? { row: 0, column: 0 } : undefined)
+      } else {
+        const nudge = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[event.key]
+        if (nudge === undefined) return
         event.preventDefault()
         const step = event.shiftKey ? 10 : 1
         nudgeSelection(documentId, (nudge[0] ?? 0) * step, (nudge[1] ?? 0) * step)
@@ -89,6 +84,33 @@ function useSlideKeys(documentId: string | undefined): void {
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [documentId])
+}
+
+/**
+ * Edit > Copy, Cut and Paste reach the page as clipboard events. Outside a text field they copy the
+ * selected objects, and paste objects, a picture or text onto the current slide.
+ */
+function useSlideClipboard(documentId: string | undefined): void {
+  useEffect(() => {
+    if (documentId === undefined) return
+    const handle = (kind: 'copy' | 'cut' | 'paste') => (event: ClipboardEvent): void => {
+      const document = readySlides(documentId)
+      if (document === undefined || document.playing !== undefined || isTextEntry(event.target) || event.clipboardData === null) return
+      const handled = kind === 'paste' ? paste(documentId, event.clipboardData) : copySelection(documentId, event.clipboardData, kind === 'cut')
+      if (handled) event.preventDefault()
+    }
+    const copy = handle('copy')
+    const cut = handle('cut')
+    const pasted = handle('paste')
+    window.document.addEventListener('copy', copy)
+    window.document.addEventListener('cut', cut)
+    window.document.addEventListener('paste', pasted)
+    return () => {
+      window.document.removeEventListener('copy', copy)
+      window.document.removeEventListener('cut', cut)
+      window.document.removeEventListener('paste', pasted)
+    }
   }, [documentId])
 }
 
@@ -143,6 +165,7 @@ export function SlidesWorkspace({ document }: { readonly document: OpenDocument 
   const state = useSlidesStore(store => store.documents[documentId])
   const inspector = useViewStore(view => view.inspector)
   useSlideKeys(state?.status === 'ready' ? documentId : undefined)
+  useSlideClipboard(state?.status === 'ready' ? documentId : undefined)
 
   useEffect(() => {
     if (useSlidesStore.getState().documents[document.id] !== undefined) return
