@@ -47,6 +47,11 @@ describe('removeHiddenLayers', () => {
     expect(() => removeHiddenLayers(doc)).toThrow('mixes a hidden layer into visible text')
   })
 
+  it('stops at a hidden block in content whose marked sections do not pair up', async () => {
+    const { doc } = await layeredPdf('/OC /hidden BDC BT /F1 14 Tf 40 500 Td (HIDDEN) Tj ET EMC EMC BT /F1 14 Tf 40 300 Td (SHOWN) Tj ET')
+    expect(() => removeHiddenLayers(doc)).toThrow('marked sections unevenly')
+  })
+
   it('rewrites a visible form XObject that holds hidden content', async () => {
     const { doc, page, layers } = await layeredPdf('/Inner Do', {
       Inner: { content: '/OC /hidden BDC BT /F1 14 Tf 40 500 Td (HIDDEN-IN-FORM) Tj ET EMC BT /F1 14 Tf 40 300 Td (SHOWN-IN-FORM) Tj ET' },

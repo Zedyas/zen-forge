@@ -276,8 +276,8 @@ export function removeHiddenLayers(doc: PDFDocument): void {
 
   /**
    * The edits for one content stream: a hidden `/OC … BDC` block goes with everything up to its
-   * matching EMC (or the end of the stream), or when that would change what follows it, loses only
-   * its painting (see `selfContained` and `withoutPainting`). A `Do` of a hidden XObject goes, and
+   * matching EMC, or when that would change what follows it, loses only its painting (see
+   * `selfContained` and `withoutPainting`). A `Do` of a hidden XObject goes, and
    * an `/OC … BDC` that stays becomes a plain `/OC BMC`, so nothing points to its layer any more.
    */
   const rewrite = (content: Uint8Array, resources: PDFDict | undefined): Uint8Array | undefined => {
@@ -287,6 +287,9 @@ export function removeHiddenLayers(doc: PDFDocument): void {
     uses.set(resources, use)
 
     const instructions = scan(content)
+    // Where marked sections do not pair up, which also follows from reading an inline image's data
+    // differently than a viewer does, where a hidden block ends is a guess: stop rather than guess.
+    const markedBalanced = balanced(instructions, ['BDC', 'BMC'], 'EMC')
     const edits: Edit[] = []
     /** Instructions before this index are in a hidden block that loses its painting. */
     let hiddenEnd = -1
@@ -326,6 +329,7 @@ export function removeHiddenLayers(doc: PDFDocument): void {
         throw unsafe('This PDF mixes a hidden layer into visible text in a way Zendo can’t remove safely.')
       } else if (operator === 'BDC' && first === '/OC') {
         if (isHidden(named(Properties, second))) {
+          if (!markedBalanced) throw unsafe('A page opens and closes its marked sections unevenly, so Zendo can’t tell where a hidden layer ends.')
           const close = closingIndex(instructions, index)
           const block = instructions.slice(index + 1, close)
           if (selfContained(block, inText)) {
