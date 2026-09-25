@@ -58,7 +58,7 @@ Not planned: `.xlsb` and other macro-enabled formats, and Apple Pages or Keynote
 
 **Download:** get the latest `.dmg` from [Releases](https://github.com/Zedyas/zen-forge/releases). It runs on Macs with Apple silicon. Previews aren't notarized by Apple yet, so the first time you open Zendo, click **Done**, then go to **System Settings → Privacy & Security** and click **Open Anyway**.
 
-**Updates:** Zendo checks GitHub for a new version once a day; you can turn this off in the Zendo menu. When there is one, click **Download** on Home. Zendo downloads the `.dmg`, checks it against the release's checksum and opens it. Drag Zendo into Applications and choose **Replace**.
+**Updates:** when it opens, Zendo checks GitHub for a new version, at most once a day; you can turn this off in the Zendo menu. When there is one, click **Download** on Home. Zendo downloads the `.dmg`, checks it against the release's checksum and opens it. Quit Zendo, drag the new Zendo into Applications and choose **Replace**.
 
 **Build from source:** requires [Node.js](https://nodejs.org) 22.13 or newer and [pnpm](https://pnpm.io) 10.
 
@@ -130,7 +130,7 @@ pnpm release:mac  # build the downloadable .dmg into dist/
 - **Electron** runs the app. The main process (`electron/main`) owns windows, the native menu bar, file dialogs, file reads and writes, and the saved session. Every window loads the same React page; a window is a row of tabs that starts on Home.
 - **The renderer** (`src/renderer/src`) is React 19 with Zustand stores. One store holds the window's tabs; each tab records which application edits it. The renderer reaches the file system only through the `window.desktop` bridge defined in `electron/preload`, and a lint rule keeps that bridge inside `services/file`.
 - **Security.** The page loads from a private `app://` address under a strict Content Security Policy (no network, no eval), cannot navigate away or open windows, and gets no permissions beyond writing to the clipboard. The main process answers only that page. Electron fuses lock the packaged app to its own integrity-checked code. See `electron/main/security.ts`.
-- **Updates.** The only network request is the main process asking GitHub for this repository's releases (`electron/main/updates.ts`). A download is checked against the release's `SHA256SUMS.txt` before it opens.
+- **Updates.** Zendo's only network use is the main process checking this repository's GitHub releases and, when you click Download, fetching the release's `.dmg` and `SHA256SUMS.txt` (`electron/main/updates.ts`). The `.dmg` is checked against the checksum before it opens.
 - **Printing.** A module builds a printable copy of the document (`services/print`), and the main process prints it or turns it into a PDF. Hanko prints page images with redaction boxes painted in, so no text under a box reaches the printer or a PDF saved from the print dialog.
 - **Commands** are defined once in `src/shared/commands.ts`. The native menu, the command palette, keyboard shortcuts and toolbar tooltips all read from that list, and each command says which kind of tab it applies to.
 - **Editors** (`modules/sheets`, `modules/pdf`) each export a handler with `run`, `save` and `release`. The shell finds the handler by the tab's kind, so saving or closing a tab works whether or not its editor is on screen.

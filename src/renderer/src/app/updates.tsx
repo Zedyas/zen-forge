@@ -36,7 +36,7 @@ function describe(status: Exclude<UpdateStatus, { state: 'none' }>): string {
   switch (status.state) {
     case 'available': return `${suiteName} ${status.version} is available.`
     case 'downloading': return `Downloading… ${status.percent}%`
-    case 'downloaded': return `Drag ${suiteName} into Applications and choose Replace, then reopen ${suiteName}.`
+    case 'downloaded': return `Quit ${suiteName}, drag the new ${suiteName} into Applications and choose Replace, then open it.`
     case 'failed': return status.message
   }
 }

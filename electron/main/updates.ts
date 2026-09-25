@@ -1,5 +1,6 @@
 import { app, net, shell } from 'electron'
 import { createHash } from 'node:crypto'
+import { rmSync } from 'node:fs'
 import { link, open, rm, type FileHandle } from 'node:fs/promises'
 import { basename, extname, join } from 'node:path'
 import { suiteName } from '../../src/shared/applications'
@@ -23,6 +24,8 @@ let broadcast: (channel: string, payload?: unknown) => void = () => undefined
 let offered: Release | undefined
 let status: UpdateStatus = { state: 'none' }
 let checking: Promise<UpdateCheckResult> | undefined
+/** The unverified download in progress, removed if Zendo quits before it finishes. */
+let partInProgress: string | undefined
 
 function setStatus(next: UpdateStatus): void {
   status = next
@@ -135,6 +138,7 @@ async function downloadUpdate(): Promise<void> {
     const downloads = app.getPath('downloads')
     const part = await claimName(downloads, `${dmg.name}.part`, candidate => open(candidate, 'wx'))
     partPath = part.path
+    partInProgress = partPath
     const actual = await save(dmg, part.result, percent => setStatus({ state: 'downloading', version, percent }))
     if (actual !== expected) {
       message = 'The download didn’t match its checksum, so it was deleted. Try again.'
@@ -144,9 +148,11 @@ async function downloadUpdate(): Promise<void> {
     const verifiedPart = partPath
     path = (await claimName(downloads, dmg.name, candidate => link(verifiedPart, candidate))).path
     await rm(verifiedPart, { force: true })
+    partInProgress = undefined
   } catch (error) {
     console.warn('Update download failed:', error)
     if (partPath !== undefined) await rm(partPath, { force: true }).catch(() => undefined)
+    partInProgress = undefined
     setStatus({ state: 'failed', version, message })
     return
   }
@@ -160,6 +166,9 @@ async function downloadUpdate(): Promise<void> {
 /** Answers the renderer's three update requests; status changes go to every window through `send`. */
 export function registerUpdates(send: (channel: string, payload?: unknown) => void): void {
   broadcast = send
+  app.on('will-quit', () => {
+    if (partInProgress !== undefined) rmSync(partInProgress, { force: true })
+  })
   handle('update:check', () => checkForUpdates())
   handle('update:download', () => downloadUpdate())
   handle('update:open-notes', async () => {
