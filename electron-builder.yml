@@ -1,4 +1,5 @@
-# Packages Zendo as a macOS app built on this Mac: `pnpm package:mac` → dist/mac-arm64/Zendo.app
+# Packages Zendo for macOS. `pnpm package:mac` builds dist/mac-arm64/Zendo.app to try locally;
+# `pnpm release:mac` builds the downloadable dist/Zendo-<version>-arm64.dmg (the release workflow runs it).
 # The file associations are what let Finder open .xlsx/.csv/.pdf files in Zendo ("Open With", default app).
 appId: dev.zendo.suite
 productName: Zendo
@@ -11,13 +12,19 @@ files:
   # Vite bundles everything the renderer uses and main needs only Electron and Node built-ins,
   # so node_modules would be ~165 MB of dead weight inside the app.
   - "!node_modules/**"
+# Zendo's license, Electron's and Chromium's, and third-party notices (scripts/third-party-notices.mjs).
+extraResources:
+  - from: out/licenses
+    to: licenses
 mac:
   category: public.app-category.productivity
   target:
-    - target: dir
-  # Ad-hoc signature: enough for this Mac to run it. Sharing with other people needs a Developer ID
-  # certificate and notarization instead. Hardened runtime would reject Electron's differently-signed
-  # frameworks under an ad-hoc identity, so it is off for this local build.
+    - target: dmg
+      arch: arm64
+  artifactName: ${productName}-${version}-${arch}.${ext}
+  # Ad-hoc signature: the app runs, and a downloaded copy opens after System Settings → Privacy &
+  # Security → Open Anyway. Opening without that step needs a Developer ID certificate and notarization.
+  # Hardened runtime would reject Electron's differently-signed frameworks under an ad-hoc identity.
   identity: "-"
   hardenedRuntime: false
   extendInfo:

@@ -58,9 +58,9 @@ Not planned: `.xlsb` and other macro-enabled formats, and Apple Pages or Keynote
 
 ## Install
 
-Zendo is built from source. It targets macOS on Apple silicon.
+**Download:** get the latest `.dmg` from [Releases](https://github.com/Zedyas/zen-forge/releases). It runs on Macs with Apple silicon. Previews aren't notarized by Apple yet, so the first time you open Zendo, click **Done**, then go to **System Settings → Privacy & Security** and click **Open Anyway**.
 
-**Requirements:** [Node.js](https://nodejs.org) 22.13 or newer and [pnpm](https://pnpm.io) 10.
+**Build from source:** requires [Node.js](https://nodejs.org) 22.13 or newer and [pnpm](https://pnpm.io) 10.
 
 ```sh
 git clone https://github.com/Zedyas/zen-forge.git
@@ -69,9 +69,7 @@ pnpm install
 pnpm package:mac
 ```
 
-The app is written to `dist/mac-arm64/Zendo.app`. Drag it into `/Applications`.
-
-The build has an ad-hoc signature, which is enough to run it on the Mac that built it. Running it on other Macs needs an Apple Developer ID certificate and notarization.
+The app is written to `dist/mac-arm64/Zendo.app`. Drag it into `/Applications`. `pnpm release:mac` builds the `.dmg` instead.
 
 **Make Zendo the default app for a file type:** in Finder, select a `.xlsx` or `.pdf` file, press ⌘I, choose Zendo under **Open with**, then click **Change All…**.
 

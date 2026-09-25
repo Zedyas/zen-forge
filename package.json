@@ -17,7 +17,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "lint": "eslint electron src --max-warnings=0",
     "test": "vitest run",
-    "package:mac": "electron-vite build && electron-builder --mac --dir",
+    "package:mac": "electron-vite build && node scripts/third-party-notices.mjs && electron-builder --mac --dir",
+    "release:mac": "electron-vite build && node scripts/third-party-notices.mjs && electron-builder --mac --publish never",
     "icon:generate": "node scripts/suite-icon.mjs"
   },
   "dependencies": {
