@@ -1,7 +1,9 @@
-Zendo is a simplified office suite for macOS: spreadsheets (Ledger) and PDF editing (Hanko). This is a preview, so expect rough edges, and please report problems in [Issues](https://github.com/Zedyas/zen-forge/issues).
+Zendo is a simplified office suite for macOS: spreadsheets (Ledger), PDF editing (Hanko), documents (Sumi) and presentations (Slides). This is a preview, so expect rough edges, and please report problems in [Issues](https://github.com/Zedyas/zen-forge/issues).
 
 ## What's new
 
+- **Sumi, for documents.** Write and edit Word documents and Markdown: styles, fonts, lists, tables, pictures, page setup and page numbers, with printing and PDF export.
+- **Slides, for presentations.** Edit PowerPoint files: text, shapes, pictures, tables, themes and speaker notes, and play them full screen.
 - **Print and Export as PDF** (⌘P) in Ledger and Hanko. Hanko prints your unsaved edits, and redacted areas print as solid black.
 - **More spreadsheet files.** Open Numbers, OpenDocument and older Excel (.xls) files, and open and save .tsv.
 - **Search in PDFs** (⌘F), and redact every match at once.

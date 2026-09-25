@@ -6,7 +6,7 @@ Simplified office suite for macOS because I hate using Numbers and needed functi
 
 ## How it works
 
-One window with tabs. Home is the first tab, and spreadsheets, PDFs and documents open as tabs beside it. Right-click a tab to move it to its own window, or press ⇧⌘N for a new one.
+One window with tabs. Home is the first tab, and spreadsheets, PDFs, documents and presentations open as tabs beside it. Right-click a tab to move it to its own window, or press ⇧⌘N for a new one.
 
 ![Tabs: open a spreadsheet and a PDF from Home; a second spreadsheet joins the spreadsheet group](docs/media/tabs.gif)
 
@@ -17,7 +17,7 @@ One window with tabs. Home is the first tab, and spreadsheets, PDFs and document
 | **Ledger** | Spreadsheets | Excel (`.xlsx`, `.xlsm`, `.xls`), `.csv`, `.tsv`, OpenDocument (`.ods`), Numbers (`.numbers`) | Available |
 | **Hanko** | PDF editing | `.pdf` | Available |
 | **Sumi** | Documents | Word (`.docx`), Markdown (`.md`) | Available |
-| **Slides** | Presentations | PowerPoint (`.pptx`) | Planned |
+| **Slides** | Presentations | PowerPoint (`.pptx`) | Available |
 
 ### Ledger
 
@@ -44,20 +44,22 @@ One window with tabs. Home is the first tab, and spreadsheets, PDFs and document
 - Find and replace, spellcheck, print, and export as PDF
 - If a Word file has something Sumi can't keep, such as comments or tracked changes, Sumi tells you when it opens and offers to save a copy.
 
-### Slides (planned)
+### Slides
 
-PowerPoint presentations.
+- Text, shapes, pictures and tables, with layouts and colour themes
+- Speaker notes, and a full-screen slideshow (⌥⌘P)
+- Print, and export as PDF
+- If a PowerPoint file has something Slides can't keep, such as charts or animations, Slides tells you when it opens and offers to save a copy.
 
 ## Roadmap
 
 In order, with the next item first:
 
-1. Slides, for presentations
-2. Templates for documents and presentations
-3. More Ledger tools: borders, filters, conditional formatting, dropdown lists and charts
-4. iPhone photos (`.heic`) in PDF from images
-5. Notarized builds, so Zendo opens without the Open Anyway step and installs its own updates
-6. Windows support: the same app, adjusted to run and fit on Windows
+1. Templates for documents and presentations
+2. More Ledger tools: borders, filters, conditional formatting, dropdown lists and charts
+3. iPhone photos (`.heic`) in PDF from images
+4. Notarized builds, so Zendo opens without the Open Anyway step and installs its own updates
+5. Windows support: the same app, adjusted to run and fit on Windows
 
 Not planned: `.xlsb` and other macro-enabled formats, and Apple Pages or Keynote files.
 
@@ -78,7 +80,7 @@ pnpm package:mac
 
 The app is written to `dist/mac-arm64/Zendo.app`. Drag it into `/Applications`. `pnpm release:mac` builds the `.dmg` instead.
 
-**Make Zendo the default app for a file type:** in Finder, select a `.xlsx`, `.pdf` or `.docx` file, press ⌘I, choose Zendo under **Open with**, then click **Change All…**.
+**Make Zendo the default app for a file type:** in Finder, select a `.xlsx`, `.pdf`, `.docx` or `.pptx` file, press ⌘I, choose Zendo under **Open with**, then click **Change All…**.
 
 ## Keyboard shortcuts
 
@@ -126,6 +128,14 @@ Every command is also in the menu bar and in the command palette (⌘K). Hover a
 | ⌘F | Find and replace |
 | ⌘= / ⌘- / ⌘0 | Zoom in / Zoom out / Actual size |
 
+| Slides | |
+|---|---|
+| ⌥⌘N | New slide |
+| ⌥⌘P | Play the slideshow; → and ← move, Escape stops |
+| ⌘B / ⌘I / ⌘U | Bold / Italic / Underline |
+| ⌘C / ⌘V / ⌘D | Copy / Paste / Duplicate the selected objects |
+| Arrow keys | Nudge the selection by 1 pt, or 10 pt with Shift |
+
 ## Development
 
 ```sh
@@ -148,10 +158,11 @@ pnpm release:mac  # build the downloadable .dmg into dist/
 - **Updates.** Zendo's only network use is the main process checking this repository's GitHub releases and, when you click Download, fetching the release's `.dmg` and `SHA256SUMS.txt` (`electron/main/updates.ts`). The `.dmg` is checked against the checksum before it opens.
 - **Printing.** A module builds a printable copy of the document (`services/print`), and the main process prints it or turns it into a PDF. Hanko prints page images with redaction boxes painted in, so no text under a box reaches the printer or a PDF saved from the print dialog.
 - **Commands** are defined once in `src/shared/commands.ts`. The native menu, the command palette, keyboard shortcuts and toolbar tooltips all read from that list, and each command says which kind of tab it applies to.
-- **Editors** (`modules/sheets`, `modules/pdf`, `modules/docs`) each export a handler with `run`, `save` and `release`. The shell finds the handler by the tab's kind, so saving or closing a tab works whether or not its editor is on screen.
+- **Editors** (`modules/sheets`, `modules/pdf`, `modules/docs`, `modules/slides`) each export a handler with `run`, `save` and `release`. The shell finds the handler by the tab's kind, so saving or closing a tab works whether or not its editor is on screen.
 - **Ledger** uses [HyperFormula](https://hyperformula.handsontable.com) for formulas, [Glide Data Grid](https://grid.glideapps.com) to draw the grid, [ExcelJS](https://github.com/exceljs/exceljs) for `.xlsx`, [Papa Parse](https://www.papaparse.com) for `.csv` and `.tsv`, and [SheetJS](https://sheetjs.com) for `.xls`, `.ods` and `.numbers`.
 - **Hanko** uses [pdf.js](https://mozilla.github.io/pdf.js/) to draw pages, [pdf-lib](https://github.com/cantoo-scribe/pdf-lib) to write every change back into the file, and [MuPDF](https://mupdf.com) to apply redactions. MuPDF's WebAssembly module loads only when a redaction is saved.
-- **Sumi** uses [TipTap](https://tiptap.dev) (ProseMirror) for editing, its own `.docx` reader (`modules/docs/io/docx-read.ts`), [docx](https://docx.js.org) to write `.docx`, and TipTap's Markdown support. A `.docx` that Sumi saves reopens exactly as saved.
+- **Sumi** uses [TipTap](https://tiptap.dev) (ProseMirror) for editing, its own `.docx` reader (`modules/docs/io/docx-read.ts`), [docx](https://docx.js.org) to write `.docx`, and TipTap's Markdown support. A `.docx` that Sumi saves reopens exactly as saved, and before saving over a file Sumi reads back what it wrote and asks first if anything would change.
+- **Slides** keeps each presentation as plain data (slides, text boxes, shapes, pictures and tables, in points), reads `.pptx` with [pptxtojson](https://github.com/pipipi-pikachu/pptxtojson) and writes it with [PptxGenJS](https://gitbrent.github.io/PptxGenJS/).
 
 ```text
 electron/
@@ -167,6 +178,7 @@ src/
       sheets/  Ledger: workbook model, file formats, grid, toolbar
       pdf/     Hanko: PDF engine, pages, markup, signatures, forms
       docs/    Sumi: editor, styles and page setup, .docx and Markdown files
+      slides/  Slides: slide model, canvas, slideshow, .pptx files
 scripts/       the app icon generator (pnpm icon:generate) and the license notices for releases
 .github/       checks and release workflows, Dependabot, issue forms
 patches/       fixes for Glide Data Grid, applied by pnpm install
