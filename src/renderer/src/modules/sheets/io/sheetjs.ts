@@ -19,6 +19,7 @@ import {
   type WorkbookData,
 } from '../model/workbook-data'
 import { aggregateFindings, type FindingEvent } from './findings'
+import { assertZipFitsInMemory } from '../../../services/zip'
 import { numberFormatStyle } from './number-format'
 import { columnWidthPixels, readDefinedNames, unsupportedFunctionEvents } from './xlsx'
 
@@ -274,6 +275,7 @@ function readWorkbookSheets(workbook: WorkBook, context: Omit<SheetContext, 'she
 }
 
 export async function readSheetJs(bytes: Uint8Array, format: SheetJsFormat): Promise<SheetJsImport> {
+  assertZipFitsInMemory(bytes)
   // Loaded on first use: SheetJS is large, and only these formats need it.
   const XLSX = await import('xlsx')
   let workbook: WorkBook

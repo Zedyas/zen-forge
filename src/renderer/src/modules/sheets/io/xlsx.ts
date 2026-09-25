@@ -22,6 +22,7 @@ import {
 } from '../model/workbook-data'
 import { aggregateFindings, type FindingEvent } from './findings'
 import { numberFormatPattern, numberFormatStyle } from './number-format'
+import { assertZipFitsInMemory } from '../../../services/zip'
 import { packageFindings, readWorkbookPackage, type DefaultFont } from './package-parts'
 
 export interface XlsxImport {
@@ -464,6 +465,7 @@ function materialize(grid: ReadonlyMap<number, ReadonlyMap<number, ImportedCell>
 }
 
 export async function readXlsx(bytes: Uint8Array): Promise<XlsxImport> {
+  assertZipFitsInMemory(bytes)
   const workbook = new ExcelJS.Workbook()
   await (workbook.xlsx as unknown as ByteXlsx).load(bytes)
 
