@@ -106,7 +106,7 @@ function HomeTab({ active }: { readonly active: boolean }) {
         onClick={() => useDocumentsStore.getState().select(homeTabId)}
       >
         {/* A size up from the tab icons, so the suite mark reads as the window's own tab. */}
-        <AppIcon application="home" size={20} />
+        <AppIcon application="home" size={19} />
       </button>
     </Tip>
   )

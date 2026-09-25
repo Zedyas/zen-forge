@@ -260,11 +260,6 @@ kbd { color: var(--faint); font: 500 11px var(--font-ui); letter-spacing: 0.02em
 
 .app-icon { display: block; flex: none; }
 .app-icon.is-unavailable { filter: grayscale(1); opacity: 0.45; }
-/* The suite mark's dark plate would vanish into dark chrome and leave only the ring; a hairline rim
-   keeps the plate's edge, as macOS does for dark Dock icons. */
-@media (prefers-color-scheme: dark) {
-  .suite-plate { stroke: rgb(255 255 255 / 20%); stroke-width: 1; }
-}
 
 /* ─── Window frame ────────────────────────────────────────────────────── */
 
@@ -299,7 +294,7 @@ kbd { color: var(--faint); font: 500 11px var(--font-ui); letter-spacing: 0.02em
 .home-tab {
   display: grid; place-items: center; flex: none;
   width: 32px; height: var(--control); margin-right: 8px;
-  border: 0; border-radius: var(--radius); background: transparent;
+  border: 0; border-radius: var(--radius); background: transparent; color: var(--ink);
 }
 .home-tab:hover { background: var(--hover); }
 .home-tab.is-active { background: var(--surface); box-shadow: var(--shadow-float); }

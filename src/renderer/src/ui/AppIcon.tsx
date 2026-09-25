@@ -1,5 +1,5 @@
 import type { ApplicationId } from '@shared/applications'
-import { ensoPath, stoneRadius, stones, suiteInk, suitePlate } from './suite-mark'
+import { ensoPath, stoneRadius, stones } from './suite-mark'
 
 interface AppIconProps {
   readonly application: ApplicationId
@@ -66,12 +66,15 @@ function SlidesArt() {
   )
 }
 
-/** The suite mark: an ensō holding four stones in the application colours (see scripts/suite-icon.mjs). */
+/**
+ * The suite mark for the Home tab: the ensō and its four stones without the Dock icon's plate, so it
+ * sits in the title bar like the other tab icons instead of a box inside the tab's box. The ensō
+ * takes the text colour, so it reads in light and dark. (The Dock icon comes from build/icon.png.)
+ */
 function SuiteArt() {
   return (
     <>
-      <rect {...plate} className="suite-plate" fill={suitePlate} />
-      <path fill={suiteInk} d={ensoPath} />
+      <path fill="currentColor" d={ensoPath} />
       {stones.map(stone => (
         <ellipse key={stone.colour} cx={stone.x} cy={stone.y} rx={stoneRadius + 0.2} ry={stoneRadius} fill={stone.colour} />
       ))}
@@ -87,6 +90,9 @@ const artwork: Record<ApplicationId, () => React.JSX.Element> = {
   slides: SlidesArt,
 }
 
+/** The suite mark has no plate, so its view is cropped to the ensō and it fills the size it is given. */
+const viewBoxes: Partial<Record<ApplicationId, string>> = { home: '4.5 4.2 21.7 22.4' }
+
 export function AppIcon({ application, size = 20, unavailable = false }: AppIconProps) {
   const Art = artwork[application]
   return (
@@ -94,7 +100,7 @@ export function AppIcon({ application, size = 20, unavailable = false }: AppIcon
       className={`app-icon${unavailable ? ' is-unavailable' : ''}`}
       width={size}
       height={size}
-      viewBox="0 0 32 32"
+      viewBox={viewBoxes[application] ?? '0 0 32 32'}
       aria-hidden="true"
     >
       <Art />
