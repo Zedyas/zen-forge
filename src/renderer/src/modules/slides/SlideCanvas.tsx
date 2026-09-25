@@ -183,11 +183,17 @@ interface CellEditorProps {
   readonly scale: number
 }
 
-/** Types one table cell's text; Tab and Shift-Tab move to the next and previous cell, Escape closes. */
+/**
+ * Types one table cell's text; Tab and Shift-Tab move to the next and previous cell, Escape closes.
+ * The field grows with its text, and so does the row, as in PowerPoint.
+ */
 function CellEditor({ documentId, table, cell, rect, scale }: CellEditorProps) {
   const source = table.rows[cell.row]?.cells[cell.column]
   const [text, setText] = useState(source?.text ?? '')
-  const write = (): void => setCellText(documentId, table.id, cell, text)
+  const [height, setHeight] = useState(rect.height)
+  // The field is drawn at the slide's scale, so its height in points is its pixel height over the scale.
+  // It only asks for a taller row once the text outgrew the cell.
+  const write = (): void => setCellText(documentId, table.id, cell, text, height > rect.height + 1 ? height / scale : 0)
   const go = (step: 1 | -1): void => {
     write()
     const columns = table.columns.length
@@ -201,7 +207,7 @@ function CellEditor({ documentId, table, cell, rect, scale }: CellEditorProps) {
       value={text}
       aria-label={`Row ${cell.row + 1}, column ${cell.column + 1}`}
       style={{
-        ...screenFrame(rect, 1),
+        ...screenFrame({ ...rect, height }, 1),
         padding: `${3.6 * scale}px ${7.2 * scale}px`,
         fontFamily: fontStack(table.font),
         fontSize: table.size * scale,
@@ -210,7 +216,13 @@ function CellEditor({ documentId, table, cell, rect, scale }: CellEditorProps) {
         background: source?.fill ?? '#ffffff',
         textAlign: source?.align,
       }}
-      onChange={event => setText(event.currentTarget.value)}
+      onChange={event => {
+        const field = event.currentTarget
+        setText(field.value)
+        field.style.height = '0px'
+        setHeight(Math.max(rect.height, field.scrollHeight))
+        field.style.height = ''
+      }}
       onPointerDown={event => event.stopPropagation()}
       onBlur={() => {
         write()

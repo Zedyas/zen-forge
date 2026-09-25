@@ -17,6 +17,7 @@ import {
   newId,
   newImage,
   newPresentation,
+  mapElements,
   newTextBox,
   paragraphOf,
   translateElement,
@@ -216,10 +217,10 @@ export function setSlideNotes(id: string, slideId: string, notes: string): void 
 export function setBackground(id: string, change: Pick<Slide, 'background' | 'backgroundImage'>, everySlide = false): void {
   const document = readySlides(id)
   if (document === undefined) return
-  commitSlides(id, presentation => ({
-    ...presentation,
-    slides: presentation.slides.map(slide => everySlide || slide.id === document.slideId ? { ...slide, ...change } : slide),
-  }))
+  const same = (slide: Slide): boolean => slide.background === change.background && slide.backgroundImage === change.backgroundImage
+  commitSlides(id, presentation => presentation.slides.every(slide => !(everySlide || slide.id === document.slideId) || same(slide))
+    ? presentation
+    : { ...presentation, slides: presentation.slides.map(slide => everySlide || slide.id === document.slideId ? { ...slide, ...change } : slide) })
 }
 
 export function setTheme(id: string, themeId: string): void {
@@ -284,10 +285,7 @@ export function changeElements(id: string, elementIds: readonly string[], change
   const document = readySlides(id)
   if (document === undefined || elementIds.length === 0) return
   const ids = new Set(elementIds)
-  commitSlides(id, presentation => updateSlide(presentation, document.slideId, slide => ({
-    ...slide,
-    elements: slide.elements.map(element => ids.has(element.id) ? change(element) : element),
-  })))
+  commitSlides(id, presentation => updateSlide(presentation, document.slideId, slide => mapElements(slide, element => ids.has(element.id) ? change(element) : element)))
 }
 
 /** Replaces elements of the current slide with changed copies, as a drag ends. */

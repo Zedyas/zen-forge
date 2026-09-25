@@ -386,12 +386,33 @@ export function mergeRuns(runs: readonly TextRun[]): TextRun[] {
 
 /* ─── Changes ─── */
 
+/**
+ * Maps a list, returning the same list when every item came back unchanged. Changes that change
+ * nothing then keep the presentation object, so they record no undo step and mark nothing unsaved.
+ */
+function mapKeeping<T>(items: readonly T[], change: (item: T) => T): readonly T[] {
+  let changed = false
+  const next = items.map(item => {
+    const result = change(item)
+    if (result !== item) changed = true
+    return result
+  })
+  return changed ? next : items
+}
+
 export function updateSlide(presentation: Presentation, slideId: string, change: (slide: Slide) => Slide): Presentation {
-  return { ...presentation, slides: presentation.slides.map(slide => slide.id === slideId ? change(slide) : slide) }
+  const slides = mapKeeping(presentation.slides, slide => slide.id === slideId ? change(slide) : slide)
+  return slides === presentation.slides ? presentation : { ...presentation, slides }
+}
+
+/** Changes the elements `change` returns new objects for; the same slide when it returns every one unchanged. */
+export function mapElements(slide: Slide, change: (element: SlideElement) => SlideElement): Slide {
+  const elements = mapKeeping(slide.elements, change)
+  return elements === slide.elements ? slide : { ...slide, elements }
 }
 
 export function updateElement(slide: Slide, elementId: string, change: (element: SlideElement) => SlideElement): Slide {
-  return { ...slide, elements: slide.elements.map(element => element.id === elementId ? change(element) : element) }
+  return mapElements(slide, element => element.id === elementId ? change(element) : element)
 }
 
 /** Formats every run of a text body; how a selected but not edited box takes bold, size or colour. */
@@ -411,7 +432,8 @@ export function duplicateSlide(slide: Slide): Slide {
 export function arrange(slide: Slide, ids: ReadonlySet<string>, to: 'front' | 'back'): Slide {
   const moving = slide.elements.filter(element => ids.has(element.id))
   const others = slide.elements.filter(element => !ids.has(element.id))
-  return { ...slide, elements: to === 'front' ? [...others, ...moving] : [...moving, ...others] }
+  const elements = to === 'front' ? [...others, ...moving] : [...moving, ...others]
+  return elements.every((element, index) => element === slide.elements[index]) ? slide : { ...slide, elements }
 }
 
 /**
@@ -524,6 +546,10 @@ export function updateCell(table: TableElement, row: number, column: number, cha
       cells: line.cells.map((cell, position) => position === column ? { ...cell, ...change } : cell),
     }),
   }
+}
+
+export function setRowHeight(table: TableElement, row: number, height: number): TableElement {
+  return sized({ ...table, rows: table.rows.map((line, index) => index === row ? { ...line, height } : line) })
 }
 
 /** A header row is the first row in bold on the accent colour. */

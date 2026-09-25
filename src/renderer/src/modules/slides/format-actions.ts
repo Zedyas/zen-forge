@@ -7,6 +7,7 @@ import {
   newTable,
   removeColumn,
   removeRow,
+  setRowHeight,
   updateCell,
   withHeaderRow,
   type Border,
@@ -201,10 +202,15 @@ export function editTable(id: string, edit: TableEdit): void {
   if (document.cell !== undefined) setCurrentCell(id, next)
 }
 
-export function setCellText(id: string, tableId: string, cell: TableCellAddress, text: string): void {
+/** Sets a cell's text, growing its row to `height` points when the text needs more room. */
+export function setCellText(id: string, tableId: string, cell: TableCellAddress, text: string, height: number): void {
   changeElement(id, tableId, element => {
-    if (element.kind !== 'table' || element.rows[cell.row]?.cells[cell.column]?.text === text) return element
-    return updateCell(element, cell.row, cell.column, { text })
+    const row = element.kind === 'table' ? element.rows[cell.row] : undefined
+    if (element.kind !== 'table' || row === undefined) return element
+    const grow = height > row.height + 0.5
+    if (row.cells[cell.column]?.text === text && !grow) return element
+    const updated = updateCell(element, cell.row, cell.column, { text })
+    return grow ? setRowHeight(updated, cell.row, height) : updated
   })
 }
 
