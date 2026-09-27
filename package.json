@@ -1,14 +1,14 @@
 {
   "name": "zen-forge",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "license": "GPL-3.0-only",
   "repository": {
     "type": "git",
     "url": "https://github.com/Zedyas/zen-forge.git"
   },
-  "productName": "Zendo",
-  "description": "Zendo: a simplified office suite for macOS. Ledger for spreadsheets, Hanko for PDFs, Sumi for documents and Slides for presentations.",
+  "productName": "Zen Suzu",
+  "description": "Zen Suzu: a simplified office suite for macOS. Ledger for spreadsheets, Hanko for PDFs, Sumi for documents and Slides for presentations.",
   "main": "out/main/index.js",
   "scripts": {
     "dev": "env -u ELECTRON_RUN_AS_NODE electron-vite dev",
