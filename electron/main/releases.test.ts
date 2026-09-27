@@ -31,7 +31,7 @@ const download = 'https://github.com/Zedyas/zen-forge/releases/download'
 
 function release(tag: string, options: { draft?: boolean; prerelease?: boolean; assets?: readonly string[] } = {}) {
   const version = tag.replace(/^v/, '')
-  const names = options.assets ?? [`Zendo-${version}-arm64.dmg`, 'SHA256SUMS.txt']
+  const names = options.assets ?? [`Zen-Suzu-${version}-arm64.dmg`, 'SHA256SUMS.txt']
   return {
     tag_name: tag,
     draft: options.draft ?? false,
@@ -45,7 +45,7 @@ describe('selectRelease', () => {
   it('picks the highest newer release that has both files, skipping drafts', () => {
     const body = [
       release('v0.4.0', { draft: true }),
-      release('v0.3.0', { assets: ['Zendo-0.3.0-arm64.dmg'] }),
+      release('v0.3.0', { assets: ['Zen-Suzu-0.3.0-arm64.dmg'] }),
       release('v0.2.0'),
       release('v0.2.1'),
       release('v0.1.1'),
@@ -53,7 +53,7 @@ describe('selectRelease', () => {
     expect(selectRelease(body, '0.1.1', 'arm64')).toEqual({
       version: '0.2.1',
       pageUrl: 'https://github.com/Zedyas/zen-forge/releases/tag/v0.2.1',
-      dmg: { name: 'Zendo-0.2.1-arm64.dmg', url: `${download}/v0.2.1/Zendo-0.2.1-arm64.dmg`, size: 100 },
+      dmg: { name: 'Zen-Suzu-0.2.1-arm64.dmg', url: `${download}/v0.2.1/Zen-Suzu-0.2.1-arm64.dmg`, size: 100 },
       checksumsUrl: `${download}/v0.2.1/SHA256SUMS.txt`,
     })
   })
@@ -78,12 +78,12 @@ describe('checksumFor', () => {
   const hash = 'A'.repeat(64)
 
   it('reads the line for the file, in text or binary mode', () => {
-    expect(checksumFor(`${'b'.repeat(64)}  Other.dmg\n${hash}  Zendo-0.2.0-arm64.dmg\n`, 'Zendo-0.2.0-arm64.dmg')).toBe('a'.repeat(64))
-    expect(checksumFor(`${hash} *Zendo-0.2.0-arm64.dmg\r\n`, 'Zendo-0.2.0-arm64.dmg')).toBe('a'.repeat(64))
+    expect(checksumFor(`${'b'.repeat(64)}  Other.dmg\n${hash}  Zen-Suzu-0.2.0-arm64.dmg\n`, 'Zen-Suzu-0.2.0-arm64.dmg')).toBe('a'.repeat(64))
+    expect(checksumFor(`${hash} *Zen-Suzu-0.2.0-arm64.dmg\r\n`, 'Zen-Suzu-0.2.0-arm64.dmg')).toBe('a'.repeat(64))
   })
 
   it('finds nothing for a missing file or a malformed line', () => {
-    expect(checksumFor(`${hash}  Zendo-0.2.0-arm64.dmg.part`, 'Zendo-0.2.0-arm64.dmg')).toBeUndefined()
-    expect(checksumFor(`${'a'.repeat(63)}  Zendo-0.2.0-arm64.dmg`, 'Zendo-0.2.0-arm64.dmg')).toBeUndefined()
+    expect(checksumFor(`${hash}  Zen-Suzu-0.2.0-arm64.dmg.part`, 'Zen-Suzu-0.2.0-arm64.dmg')).toBeUndefined()
+    expect(checksumFor(`${'a'.repeat(63)}  Zen-Suzu-0.2.0-arm64.dmg`, 'Zen-Suzu-0.2.0-arm64.dmg')).toBeUndefined()
   })
 })

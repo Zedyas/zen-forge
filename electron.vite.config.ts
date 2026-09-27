@@ -5,7 +5,7 @@ import { resolve } from 'node:path'
 import type { Plugin } from 'vite'
 
 /**
- * The production page may load only Zendo's own files: no network, no eval. WebAssembly is allowed
+ * The production page may load only Zen Suzu's own files: no network, no eval. WebAssembly is allowed
  * for MuPDF, and inline styles for the grid and toasts. Development loads Vite's dev server, which
  * needs inline scripts, so the policy is added at build time only.
  */
@@ -25,7 +25,7 @@ const contentSecurityPolicy = [
 
 function contentSecurityPolicyPlugin(): Plugin {
   return {
-    name: 'zendo-content-security-policy',
+    name: 'zen-suzu-content-security-policy',
     apply: 'build',
     transformIndexHtml: html => html.replace('<head>', `<head>\n    <meta http-equiv="Content-Security-Policy" content="${contentSecurityPolicy}" />`),
   }

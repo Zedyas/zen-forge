@@ -82,7 +82,7 @@ function hiddenTest(doc: PDFDocument, properties: PDFDict): (content: PDFObject 
 }
 
 function decodeContent(stream: PDFObject | undefined): Uint8Array {
-  const unreadable = (): Error => unsafe('A page has content Zendo can’t read, so it can’t remove the hidden layers.')
+  const unreadable = (): Error => unsafe('A page has content Zen Suzu can’t read, so it can’t remove the hidden layers.')
   // pdf-lib wraps a page's content in `q` … `Q` streams of its own the first time it changes the page.
   if (stream instanceof PDFContentStream) return stream.getUnencodedContents()
   if (!(stream instanceof PDFRawStream)) throw unreadable()
@@ -175,7 +175,7 @@ function scan(content: Uint8Array): Instruction[] {
   try {
     return scanContent(content)
   } catch {
-    throw unsafe('This PDF has an image in its page content that Zendo can’t read past, so it can’t remove the hidden layers safely.')
+    throw unsafe('This PDF has an image in its page content that Zen Suzu can’t read past, so it can’t remove the hidden layers safely.')
   }
 }
 
@@ -326,10 +326,10 @@ export function removeHiddenLayers(doc: PDFDocument): void {
         if (resource !== undefined && replacement !== undefined) use.dropped.add(resource)
         if (resource !== undefined && replacement === undefined) setters.push(index)
       } else if (shifted && (operator === 'Tj' || operator === 'TJ')) {
-        throw unsafe('This PDF mixes a hidden layer into visible text in a way Zendo can’t remove safely.')
+        throw unsafe('This PDF mixes a hidden layer into visible text in a way Zen Suzu can’t remove safely.')
       } else if (operator === 'BDC' && first === '/OC') {
         if (isHidden(named(Properties, second))) {
-          if (!markedBalanced) throw unsafe('A page opens and closes its marked sections unevenly, so Zendo can’t tell where a hidden layer ends.')
+          if (!markedBalanced) throw unsafe('A page opens and closes its marked sections unevenly, so Zen Suzu can’t tell where a hidden layer ends.')
           const close = closingIndex(instructions, index)
           const block = instructions.slice(index + 1, close)
           if (selfContained(block, inText)) {
@@ -374,7 +374,7 @@ export function removeHiddenLayers(doc: PDFDocument): void {
     const after = scan(output)
     for (const [opens, close] of [[['q'], 'Q'], [['BDC', 'BMC'], 'EMC']] as const) {
       if (balanced(instructions, opens, close) && !balanced(after, opens, close)) {
-        throw unsafe('Zendo couldn’t remove this PDF’s hidden layers without changing what its pages show.')
+        throw unsafe('Zen Suzu couldn’t remove this PDF’s hidden layers without changing what its pages show.')
       }
     }
     return output
@@ -471,6 +471,6 @@ export function removeHiddenLayers(doc: PDFDocument): void {
 
   dropUnreachable(doc)
   if (doc.context.enumerateIndirectObjects().some(([, object]) => typeOf(doc, object) === 'OCG')) {
-    throw unsafe('This PDF keeps part of a hidden layer in a place Zendo can’t clean.')
+    throw unsafe('This PDF keeps part of a hidden layer in a place Zen Suzu can’t clean.')
   }
 }

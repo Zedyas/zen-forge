@@ -1,6 +1,7 @@
 import { app, nativeTheme } from 'electron'
-import { readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { cpSync, existsSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { basename, dirname, join } from 'node:path'
+import { suiteName } from '../../src/shared/applications'
 import type { Appearance, WindowSession } from '../../src/shared/shell'
 
 interface Settings {
@@ -12,6 +13,30 @@ interface Settings {
 }
 
 const defaults: Settings = { appearance: 'system', checkForUpdates: true, lastUpdateCheck: 0 }
+
+/**
+ * Zen Suzu was called Zendo before 0.2.1, and Electron names the data folder after the app. The first
+ * launch under the new name copies the Zendo folder, so settings, open tabs and the page's storage
+ * (recents, saved signatures) carry over. The Zendo folder is left as it was.
+ * Electron creates the data folder, empty, before this runs, so an empty folder means a first launch.
+ * The copy goes to a side folder first and then replaces the empty one, so a copy cut short is never
+ * used. A --user-data-dir launch (tests) only copies from a Zendo folder beside it.
+ */
+export function copyZendoData(): void {
+  const current = app.getPath('userData')
+  const previous = join(dirname(current), 'Zendo')
+  const used = existsSync(current) && readdirSync(current).length > 0
+  if (basename(current) !== suiteName || used || !existsSync(previous)) return
+  const staging = `${current}.copying`
+  try {
+    rmSync(staging, { recursive: true, force: true })
+    cpSync(previous, staging, { recursive: true })
+    // rename() replaces an empty folder.
+    renameSync(staging, current)
+  } catch {
+    // Start with defaults instead. The Zendo folder is untouched; a partial copy stays in the side folder, unused.
+  }
+}
 
 function settingsPath(): string {
   return join(app.getPath('userData'), 'settings.json')

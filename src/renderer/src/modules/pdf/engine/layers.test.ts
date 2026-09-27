@@ -111,7 +111,7 @@ describe('removeHiddenLayers', () => {
     const turnOff = context.obj({ S: 'SetOCGState', State: ['OFF', layers.shown] })
     const link = context.obj({ Type: 'Annot', Subtype: 'Link', Rect: [40, 40, 120, 60], A: { S: 'URI', URI: PDFString.of('https://example.com'), Next: turnOff } })
     page.node.addAnnot(context.register(link))
-    expect(() => removeHiddenLayers(doc)).toThrow('hidden layer in a place Zendo can’t clean')
+    expect(() => removeHiddenLayers(doc)).toThrow('hidden layer in a place Zen Suzu can’t clean')
   })
 
   it('removes the patterns, shadings and graphics states only hidden content used', async () => {

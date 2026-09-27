@@ -523,14 +523,14 @@ function imageFromDrawing(drawing: Element, context: Context): JSONContent | und
   }
   const relationship = context.relationships.get(attr(blip, 'r:embed') ?? attr(blip, 'r:id') ?? attr(blip, 'r:link') ?? '')
   if (relationship?.external === true) {
-    context.findings.add('Linked images', 'dropped', { unit: 'image', alternative: 'Not shown, and not kept when saved. Zendo only shows images stored in the document.' })
+    context.findings.add('Linked images', 'dropped', { unit: 'image', alternative: 'Not shown, and not kept when saved. Zen Suzu only shows images stored in the document.' })
     return undefined
   }
   const extension = relationship?.target.split('.').pop()?.toLowerCase() ?? ''
   const mimeType = imageTypes[extension]
   const bytes = relationship === undefined ? undefined : context.media[relationship.target]
   if (mimeType === undefined && relationship !== undefined) {
-    context.findings.add('Images in EMF, WMF or TIFF format', 'dropped', { unit: 'image', alternative: 'Not shown, and not kept when saved. Zendo cannot show these formats.' })
+    context.findings.add('Images in EMF, WMF or TIFF format', 'dropped', { unit: 'image', alternative: 'Not shown, and not kept when saved. Zen Suzu cannot show these formats.' })
     return undefined
   }
   if (bytes === undefined || mimeType === undefined) {

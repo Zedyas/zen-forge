@@ -13,15 +13,15 @@ body:
     id: app
     attributes:
       label: Where?
-      options: [Ledger (spreadsheets), Hanko (PDF), Home or tabs, Installing or opening Zendo]
+      options: [Ledger (spreadsheets), Hanko (PDF), Sumi (documents), Slides (presentations), Home or tabs, Installing or opening Zen Suzu]
     validations:
       required: true
   - type: input
     id: version
     attributes:
-      label: Zendo and macOS versions
-      description: Zendo → About Zendo shows the version.
-      placeholder: Zendo 0.1.0, macOS 26.0
+      label: Zen Suzu and macOS versions
+      description: Zen Suzu → About Zen Suzu shows the version.
+      placeholder: Zen Suzu 0.2.1, macOS 26.0
     validations:
       required: true
   - type: textarea

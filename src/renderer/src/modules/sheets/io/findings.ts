@@ -18,7 +18,7 @@ export interface FindingEvent {
  * own `suggestedAlternative` wins; every construct an importer raises should have an entry here.
  */
 const consequences: Readonly<Record<string, string>> = {
-  'Macros (VBA)': 'Never run here, and not kept in a file Zendo saves.',
+  'Macros (VBA)': 'Never run here, and not kept in a file Zen Suzu saves.',
   'Pivot tables': 'Their last results show as ordinary cells; the pivot table itself is not kept when saved.',
   'Charts': 'Not shown, and not kept when saved.',
   'Images and drawings': 'Not shown, and not kept when saved.',

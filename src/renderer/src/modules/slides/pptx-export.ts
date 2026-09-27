@@ -290,8 +290,8 @@ function repairSlides(bytes: Uint8Array, presentation: Presentation): Uint8Array
 /** Writes a presentation as .pptx bytes, entirely in memory. */
 export async function writePptx(presentation: Presentation): Promise<Uint8Array> {
   const pptx = new PptxGenJS()
-  pptx.defineLayout({ name: 'Zendo', width: inches(presentation.width), height: inches(presentation.height) })
-  pptx.layout = 'Zendo'
+  pptx.defineLayout({ name: 'Zen Suzu', width: inches(presentation.width), height: inches(presentation.height) })
+  pptx.layout = 'Zen Suzu'
   const font = findTheme(presentation.theme).font
   pptx.theme = { headFontFace: font, bodyFontFace: font }
   for (const slide of presentation.slides) {

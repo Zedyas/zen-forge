@@ -3,12 +3,14 @@
  * reading SHA256SUMS.txt. `updates.ts` does the network, files and windows.
  */
 
+import { suiteFileName } from '../../src/shared/applications'
+
 const repository = 'https://github.com/Zedyas/zen-forge'
 export const releasesApiUrl = 'https://api.github.com/repos/Zedyas/zen-forge/releases?per_page=20'
 const releasePagePrefix = `${repository}/releases/`
 const downloadPrefix = `${repository}/releases/download/`
 
-/** A release newer than the running app. Its URLs are already checked to point into Zendo's releases. */
+/** A release newer than the running app. Its URLs are already checked to point into this repository's releases. */
 export interface Release {
   /** `0.2.0`, without the tag's `v`. */
   readonly version: string
@@ -81,7 +83,7 @@ function findAsset(assets: unknown, name: string): Release['dmg'] | undefined {
 }
 
 /**
- * The highest release above `currentVersion` that has both `Zendo-<version>-<arch>.dmg` and
+ * The highest release above `currentVersion` that has both `Zen-Suzu-<version>-<arch>.dmg` and
  * SHA256SUMS.txt. Drafts never count. Pre-releases count only while no full release exists,
  * which is the case until builds are notarized.
  */
@@ -99,7 +101,7 @@ export function selectRelease(body: unknown, currentVersion: string, arch: strin
     if (version === undefined || compareVersions(version, current) <= 0) continue
     if (best !== undefined && compareVersions(version, best.version) <= 0) continue
     const pageUrl = urlUnder(release.get('html_url'), releasePagePrefix)
-    const dmg = findAsset(release.get('assets'), `Zendo-${version.text}-${arch}.dmg`)
+    const dmg = findAsset(release.get('assets'), `${suiteFileName}-${version.text}-${arch}.dmg`)
     const checksums = findAsset(release.get('assets'), 'SHA256SUMS.txt')
     if (pageUrl === undefined || dmg === undefined || checksums === undefined) continue
     best = { version, release: { version: version.text, pageUrl, dmg, checksumsUrl: checksums.url } }

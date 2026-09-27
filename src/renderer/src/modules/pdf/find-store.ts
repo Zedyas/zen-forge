@@ -181,7 +181,7 @@ export async function redactMatches(documentId: string): Promise<number | undefi
   const now = readyPdf(documentId)
   if (now === undefined) return undefined
   // The boxes fit the pages as they were; a page turned or moved meanwhile would take them elsewhere.
-  if (layoutOf(now.present.pages) !== layout) throw new Error('The pages changed while Zendo was finding the matches. Choose Redact all again.')
+  if (layoutOf(now.present.pages) !== layout) throw new Error('The pages changed while Zen Suzu was finding the matches. Choose Redact all again.')
   let marked = 0
   commitPdf(documentId, snapshot => {
     const pages = snapshot.pages.map(page => {

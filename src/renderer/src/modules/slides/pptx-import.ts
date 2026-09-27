@@ -81,7 +81,7 @@ const catalogue = {
   paragraphSpacing: ['Space before and after paragraphs', 'degraded', 'Paragraphs are shown and saved without the extra space; line spacing is kept.'],
   exactLineSpacing: ['Line spacing set in points', 'degraded', 'Converted to the nearest multiple of single spacing.'],
   listStyles: ['Custom bullets and numbering styles', 'degraded', 'Shown and saved as round bullets or 1, 2, 3.'],
-  highlight: ['Text highlight in unusual places', 'degraded', 'Highlight is kept where Zendo can match it to the text, and left out elsewhere.'],
+  highlight: ['Text highlight in unusual places', 'degraded', 'Highlight is kept where Zen Suzu can match it to the text, and left out elsewhere.'],
   shrinkText: ['Shrink text on overflow', 'degraded', 'Text keeps the size it was shown at, and no longer shrinks as you type.'],
   verticalText: ['Vertical text', 'degraded', 'Shown and saved horizontally.'],
   dashedLines: ['Dashed and dotted outlines', 'degraded', 'Shown and saved as solid lines.'],

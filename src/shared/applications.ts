@@ -3,7 +3,9 @@
  * (`sheets`, `pdf`, …); every user-facing name comes from here, so renaming is one edit.
  */
 
-export const suiteName = 'Zendo'
+export const suiteName = 'Zen Suzu'
+/** The name without a space, for release files and the updater's User-Agent. electron-builder.yml's artifactName matches it. */
+export const suiteFileName = 'Zen-Suzu'
 
 export const applicationIds = ['home', 'sheets', 'pdf', 'docs', 'slides'] as const
 export type ApplicationId = (typeof applicationIds)[number]

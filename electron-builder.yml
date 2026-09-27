@@ -1,8 +1,9 @@
-# Packages Zendo for macOS. `pnpm package:mac` builds dist/mac-arm64/Zendo.app to try locally;
-# `pnpm release:mac` builds the downloadable dist/Zendo-<version>-arm64.dmg (the release workflow runs it).
-# The file associations are what let Finder open spreadsheets, PDFs, documents and presentations in Zendo ("Open With", default app).
-appId: dev.zendo.suite
-productName: Zendo
+# Packages Zen Suzu for macOS. `pnpm package:mac` builds "dist/mac-arm64/Zen Suzu.app" to try locally;
+# `pnpm release:mac` builds the downloadable dist/Zen-Suzu-<version>-arm64.dmg (the release workflow runs it).
+# The file associations are what let Finder open spreadsheets, PDFs, documents and presentations in Zen Suzu ("Open With", default app).
+# Reverse-DNS under the owner's GitHub name (zedyas.github.io); Zen Suzu has no domain of its own.
+appId: io.github.zedyas.zensuzu
+productName: Zen Suzu
 directories:
   output: dist
   buildResources: build
@@ -12,7 +13,7 @@ files:
   # Vite bundles everything the renderer uses and main needs only Electron and Node built-ins,
   # so node_modules would be ~165 MB of dead weight inside the app.
   - "!node_modules/**"
-# Zendo's license, Electron's and Chromium's, and third-party notices (scripts/third-party-notices.mjs).
+# Zen Suzu's license, Electron's and Chromium's, and third-party notices (scripts/third-party-notices.mjs).
 extraResources:
   - from: out/licenses
     to: licenses
@@ -21,7 +22,8 @@ mac:
   target:
     - target: dmg
       arch: arm64
-  artifactName: ${productName}-${version}-${arch}.${ext}
+  # No space in the file name. The updater looks for this name (suiteFileName in src/shared/applications.ts).
+  artifactName: Zen-Suzu-${version}-${arch}.${ext}
   # Ad-hoc signature: the app runs, and a downloaded copy opens after System Settings → Privacy &
   # Security → Open Anyway. Opening without that step needs a Developer ID certificate and notarization.
   # Hardened runtime would reject Electron's differently-signed frameworks under an ad-hoc identity.

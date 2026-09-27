@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import { rmSync } from 'node:fs'
 import { link, open, rm, type FileHandle } from 'node:fs/promises'
 import { basename, extname, join } from 'node:path'
-import { suiteName } from '../../src/shared/applications'
+import { suiteFileName } from '../../src/shared/applications'
 import type { UpdateCheckResult, UpdateStatus } from '../../src/shared/shell'
 import { checksumFor, releasesApiUrl, selectRelease, type Release } from './releases'
 import { handle } from './security'
@@ -11,8 +11,8 @@ import { readSettings, setLastUpdateCheck } from './settings'
 
 /*
  * Updates for an app without a Developer ID signature. Electron's autoUpdater (Squirrel.Mac) will
- * not install into an ad-hoc signed app, so Zendo downloads the release's .dmg, checks it against
- * the release's SHA256SUMS.txt and opens it; the user drags the new Zendo into Applications.
+ * not install into an ad-hoc signed app, so Zen Suzu downloads the release's .dmg, checks it against
+ * the release's SHA256SUMS.txt and opens it; the user drags the new Zen Suzu into Applications.
  */
 
 const day = 24 * 60 * 60 * 1000
@@ -24,7 +24,7 @@ let broadcast: (channel: string, payload?: unknown) => void = () => undefined
 let offered: Release | undefined
 let status: UpdateStatus = { state: 'none' }
 let checking: Promise<UpdateCheckResult> | undefined
-/** The unverified download in progress, removed if Zendo quits before it finishes. */
+/** The unverified download in progress, removed if Zen Suzu quits before it finishes. */
 let partInProgress: string | undefined
 
 function setStatus(next: UpdateStatus): void {
@@ -38,7 +38,7 @@ export function currentUpdateStatus(): UpdateStatus {
 }
 
 async function request(url: string, accept: string, signal: AbortSignal): Promise<Response> {
-  const response = await net.fetch(url, { headers: { Accept: accept, 'User-Agent': `${suiteName}/${app.getVersion()}` }, signal })
+  const response = await net.fetch(url, { headers: { Accept: accept, 'User-Agent': `${suiteFileName}/${app.getVersion()}` }, signal })
   // Rate limiting (403 or 429) fails the same way as any other refusal.
   if (!response.ok) throw new Error(`GitHub answered ${response.status} for ${url}.`)
   return response

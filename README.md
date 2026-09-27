@@ -1,8 +1,8 @@
-# Zendo
+# Zen Suzu
 
 Simplified office suite for macOS because I hate using Numbers and needed functionality of a PDF editor without the cost. More to come.
 
-![Zendo Home: the applications, quick actions and recent files](docs/media/home.png)
+![Zen Suzu Home: the applications, quick actions and recent files](docs/media/home.png)
 
 ## How it works
 
@@ -58,16 +58,16 @@ In order, with the next item first:
 1. Templates for documents and presentations
 2. More Ledger tools: borders, filters, conditional formatting, dropdown lists and charts
 3. iPhone photos (`.heic`) in PDF from images
-4. Notarized builds, so Zendo opens without the Open Anyway step and installs its own updates
+4. Notarized builds, so Zen Suzu opens without the Open Anyway step and installs its own updates
 5. Windows support: the same app, adjusted to run and fit on Windows
 
 Not planned: `.xlsb` and other macro-enabled formats, and Apple Pages or Keynote files.
 
 ## Install
 
-**Download:** get the latest `.dmg` from [Releases](https://github.com/Zedyas/zen-forge/releases). It runs on Macs with Apple silicon. Previews aren't notarized by Apple yet, so the first time you open Zendo, click **Done**, then go to **System Settings → Privacy & Security** and click **Open Anyway**.
+**Download:** get the latest `.dmg` from [Releases](https://github.com/Zedyas/zen-forge/releases). It runs on Macs with Apple silicon. Previews aren't notarized by Apple yet, so the first time you open Zen Suzu, click **Done**, then go to **System Settings → Privacy & Security** and click **Open Anyway**.
 
-**Updates:** when it opens, Zendo checks GitHub for a new version, at most once a day; you can turn this off in the Zendo menu. When there is one, click **Download** on Home. Zendo downloads the `.dmg`, checks it against the release's checksum and opens it. Quit Zendo, drag the new Zendo into Applications and choose **Replace**.
+**Updates:** when it opens, Zen Suzu checks GitHub for a new version, at most once a day; you can turn this off in the Zen Suzu menu. When there is one, click **Download** on Home. Zen Suzu downloads the `.dmg`, checks it against the release's checksum and opens it. Quit Zen Suzu, drag the new Zen Suzu into Applications and choose **Replace**.
 
 **Build from source:** requires [Node.js](https://nodejs.org) 22.13 or newer and [pnpm](https://pnpm.io) 10.
 
@@ -78,9 +78,9 @@ pnpm install
 pnpm package:mac
 ```
 
-The app is written to `dist/mac-arm64/Zendo.app`. Drag it into `/Applications`. `pnpm release:mac` builds the `.dmg` instead.
+The app is written to `dist/mac-arm64/Zen Suzu.app`. Drag it into `/Applications`. `pnpm release:mac` builds the `.dmg` instead.
 
-**Make Zendo the default app for a file type:** in Finder, select a `.xlsx`, `.pdf`, `.docx` or `.pptx` file, press ⌘I, choose Zendo under **Open with**, then click **Change All…**.
+**Make Zen Suzu the default app for a file type:** in Finder, select a `.xlsx`, `.pdf`, `.docx` or `.pptx` file, press ⌘I, choose Zen Suzu under **Open with**, then click **Change All…**.
 
 ## Keyboard shortcuts
 
@@ -144,7 +144,7 @@ pnpm test         # unit tests (Vitest)
 pnpm typecheck    # TypeScript, strict mode
 pnpm lint         # ESLint, zero warnings allowed
 pnpm build        # production build into out/
-pnpm package:mac  # build and package Zendo.app into dist/
+pnpm package:mac  # build and package Zen Suzu.app into dist/
 pnpm release:mac  # build the downloadable .dmg into dist/
 ```
 
@@ -155,7 +155,7 @@ pnpm release:mac  # build the downloadable .dmg into dist/
 - **Electron** runs the app. The main process (`electron/main`) owns windows, the native menu bar, file dialogs, file reads and writes, and the saved session. Every window loads the same React page; a window is a row of tabs that starts on Home.
 - **The renderer** (`src/renderer/src`) is React 19 with Zustand stores. One store holds the window's tabs; each tab records which application edits it. The renderer reaches the file system only through the `window.desktop` bridge defined in `electron/preload`, and a lint rule keeps that bridge inside `services/file`.
 - **Security.** The page loads from a private `app://` address under a strict Content Security Policy (no network, no eval), cannot navigate away or open windows, and gets no permissions beyond writing to the clipboard. The main process answers only that page. Electron fuses lock the packaged app to its own integrity-checked code. See `electron/main/security.ts`.
-- **Updates.** Zendo's only network use is the main process checking this repository's GitHub releases and, when you click Download, fetching the release's `.dmg` and `SHA256SUMS.txt` (`electron/main/updates.ts`). The `.dmg` is checked against the checksum before it opens.
+- **Updates.** Zen Suzu's only network use is the main process checking this repository's GitHub releases and, when you click Download, fetching the release's `.dmg` and `SHA256SUMS.txt` (`electron/main/updates.ts`). The `.dmg` is checked against the checksum before it opens.
 - **Printing.** A module builds a printable copy of the document (`services/print`), and the main process prints it or turns it into a PDF. Hanko prints page images with redaction boxes painted in, so no text under a box reaches the printer or a PDF saved from the print dialog.
 - **Commands** are defined once in `src/shared/commands.ts`. The native menu, the command palette, keyboard shortcuts and toolbar tooltips all read from that list, and each command says which kind of tab it applies to.
 - **Editors** (`modules/sheets`, `modules/pdf`, `modules/docs`, `modules/slides`) each export a handler with `run`, `save` and `release`. The shell finds the handler by the tab's kind, so saving or closing a tab works whether or not its editor is on screen.
@@ -196,8 +196,8 @@ Suggestions are welcome as [issues](https://github.com/Zedyas/zen-forge/issues);
 
 Copyright © 2026 Zed Y.
 
-Zendo is licensed under the [GNU General Public License v3.0](LICENSE) (`GPL-3.0-only`). You can use, study, change and share it; if you distribute Zendo or a modified version, you must share its source under the same license.
+Zen Suzu is licensed under the [GNU General Public License v3.0](LICENSE) (`GPL-3.0-only`). You can use, study, change and share it; if you distribute Zen Suzu or a modified version, you must share its source under the same license.
 
-It uses GPL-3.0 because the formula engine, HyperFormula, is GPL-3.0, and a packaged `Zendo.app` includes it. Using one license for both keeps the source and the app under the same terms.
+It uses GPL-3.0 because the formula engine, HyperFormula, is GPL-3.0, and a packaged `Zen Suzu.app` includes it. Using one license for both keeps the source and the app under the same terms.
 
-Redaction uses MuPDF, which is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0). AGPL-3.0 and GPL-3.0 can be combined; MuPDF keeps its own license inside the app. AGPL adds one rule beyond GPL: if you run a modified MuPDF for users over a network, you must offer them its source. A desktop app like Zendo is not affected. The other dependencies use permissive licenses (MIT, and Apache-2.0 for pdf.js and SheetJS) that are compatible with GPL-3.0.
+Redaction uses MuPDF, which is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0). AGPL-3.0 and GPL-3.0 can be combined; MuPDF keeps its own license inside the app. AGPL adds one rule beyond GPL: if you run a modified MuPDF for users over a network, you must offer them its source. A desktop app like Zen Suzu is not affected. The other dependencies use permissive licenses (MIT, and Apache-2.0 for pdf.js and SheetJS) that are compatible with GPL-3.0.

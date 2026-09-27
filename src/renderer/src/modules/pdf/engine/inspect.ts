@@ -22,7 +22,7 @@ export async function inspectPdf(bytes: Uint8Array): Promise<PdfInspection> {
     findings.push({
       construct: 'Password and permission restrictions',
       severity: 'dropped',
-      suggestedAlternative: 'A file Zendo saves has no password and no permission restrictions.',
+      suggestedAlternative: 'A file Zen Suzu saves has no password and no permission restrictions.',
     })
   }
 

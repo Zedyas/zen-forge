@@ -89,7 +89,7 @@ export function finishTyping(id: string): void {
 }
 
 /**
- * Saves in place, or asks for a path. A presentation opened from a file that Zendo could not keep
+ * Saves in place, or asks for a path. A presentation opened from a file that Zen Suzu could not keep
  * exactly asks first whether to overwrite it or save a copy.
  */
 export async function saveSlidesDocument(id: string, saveAs: boolean): Promise<boolean> {
@@ -126,7 +126,7 @@ export async function saveSlidesDocument(id: string, saveAs: boolean): Promise<b
   const nextId = useDocumentsStore.getState().setSaved(id, file)
   rekeySlides(id, nextId)
   markSlidesSaved(nextId, presentation)
-  // The file on disk is now one Zendo wrote, so it holds nothing unrepresented and later saves need no question.
+  // The file on disk is now one Zen Suzu wrote, so it holds nothing unrepresented and later saves need no question.
   if (report !== undefined) {
     useFidelityStore.getState().forget(id)
     useFidelityStore.getState().publish(nextId, createImportReport(file.name, []))
@@ -344,9 +344,9 @@ export function alignSelection(id: string, edge: AlignEdge): void {
   if (target !== undefined) changeElements(id, document.selection, element => alignTo(element, edge, target))
 }
 
-/* ─── Clipboard: elements travel as JSON in a private type, so they paste into any Zendo window ─── */
+/* ─── Clipboard: elements travel as JSON in a private type, so they paste into any Zen Suzu window ─── */
 
-const clipboardType = 'application/x-zendo-slides+json'
+const clipboardType = 'application/x-zen-suzu-slides+json'
 
 /** Puts the selected elements on the clipboard; `cut` also removes them. Returns false when nothing is selected. */
 export function copySelection(id: string, data: DataTransfer, cut: boolean): boolean {

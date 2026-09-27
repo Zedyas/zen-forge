@@ -1,6 +1,6 @@
-# Contributing to Zendo
+# Contributing to Zen Suzu
 
-Zendo is written and maintained by one person. Suggestions are welcome as issues; code changes are made by the maintainer.
+Zen Suzu is written and maintained by one person. Suggestions are welcome as issues; code changes are made by the maintainer.
 
 ## Ideas and bugs
 

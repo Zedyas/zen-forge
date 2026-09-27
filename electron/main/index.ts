@@ -8,7 +8,7 @@ import { registerFileIpc } from './file-ipc'
 import { NodeFileService } from './node-file-service'
 import { registerPrintIpc } from './print-ipc'
 import { applySecurity, appPageUrl, handle, registerAppScheme } from './security'
-import { applyStoredAppearance, getAppearance, readSession, readSettings, setAppearance, setCheckForUpdates, writeSession } from './settings'
+import { applyStoredAppearance, copyZendoData, getAppearance, readSession, readSettings, setAppearance, setCheckForUpdates, writeSession } from './settings'
 import { currentUpdateStatus, registerUpdates, scheduleUpdateCheck } from './updates'
 
 /** Every window is the same kind: a row of tabs that starts on Home. */
@@ -30,6 +30,7 @@ let lastFocused: WindowRecord | undefined
 let quitting = false
 
 app.setName(suiteName)
+copyZendoData()
 registerAppScheme()
 
 function recordFor(window: BrowserWindow | null | undefined): WindowRecord | undefined {

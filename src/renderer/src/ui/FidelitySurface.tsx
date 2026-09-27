@@ -42,7 +42,7 @@ export function FidelitySurface({ documentId }: { readonly documentId: string | 
               </button>
             </Tip>
           </header>
-          <p>{report.sourceName} uses features Zendo does not represent exactly.</p>
+          <p>{report.sourceName} uses features Zen Suzu does not represent exactly.</p>
           <ul>
             {report.findings.map((finding, index) => (
               <li key={`${finding.construct}-${index}`} data-severity={finding.severity}>
@@ -65,7 +65,7 @@ export function FidelitySurface({ documentId }: { readonly documentId: string | 
             <ShieldAlert aria-hidden="true" size={26} />
             <Dialog.Title render={<h2 />}>Some of this file can't be kept</Dialog.Title>
             <Dialog.Description>
-              You can view and edit {report.sourceName}. Saving suggests a new copy, so the original can keep everything. A file Zendo saves won't include:
+              You can view and edit {report.sourceName}. Saving suggests a new copy, so the original can keep everything. A file Zen Suzu saves won't include:
             </Dialog.Description>
             <ul>{dropped.map(finding => <li key={finding.construct}>{finding.construct}</li>)}</ul>
             <div className="fidelity-modal-actions">

@@ -5,10 +5,12 @@ import { pathToFileURL } from 'node:url'
 /*
  * Electron security checklist (electronjs.org/docs/latest/tutorial/security), applied in one place:
  * a private app:// scheme instead of file://, no navigation or new windows, no permissions beyond
- * writing to the clipboard, and IPC answered only for Zendo's own page.
+ * writing to the clipboard, and IPC answered only for Zen Suzu's own page.
  */
 
 const scheme = 'app'
+// Still 'zendo' from before the rename: the page's saved data (recents, signatures, view settings)
+// belongs to this origin, and a new host would start it empty. Nobody sees this name.
 const host = 'zendo'
 const rendererDir = join(__dirname, '../renderer')
 
@@ -41,14 +43,14 @@ function serveAppScheme(): void {
   })
 }
 
-/** The only permission Zendo's page uses is writing to the clipboard (copying cells). Electron grants everything else by default. */
+/** The only permission Zen Suzu's page uses is writing to the clipboard (copying cells). Electron grants everything else by default. */
 function denyPermissions(): void {
   const allowed = (permission: string): boolean => permission === 'clipboard-sanitized-write'
   session.defaultSession.setPermissionRequestHandler((_contents, permission, callback) => callback(allowed(permission)))
   session.defaultSession.setPermissionCheckHandler((_contents, permission) => allowed(permission))
 }
 
-/** Pages stay on Zendo: no navigating away (a dropped file, a link), no pop-up windows, no embedded webviews. */
+/** Pages stay on Zen Suzu: no navigating away (a dropped file, a link), no pop-up windows, no embedded webviews. */
 function lockNavigation(): void {
   app.on('web-contents-created', (_event, contents) => {
     contents.on('will-navigate', (event, url) => {
@@ -67,14 +69,14 @@ export function applySecurity(): void {
 
 lockNavigation()
 
-/** `ipcMain.handle` that answers only Zendo's own page, never a navigated-away page or a sub-frame. */
+/** `ipcMain.handle` that answers only Zen Suzu's own page, never a navigated-away page or a sub-frame. */
 export function handle<Args extends unknown[], Result>(
   channel: string,
   listener: (event: IpcMainInvokeEvent, ...args: Args) => Result,
 ): void {
   ipcMain.handle(channel, (event, ...args: Args) => {
     if (event.senderFrame === null || event.senderFrame.parent !== null || !isAppPage(event.senderFrame.url)) {
-      throw new Error(`Refused ${channel}: not sent by Zendo's own page.`)
+      throw new Error(`Refused ${channel}: not sent by Zen Suzu's own page.`)
     }
     return listener(event, ...args)
   })

@@ -205,7 +205,7 @@ export function removeLink(editor: Editor): void {
 /** Opens a web link in the default browser. Other kinds of link never open; the app never navigates itself. */
 export async function openLink(href: string): Promise<void> {
   if (!/^https?:\/\//i.test(href)) {
-    toast.info('Only web links open from Zendo', { description: href })
+    toast.info('Only web links open from Zen Suzu', { description: href })
     return
   }
   await platformClient.openExternal(href)

@@ -1,6 +1,6 @@
-// Collects the licenses a packaged Zendo has to ship: Zendo's own, Electron's and Chromium's, and the
+// Collects the licenses a packaged Zen Suzu has to ship: Zen Suzu's own, Electron's and Chromium's, and the
 // license text of every production dependency. Writes them to out/licenses/, which electron-builder
-// copies into Zendo.app/Contents/Resources/licenses/. Run by `pnpm release:mac` and `pnpm package:mac`.
+// copies into Zen Suzu.app/Contents/Resources/licenses/. Run by `pnpm release:mac` and `pnpm package:mac`.
 import { execFileSync } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -33,9 +33,9 @@ const sections = packages.map(({ name, versions, license, homepage, paths }) => 
 })
 
 writeFileSync(join(outDir, 'THIRD-PARTY-NOTICES.txt'), [
-  'Third-party software in Zendo',
+  'Third-party software in Zen Suzu',
   '',
-  'Zendo includes the open-source packages below, each under its own license. Electron and Chromium',
+  'Zen Suzu includes the open-source packages below, each under its own license. Electron and Chromium',
   'licenses are in LICENSE.electron.txt and LICENSES.chromium.html in this folder.',
   '',
   ...sections.map(section => `${section}\n`),

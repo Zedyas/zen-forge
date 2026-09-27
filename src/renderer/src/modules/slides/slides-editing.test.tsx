@@ -77,7 +77,7 @@ describe('pasting slide objects', () => {
   function clipboard(value: unknown): DataTransfer {
     const json = JSON.stringify(value)
     const data = new DataTransfer()
-    data.setData('application/x-zendo-slides+json', json)
+    data.setData('application/x-zen-suzu-slides+json', json)
     return data
   }
 

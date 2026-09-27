@@ -1,7 +1,7 @@
 import { Menu, shell, type MenuItemConstructorOptions, type WebContents } from 'electron'
 import { handle } from './security'
 
-/** Links in documents open in the default browser, never in Zendo. Only web links: no files, scripts or other apps. */
+/** Links in documents open in the default browser, never in Zen Suzu. Only web links: no files, scripts or other apps. */
 export function registerLinkIpc(): void {
   handle('shell:open-external', async (_event, url: string) => {
     const parsed = new URL(url)
@@ -12,7 +12,7 @@ export function registerLinkIpc(): void {
 
 /**
  * Right-clicking a misspelled word in editable text offers macOS's corrections. Every other
- * right-click is left to the page, and Zendo's own context menus cancel the event, so this
+ * right-click is left to the page, and Zen Suzu's own context menus cancel the event, so this
  * never shows over them.
  */
 export function attachSpellingMenu(contents: WebContents): void {

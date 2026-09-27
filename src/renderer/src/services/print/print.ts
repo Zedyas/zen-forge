@@ -71,7 +71,7 @@ let busy = false
 /** Builds and mounts a printout, runs `job` on the page, then removes it. A request while one runs is ignored. */
 async function withPrintout<Result>(build: PrintoutBuilder, job: () => Promise<Result>): Promise<Result | undefined> {
   if (busy) {
-    toast.info('Zendo is already preparing a printout', { description: 'Try again when it has finished.' })
+    toast.info('Zen Suzu is already preparing a printout', { description: 'Try again when it has finished.' })
     return undefined
   }
   busy = true
