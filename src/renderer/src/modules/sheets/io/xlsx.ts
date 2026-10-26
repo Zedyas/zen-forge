@@ -531,7 +531,9 @@ function writeCellStyle(cell: ExcelJS.Cell, style: CellStyle): void {
   const alignment: Partial<ExcelJS.Alignment> = {}
   if (style.align !== undefined) alignment.horizontal = style.align
   if (style.wrap === true) alignment.wrapText = true
-  if (Object.keys(alignment).length > 0) cell.alignment = alignment
+  // ExcelJS writes no element for an empty cell without formatting, and reads a note back only onto a
+  // written cell; an empty alignment makes it write one.
+  if (Object.keys(alignment).length > 0 || (style.note !== undefined && cell.type === ExcelJS.ValueType.Null)) cell.alignment = alignment
   if (style.note !== undefined) cell.note = style.note
 }
 

@@ -157,6 +157,15 @@ describe('xlsx', () => {
     expect((await readXlsx(zipSync(entries))).data.sheets[0]?.layout.rowHeights).toEqual([])
   })
 
+  it('keeps a note on an empty cell with no other formatting', async () => {
+    const sheet = workbook.sheets[1]
+    if (sheet === undefined) throw new Error('Fixture sheet is missing.')
+    const noted = { ...sheet, styles: [...sheet.styles, [3, 4, { ...defaultCellStyle, note: 'Fill in by Friday.' }] as const] }
+
+    const opened = await readXlsx(await writeXlsx({ sheets: [noted], namedRanges: [] }))
+    expect(opened.data.sheets[0]?.styles).toContainEqual([3, 4, { ...defaultCellStyle, note: 'Fill in by Friday.' }])
+  })
+
   it('keeps the file number format, such as euros, through open and save', async () => {
     const source = new ExcelJS.Workbook()
     const sheet = source.addWorksheet('Costs')
