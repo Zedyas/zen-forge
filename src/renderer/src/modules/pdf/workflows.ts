@@ -1,6 +1,7 @@
 import { toast } from 'sonner'
 import { fileService } from '../../services/file/IpcFileService'
 import { openFiles } from '../../app/document-actions'
+import { platformClient } from '../../services/platform/client'
 import { imagesToPdf, preparePdf, savePdf, type ImageSource, type PageRef } from './engine'
 
 function report(error: unknown, title: string): void {
@@ -14,7 +15,7 @@ async function writeAndOpen(bytes: Uint8Array, defaultName: string): Promise<voi
   await openFiles([await fileService.describe(path)])
 }
 
-/** Chooses photos or scans and makes one PDF page per image, each page sized to its image. */
+/** Chooses photos or scans and makes one PDF page per image, each page sized to its image and no larger than the region's paper. */
 export async function createPdfFromImages(): Promise<void> {
   try {
     const files = await fileService.chooseFiles({ extensions: ['png', 'jpg', 'jpeg'], allowMultiple: true })
@@ -23,7 +24,7 @@ export async function createPdfFromImages(): Promise<void> {
       bytes: await fileService.read(file.path),
       type: file.extension === 'png' ? 'png' : 'jpeg',
     })))
-    const bytes = await imagesToPdf(images)
+    const bytes = await imagesToPdf(images, await platformClient.printPaper())
     await writeAndOpen(bytes, files.length === 1 ? `${files[0]?.name.replace(/\.[^.]+$/, '') ?? 'Images'}.pdf` : 'Images.pdf')
   } catch (error) {
     report(error, 'Could not make a PDF from those images')
