@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { closeSync, fsyncSync, openSync, renameSync, rmSync, writeFileSync } from 'node:fs'
-import { readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
-import { basename, extname } from 'node:path'
+import { open, readFile, realpath, rename, rm, stat } from 'node:fs/promises'
+import { basename, dirname, extname, join } from 'node:path'
 import { isReadableExtension, isWritableExtension } from '../../src/shared/applications'
 import type { FileReference } from '../../src/shared/shell'
 
@@ -60,13 +60,28 @@ export class NodeFileService {
     return new Uint8Array(await readFile(path))
   }
 
-  /** Writes through a temporary file so a crash mid-save cannot destroy the original. */
+  /**
+   * Writes through a temporary file, flushed to disk before it replaces the original, so a crash
+   * mid-save cannot destroy the original. A symlink is followed and the file it points to is
+   * replaced, keeping the link; the new file keeps the original's permissions. The temporary file
+   * is hidden and removed when the write fails.
+   */
   async writeFile(path: string, contents: Uint8Array): Promise<void> {
     requireExtension(path, isWritableExtension)
-    const temporary = `${path}.${randomUUID()}.tmp`
+    // A new file has nothing to resolve or keep.
+    const target = await realpath(path).catch(() => path)
+    const mode = (await stat(target).catch(() => undefined))?.mode
+    const temporary = join(dirname(target), `.${basename(target)}.${randomUUID()}.tmp`)
     try {
-      await writeFile(temporary, contents)
-      await rename(temporary, path)
+      const handle = await open(temporary, 'wx')
+      try {
+        await handle.writeFile(contents)
+        if (mode !== undefined) await handle.chmod(mode & 0o7777)
+        await handle.sync()
+      } finally {
+        await handle.close()
+      }
+      await rename(temporary, target)
     } catch (error) {
       await rm(temporary, { force: true }).catch(() => undefined)
       throw error
