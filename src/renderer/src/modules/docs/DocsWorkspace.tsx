@@ -2,7 +2,6 @@ import { executeCommand } from '../../app/commands'
 import type { OpenDocument } from '../../app/documents-store'
 import type { EditorHandler } from '../../app/editors'
 import { WindowEmpty } from '../../ui/WindowEmpty'
-import { ConfirmHost } from '../../ui/ConfirmDialog'
 import { runDocCommand } from './doc-commands'
 import { releaseDoc, saveDoc, useDocEntry } from './doc-documents'
 import { DocEditor } from './DocEditor'
@@ -25,10 +24,5 @@ function LoadedDocument({ document }: { readonly document: OpenDocument }) {
 
 /** Sumi: the document tab's content below the title bar. */
 export function DocsWorkspace({ document }: { readonly document: OpenDocument }) {
-  return (
-    <>
-      <ConfirmHost />
-      <LoadedDocument key={document.id} document={document} />
-    </>
-  )
+  return <LoadedDocument key={document.id} document={document} />
 }

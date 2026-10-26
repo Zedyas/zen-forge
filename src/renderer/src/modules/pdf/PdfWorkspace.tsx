@@ -5,7 +5,6 @@ import { useViewStore } from '../../app/view-store'
 import { FidelitySurface } from '../../ui/FidelitySurface'
 import { TitleEssentials } from '../../ui/TitleSlot'
 import { WindowEmpty } from '../../ui/WindowEmpty'
-import { ConfirmHost } from '../../ui/ConfirmDialog'
 import { closeFind, useFindStore } from './find-store'
 import { FindBar } from './FindBar'
 import { removeMarkup, findMarkup, updateMarkup } from './markup-actions'
@@ -105,7 +104,6 @@ export function PdfWorkspace({ document }: { readonly document: OpenDocument }) 
 
   return (
     <>
-      <ConfirmHost />
       <SignatureDialog />
       <TitleEssentials><PdfEssentials /></TitleEssentials>
       {toolbar && <PdfToolbar documentId={documentId} document={state} />}

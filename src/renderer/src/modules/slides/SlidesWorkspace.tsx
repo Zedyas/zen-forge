@@ -4,7 +4,6 @@ import type { EditorHandler } from '../../app/editors'
 import { useViewStore } from '../../app/view-store'
 import { FidelitySurface } from '../../ui/FidelitySurface'
 import { WindowEmpty } from '../../ui/WindowEmpty'
-import { ConfirmHost } from '../../ui/ConfirmDialog'
 import { holdsText } from './model'
 import { runSlidesCommand } from './slide-commands'
 import {
@@ -199,7 +198,6 @@ export function SlidesWorkspace({ document }: { readonly document: OpenDocument 
   const slide = currentSlide(state)
   return (
     <SlidesErrorBoundary key={documentId} documentId={documentId}>
-      <ConfirmHost />
       <SlidesToolbar documentId={documentId} document={state} />
       <div className="window-body">
         <SlideRail documentId={documentId} document={state} />
