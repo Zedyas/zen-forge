@@ -42,7 +42,8 @@ If another app changes a file while it is open in Zen Suzu, saving asks first: o
 ### Sumi
 
 - Word documents and Markdown: styles, fonts, lists, tables and images
-- Page setup: paper size, margins and page numbers
+- Page setup: paper size, margins, and headers and footers with page numbers (double-click the top or bottom margin)
+- Headings 1 to 6, and a table of contents that keeps up with them (Format > Insert Table of Contents)
 - Find and replace, spellcheck, print, and export as PDF
 - If a Word file has something Sumi can't keep, such as comments or tracked changes, Sumi tells you when it opens and offers to save a copy.
 
@@ -127,6 +128,7 @@ Every command is also in the menu bar and in the command palette (⌘K). Hover a
 | ⌘B / ⌘I / ⌘U / ⇧⌘X | Bold / Italic / Underline / Strikethrough |
 | Tab / ⇧Tab | Indent / outdent a list item |
 | ⌘↩ | Page break |
+| ⌥⌘1 … ⌥⌘6 | Heading 1 to 6 |
 | ⌘F | Find and replace |
 | ⌘= / ⌘- / ⌘0 | Zoom in / Zoom out / Actual size |
 
@@ -179,7 +181,7 @@ src/
     modules/
       sheets/  Ledger: workbook model, file formats, grid, toolbar
       pdf/     Hanko: PDF engine, pages, markup, signatures, forms
-      docs/    Sumi: editor, styles and page setup, .docx and Markdown files
+      docs/    Sumi: editor, styles, page setup, headers and footers, .docx and Markdown files
       slides/  Slides: slide model, canvas, slideshow, .pptx files
 scripts/       the app icon generator (pnpm icon:generate) and the license notices for releases
 .github/       checks and release workflows, Dependabot, issue forms
