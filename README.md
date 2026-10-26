@@ -25,7 +25,7 @@ If another app changes a file while it is open in Zen Suzu, saving asks first: o
 
 ![Ledger: bold headers, currency format, AutoSum, recalculation and the inspector](docs/media/ledger.gif)
 
-- Excel formulas and formatting, including wrapped text, fonts, strikethrough and row heights
+- Excel formulas and formatting, including wrapped text, fonts, strikethrough, row heights, merged cells, custom number formats (`#,##0.00`, `[Red]`, `yyyy-mm-dd`), notes and links
 - Sort, AutoSum, fill series (1, 2, 3 · Jan, Feb · Item 1, Item 2), and find and replace
 - Copy, cut and paste that keep formulas and styles; relative references move with the paste
 - Text such as IDs and ZIP codes stays text, and CSV files save full values and ISO dates
@@ -118,6 +118,7 @@ Every command is also in the menu bar and in the command palette (⌘K). Hover a
 |---|---|
 | ⌘B / ⌘I / ⌘U / ⇧⌘X | Bold / Italic / Underline / Strikethrough |
 | ⌘X / ⌘C / ⌘V | Cut / Copy / Paste cells with their formulas and styles |
+| ⌘-click | Open a cell's web link |
 | ⌘F | Find and replace |
 
 | Hanko | |
