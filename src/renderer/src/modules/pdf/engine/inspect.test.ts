@@ -58,20 +58,28 @@ describe('inspectPdf', () => {
     expect(await extractPageTexts(saved)).toEqual(['KEEP ME', 'KEEP ME'])
   })
 
+  it('opens an owner-restricted PDF with an attachment and object streams', async () => {
+    const { inspection } = await preparePdf(await encrypted('', { attachment: true }))
+
+    expect(inspection.findings.map(finding => finding.construct)).toEqual(['Password and permission restrictions', 'Embedded file attachments'])
+  })
+
   it('refuses a PDF that needs a password to open', async () => {
     await expect(preparePdf(await encrypted('user'))).rejects.toMatchObject({ name: 'PasswordException' })
   })
 })
 
 /** A one-page PDF encrypted by MuPDF with AES, its printing and copying restricted. */
-async function encrypted(userPassword: string): Promise<Uint8Array> {
+async function encrypted(userPassword: string, { attachment = false } = {}): Promise<Uint8Array> {
   const doc = await plain()
   const font = await doc.embedFont(StandardFonts.Helvetica)
   doc.getPage(0).drawText('KEEP ME', { x: 40, y: 500, size: 14, font })
+  if (attachment) await doc.attach(new Uint8Array([1, 2, 3]), 'receipt.txt', { mimeType: 'text/plain' })
   const mupdf = await import('mupdf')
   const document = new mupdf.PDFDocument(await doc.save())
   try {
-    return document.saveToBuffer(`encrypt=aes-256,owner-password=owner,user-password=${userPassword},permissions=-3904`).asUint8Array().slice()
+    const streams = attachment ? ',compress,objstms' : ''
+    return document.saveToBuffer(`encrypt=aes-256,owner-password=owner,user-password=${userPassword},permissions=-3904${streams}`).asUint8Array().slice()
   } finally {
     document.destroy()
   }

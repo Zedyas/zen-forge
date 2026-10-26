@@ -13,18 +13,21 @@ export async function loadDocument(bytes: Uint8Array): Promise<PDFDocument> {
  * when these pages are merged into a different PDF.
  */
 export async function inspectPdf(bytes: Uint8Array): Promise<PdfInspection> {
-  const doc = await loadDocument(bytes)
+  return inspectDocument(await loadDocument(bytes))
+}
+
+const restrictions: ImportFindingInput = {
+  construct: 'Password and permission restrictions',
+  severity: 'dropped',
+  suggestedAlternative: 'A file Zen Suzu saves has no password and no permission restrictions.',
+}
+
+function inspectDocument(doc: PDFDocument): PdfInspection {
   const findings: ImportFindingInput[] = []
   const acroForm = doc.catalog.AcroForm()
   const form = acroForm === undefined ? undefined : doc.getForm()
 
-  if (doc.isEncrypted) {
-    findings.push({
-      construct: 'Password and permission restrictions',
-      severity: 'dropped',
-      suggestedAlternative: 'A file Zen Suzu saves has no password and no permission restrictions.',
-    })
-  }
+  if (doc.isEncrypted) findings.push(restrictions)
 
   if (form?.hasXFA() === true) {
     findings.push({
@@ -104,10 +107,13 @@ async function decrypt(bytes: Uint8Array): Promise<Uint8Array> {
 
 /**
  * Inspects a PDF read from disk and gives the bytes to edit: the file itself, or for an encrypted
- * one its plain copy. The inspection is of the file as read, so it still lists the restrictions a
- * save removes.
+ * one its plain copy. An encrypted file's contents can only be read once decrypted, so its plain
+ * copy is inspected, with the restrictions a save removes listed first.
  */
 export async function preparePdf(bytes: Uint8Array): Promise<{ readonly bytes: Uint8Array; readonly inspection: PdfInspection }> {
-  const inspection = await inspectPdf(bytes)
-  return { bytes: inspection.encrypted ? await decrypt(bytes) : bytes, inspection }
+  const doc = await loadDocument(bytes)
+  if (!doc.isEncrypted) return { bytes, inspection: inspectDocument(doc) }
+  const plain = await decrypt(bytes)
+  const inspection = await inspectPdf(plain)
+  return { bytes: plain, inspection: { ...inspection, findings: [restrictions, ...inspection.findings], encrypted: true } }
 }
