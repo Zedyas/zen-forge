@@ -68,7 +68,8 @@ function isoDateTimeSerial(text: string): number | undefined {
  */
 export function parseCellText(value: string): { readonly input: CellInput; readonly style?: CellStyle } {
   const trimmed = value.trim()
-  if (trimmed === '') return { input: '' }
+  // An empty field is an empty cell, as when Excel pastes or opens one.
+  if (trimmed === '') return { input: null }
   if (trimmed.startsWith('=')) return { input: value }
   if (/^(true|false)$/i.test(trimmed)) return { input: trimmed.toLowerCase() === 'true' }
 
