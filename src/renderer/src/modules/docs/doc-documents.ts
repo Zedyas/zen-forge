@@ -12,7 +12,7 @@ import { recordPreview, recordRecent } from '../../services/index/document-index
 import { askConfirm } from '../../ui/ConfirmDialog'
 import { DocShortcuts } from './doc-commands'
 import { FindHighlight } from './find'
-import { sameDocument } from './io/compare'
+import { lostKinds, sameDocument } from './io/compare'
 import { localImagePath } from './io/local-images'
 import { mimeTypeForExtension, toDataUrl } from './io/images'
 import { renderPreview } from './preview'
@@ -32,10 +32,10 @@ interface CachedDoc {
   /** Markdown images shown from data URLs, mapped back to the paths the file had for them. */
   imageSources: Map<string, string>
   /**
-   * Set once the person chose Overwrite for a save that would change the file; later saves of this
-   * tab then go straight to disk instead of asking every time.
+   * The signature of the loss the person last chose Overwrite for. Later saves that would lose the
+   * same go straight to disk; a save that would lose something new asks again.
    */
-  overwriteAccepted: boolean
+  acceptedRisk?: string
 }
 
 // Editors outlive the editor component (tabs remount on switch), so they live here, by document id.
@@ -140,7 +140,7 @@ export function useDocEntry(document: OpenDocument): DocEntry {
   const cached = cache.get(document.id)
   useEffect(() => {
     if (cache.has(document.id)) return
-    const created: CachedDoc = { entry: { status: 'loading' }, documentId: document.id, imageSources: new Map(), overwriteAccepted: false }
+    const created: CachedDoc = { entry: { status: 'loading' }, documentId: document.id, imageSources: new Map() }
     cache.set(document.id, created)
     void load(document, created)
   }, [document])
@@ -202,36 +202,54 @@ function withImagePaths(node: JSONContent, sources: ReadonlyMap<string, string>)
 /**
  * Reads `bytes` back with Sumi's own reader and compares the result with the editor's document.
  * Anything a format cannot hold, or that the writer and reader disagree on, shows up here, so a
- * save never replaces a file with less than the editor shows without asking.
+ * save never replaces a file with less than the editor shows without asking. Resolves to the kinds
+ * of thing lost (empty when only text or values differ), or undefined when nothing changes.
  */
-async function changesOnReopen(editor: Editor, format: string, bytes: Uint8Array, imageSources: ReadonlyMap<string, string>): Promise<boolean> {
+async function changesOnReopen(editor: Editor, format: string, bytes: Uint8Array, imageSources: ReadonlyMap<string, string>): Promise<readonly string[] | undefined> {
   try {
+    let shown: JSONContent = editor.getJSON()
+    let reread: JSONContent
     if (isMarkdown(format)) {
       const { readMarkdown } = await import('./io/markdown')
-      return !sameDocument(editor.schema, withImagePaths(editor.getJSON(), imageSources), readMarkdown(new TextDecoder().decode(bytes)).content)
+      shown = withImagePaths(shown, imageSources)
+      reread = readMarkdown(new TextDecoder().decode(bytes)).content
+    } else {
+      const { readDocx } = await import('./io/docx-read')
+      reread = readDocx(bytes).content
     }
-    const { readDocx } = await import('./io/docx-read')
-    return !sameDocument(editor.schema, editor.getJSON(), readDocx(bytes).content)
+    return sameDocument(editor.schema, shown, reread) ? undefined : lostKinds(editor.schema, shown, reread)
   } catch {
-    return true
+    return ['unreadable']
   }
+}
+
+interface OverwriteRisk {
+  readonly message: string
+  /** What exactly would be lost; equal signatures mean the same loss. */
+  readonly signature: string
 }
 
 /** Why saving over the file would lose something, or undefined when it keeps everything. */
-async function overwriteRisk(editor: Editor, format: string, bytes: Uint8Array, cached: CachedDoc, report: ImportReport | undefined): Promise<string | undefined> {
+async function overwriteRisk(editor: Editor, format: string, bytes: Uint8Array, cached: CachedDoc, report: ImportReport | undefined): Promise<OverwriteRisk | undefined> {
   if (report !== undefined && report.severity !== 'lossless') {
-    return `Saving writes only what Sumi shows, so what the import report lists would change or be lost in ${report.sourceName}.`
+    return {
+      message: `Saving writes only what Sumi shows, so what the import report lists would change or be lost in ${report.sourceName}.`,
+      signature: `report:${report.findings.map(finding => finding.construct).join('|')}`,
+    }
   }
-  if (await changesOnReopen(editor, format, bytes, cached.imageSources)) {
-    return isMarkdown(format) ? 'Saving as Markdown would change parts of this document.' : 'Saving as a Word document would change parts of this document.'
+  const lost = await changesOnReopen(editor, format, bytes, cached.imageSources)
+  if (lost === undefined) return undefined
+  return {
+    message: isMarkdown(format) ? 'Saving as Markdown would change parts of this document.' : 'Saving as a Word document would change parts of this document.',
+    signature: `${format}:${lost.join('|')}`,
   }
-  return undefined
 }
 
 /**
- * Saves a document tab. Saving over an existing file first checks that nothing would be lost: the
- * import report is clean, and the file Sumi writes reads back as the document shown. Otherwise it
- * asks: Overwrite, or Save a copy, which keeps the original intact.
+ * Saves a document tab. Every save over an existing file first checks that nothing would be lost:
+ * the import report is clean, and the file Sumi writes reads back as the document shown. Otherwise
+ * it asks: Overwrite, or Save a copy, which keeps the original intact. A loss already accepted with
+ * Overwrite is not asked about again; a new one is.
  */
 export async function saveDoc(documentId: string, saveAs: boolean): Promise<boolean> {
   const document = useDocumentsStore.getState().documents.find(candidate => candidate.id === documentId)
@@ -242,20 +260,20 @@ export async function saveDoc(documentId: string, saveAs: boolean): Promise<bool
   const imported = useFidelityStore.getState().reports[documentId]
   let path = saveAs ? undefined : document.path
   let bytes: Uint8Array | undefined
-  if (path !== undefined && !cached.overwriteAccepted) {
+  if (path !== undefined) {
     bytes = await encode(editor, extensionOf(path), cached.imageSources)
     const risk = await overwriteRisk(editor, extensionOf(path), bytes, cached, imported)
-    if (risk !== undefined) {
+    if (risk !== undefined && risk.signature !== cached.acceptedRisk) {
       const { value } = await askConfirm({
         title: 'Save over the original?',
-        message: `${risk} Saving a copy keeps the original file intact.`,
+        message: `${risk.message} Saving a copy keeps the original file intact.`,
         actions: [{ label: 'Overwrite', value: 'overwrite' }, { label: 'Save a copy', value: 'copy', primary: true }],
       })
       if (value === 'cancel') return false
       if (value === 'copy') {
         path = undefined
         bytes = undefined
-      } else cached.overwriteAccepted = true
+      } else cached.acceptedRisk = risk.signature
     }
   }
 
@@ -276,7 +294,7 @@ export async function saveDoc(documentId: string, saveAs: boolean): Promise<bool
   if (newId !== documentId) {
     cache.delete(documentId)
     cached.documentId = newId
-    cached.overwriteAccepted = false
+    cached.acceptedRisk = undefined
     cache.set(newId, cached)
     emit()
   }
