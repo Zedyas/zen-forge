@@ -25,8 +25,10 @@ If another app changes a file while it is open in Zen Suzu, saving asks first: o
 
 ![Ledger: bold headers, currency format, AutoSum, recalculation and the inspector](docs/media/ledger.gif)
 
-- Excel formulas and formatting
-- Sort, AutoSum, and find and replace
+- Excel formulas and formatting, including wrapped text, fonts, strikethrough and row heights
+- Sort, AutoSum, fill series (1, 2, 3 · Jan, Feb · Item 1, Item 2), and find and replace
+- Copy, cut and paste that keep formulas and styles; relative references move with the paste
+- Text such as IDs and ZIP codes stays text, and CSV files save full values and ISO dates
 - Print, and export as PDF
 - Opens and saves Excel, CSV and TSV files, and opens Numbers, OpenDocument and older Excel files (saved as `.xlsx`). If a file has something Ledger can't keep exactly, such as macros or merged cells, Ledger tells you when it opens and asks before saving over the original, offering to save a copy.
 
@@ -114,7 +116,8 @@ Every command is also in the menu bar and in the command palette (⌘K). Hover a
 
 | Ledger | |
 |---|---|
-| ⌘B / ⌘I / ⌘U | Bold / Italic / Underline |
+| ⌘B / ⌘I / ⌘U / ⇧⌘X | Bold / Italic / Underline / Strikethrough |
+| ⌘X / ⌘C / ⌘V | Cut / Copy / Paste cells with their formulas and styles |
 | ⌘F | Find and replace |
 
 | Hanko | |
