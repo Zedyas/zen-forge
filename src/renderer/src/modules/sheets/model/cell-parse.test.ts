@@ -1,0 +1,43 @@
+import { describe, expect, it } from 'vitest'
+import { parseCellText, textCellInput } from './cell-parse'
+import { Workbook } from './Workbook'
+
+describe('parseCellText', () => {
+  it.each([
+    ['0', 0],
+    ['0.5', 0.5],
+    ['-12.25', -12.25],
+    ['1,234', 1234],
+    ['12,345,678.5', 12_345_678.5],
+    ['$1234.50', 1234.5],
+    ['1e+21', 1e21],
+    ['123456789012345', 123_456_789_012_345],
+  ])('reads %s as a number', (text, number) => {
+    expect(parseCellText(text).input).toBe(number)
+  })
+
+  it.each([
+    ['00123', "'00123"],
+    ['-007', "'-007"],
+    ['1234567890123456', "'1234567890123456"],
+    ['4111 1111 1111 1111', "'4111 1111 1111 1111"],
+    ['1,5', '1,5'],
+    ['12,34', '12,34'],
+    ['$1,5', '$1,5'],
+    ['12E3', "'12E3"],
+  ])('keeps %s as text', (text, input) => {
+    expect(parseCellText(text).input).toBe(input)
+  })
+})
+
+describe('textCellInput', () => {
+  it('marks only text the engine would read as a value, which then shows without the mark', () => {
+    const workbook = new Workbook()
+    const sheetId = workbook.sheets()[0]?.id ?? 0
+    const texts = ['00123', '=x', 'TRUE', '#N/A', '10:30', 'plain words', "'quoted"]
+    texts.forEach((text, row) => workbook.setCellInput(sheetId, [0, row], textCellInput(text)))
+
+    expect(texts.map((_, row) => workbook.getCellValue(sheetId, [0, row]))).toEqual(texts)
+    expect(textCellInput('plain words')).toBe('plain words')
+  })
+})

@@ -10,7 +10,7 @@ import { recordPreview, recordRecent } from '../../services/index/document-index
 import { openPrintDialog, printToPdf } from '../../services/print/print'
 import { askConfirm } from '../../ui/ConfirmDialog'
 import { isDelimitedFormat, isSheetJsFormat, readDelimited, readSheetJs, readXlsx, writeDelimited, writeXlsx } from './io'
-import { formatCellValue } from './model/format'
+import { delimitedValue } from './model/format'
 import { Workbook } from './model/Workbook'
 import { renderPreview } from './preview'
 import { sheetPrintout, sheetPrintTable, type SheetPrintTable } from './print'
@@ -102,11 +102,11 @@ export function releaseWorkbook(documentId: string): void {
   emit()
 }
 
-/** The visible values of a sheet's used area, exactly as the grid formats them. */
-function displayRows(workbook: Workbook, sheetId: number): string[][] {
+/** The values of a sheet's used area as delimited text stores them: formula results, full-precision numbers, ISO dates. */
+function delimitedRows(workbook: Workbook, sheetId: number): string[][] {
   const { width, height } = workbook.usedSize(sheetId)
   return Array.from({ length: height }, (_, row) => Array.from({ length: width }, (_, col) =>
-    formatCellValue(workbook.getCellValue(sheetId, [col, row]), workbook.getStyle(sheetId, [col, row]))))
+    delimitedValue(workbook.getCellValue(sheetId, [col, row]), workbook.getStyle(sheetId, [col, row]))))
 }
 
 function extensionOf(path: string): string {
@@ -116,7 +116,7 @@ function extensionOf(path: string): string {
 async function encode(workbook: Workbook, format: string): Promise<Uint8Array> {
   if (!isDelimitedFormat(format)) return writeXlsx(workbook.toData())
   const first = workbook.sheets()[0]
-  return writeDelimited(first === undefined ? [] : displayRows(workbook, first.id), format)
+  return writeDelimited(first === undefined ? [] : delimitedRows(workbook, first.id), format)
 }
 
 /**
@@ -197,7 +197,7 @@ export async function exportSheetCsv(documentId: string, sheetId: number, sheetN
   if (document === undefined || workbook === undefined) return
   const path = await fileService.chooseSavePath({ defaultName: `${document.name} - ${sheetName}.csv`, extensions: ['csv'] })
   if (path === undefined) return
-  await fileService.write(path, writeDelimited(displayRows(workbook, sheetId), 'csv'))
+  await fileService.write(path, writeDelimited(delimitedRows(workbook, sheetId), 'csv'))
   toast.success(`Exported ${path.split('/').pop() ?? 'CSV'}`)
 }
 

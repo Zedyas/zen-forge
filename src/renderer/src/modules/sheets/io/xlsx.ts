@@ -9,6 +9,7 @@ import * as ExcelJS from 'exceljs'
 import { HyperFormula } from 'hyperformula'
 import type { ImportFindingInput } from '@shared/fidelity'
 import { sheetRangeReference } from '../model/address'
+import { textCellInput } from '../model/cell-parse'
 import {
   defaultCellStyle,
   defaultColumnCount,
@@ -178,7 +179,7 @@ function readCellValue(cell: ExcelJS.Cell, context: CellContext): ImportedCell |
 
     case ExcelJS.ValueType.String:
     case ExcelJS.ValueType.SharedString:
-      return typeof value === 'string' ? { input: value, value } : undefined
+      return typeof value === 'string' ? { input: textCellInput(value), value } : undefined
 
     case ExcelJS.ValueType.Date: {
       if (!(value instanceof Date)) return undefined
@@ -190,13 +191,13 @@ function readCellValue(cell: ExcelJS.Cell, context: CellContext): ImportedCell |
       if (!isRichText(value)) return undefined
       cellEvent(context, 'Rich text formatting')
       const text = value.richText.map(run => run.text).join('')
-      return { input: text, value: text }
+      return { input: textCellInput(text), value: text }
     }
 
     case ExcelJS.ValueType.Hyperlink: {
       if (!isHyperlink(value)) return undefined
       cellEvent(context, 'Hyperlinks', 'dropped')
-      return { input: value.text, value: value.text }
+      return { input: textCellInput(value.text), value: value.text }
     }
 
     case ExcelJS.ValueType.Error:
@@ -541,7 +542,8 @@ function writeCellValue(
     return
   }
 
-  cell.value = input
+  // The apostrophe only tells the engine the input is text; the file stores the text itself.
+  cell.value = typeof input === 'string' && input.startsWith("'") ? input.slice(1) : input
 }
 
 export async function writeXlsx(data: WorkbookData): Promise<Uint8Array> {

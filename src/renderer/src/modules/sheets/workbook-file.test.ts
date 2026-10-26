@@ -1,5 +1,7 @@
+import { unzipSync } from 'fflate'
 import { describe, expect, it } from 'vitest'
 import { readXlsx, writeXlsx } from './io'
+import { textCellInput } from './model/cell-parse'
 import { Workbook } from './model/Workbook'
 
 describe('workbook .xlsx round trip', () => {
@@ -30,5 +32,21 @@ describe('workbook .xlsx round trip', () => {
     expect(reopened.getColumnWidth(reopenedId, 0)).toBe(180)
     expect(reopened.namedRanges().map(named => named.name)).toEqual(['Costs'])
     expect(reopened.isDirty()).toBe(false)
+  })
+
+  it('keeps text cells that look like numbers, booleans or formulas as text', async () => {
+    const original = new Workbook()
+    const sheetId = original.sheets()[0]?.id ?? 0
+    const texts = ['00123', '=x', 'TRUE', '1234567890123456789']
+    texts.forEach((text, col) => original.setCellInput(sheetId, [col, 0], textCellInput(text)))
+
+    const written = await writeXlsx(original.toData())
+    const strings = new TextDecoder().decode(unzipSync(written)['xl/sharedStrings.xml'])
+    const reopened = new Workbook((await readXlsx(written)).data)
+    const reopenedId = reopened.sheets()[0]?.id ?? 0
+
+    // The file stores the text itself; the apostrophe is only the engine's marker.
+    expect(texts.every(text => strings.includes(`<t>${text}</t>`))).toBe(true)
+    expect(texts.map((_, col) => reopened.getCellValue(reopenedId, [col, 0]))).toEqual(texts)
   })
 })

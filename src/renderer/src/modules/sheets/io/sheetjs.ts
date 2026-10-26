@@ -18,6 +18,7 @@ import {
   type SheetData,
   type WorkbookData,
 } from '../model/workbook-data'
+import { textCellInput } from '../model/cell-parse'
 import { aggregateFindings, type FindingEvent } from './findings'
 import { assertZipFitsInMemory } from '../../../services/zip'
 import { numberFormatStyle } from './number-format'
@@ -135,7 +136,7 @@ function readCell(cell: CellObject, context: SheetContext): ImportedCell {
   if (cell.F !== undefined) cellEvent(context, 'Array formulas', 'degraded')
 
   const value = cellValue(cell, format?.style.numberFormat === 'date', context.dateOffset)
-  const input = typeof cell.f === 'string' && cell.f !== '' ? `=${cell.f}` : value
+  const input = typeof cell.f === 'string' && cell.f !== '' ? `=${cell.f}` : typeof value === 'string' && cell.t === 's' ? textCellInput(value) : value
   return { input, value, ...(format === undefined || isDefaultStyle(format.style) ? {} : { style: format.style }) }
 }
 

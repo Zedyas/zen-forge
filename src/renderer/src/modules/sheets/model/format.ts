@@ -41,6 +41,25 @@ export function formatCellValue(value: string | number | boolean | null, style: 
   return value
 }
 
+/** A date serial as ISO 8601 (`2026-08-13`), with the time (`2026-08-13 14:30:00`) when it has one. */
+function isoDate(serial: number): string {
+  const date = new Date(serialEpoch + Math.round(serial * dayMilliseconds / 1000) * 1000)
+  if (Number.isNaN(date.valueOf())) return String(serial)
+  const [day, time] = date.toISOString().replace(/\.\d+Z$/, '').split('T')
+  return time === '00:00:00' ? `${day}` : `${day} ${time}`
+}
+
+/**
+ * A computed value as CSV and TSV store it: the number at full precision, not rounded to the shown
+ * decimals, and dates as ISO 8601, so the file reads back as the same values in any app or locale.
+ */
+export function delimitedValue(value: string | number | boolean | null, style: CellStyle): string {
+  if (value === null) return ''
+  if (typeof value === 'boolean') return value ? 'TRUE' : 'FALSE'
+  if (typeof value === 'number' && style.numberFormat === 'date') return isoDate(value)
+  return String(value)
+}
+
 /**
  * A selection statistic (sum, average…) in the active cell's format when that format is numeric, so a
  * currency column totals in currency. General and date cells fall back to two decimal places.
