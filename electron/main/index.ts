@@ -2,7 +2,7 @@ import { app, BrowserWindow, dialog, Menu, nativeTheme, type IpcMainInvokeEvent,
 import { basename, extname, join } from 'node:path'
 import { applicationForExtension, findApplication, suiteName } from '../../src/shared/applications'
 import { commandApplies, commandDefinitions, type CommandDefinition, type MenuId } from '../../src/shared/commands'
-import { recentMenuItems } from '../../src/shared/recents'
+import { acceptRecents, recentMenuItems } from '../../src/shared/recents'
 import type { Appearance, FileReference, RecentsRequest, ViewState, WindowSession, WindowState } from '../../src/shared/shell'
 import { attachSpellingMenu, registerLinkIpc } from './document-editing'
 import { registerFileIpc } from './file-ipc'
@@ -371,10 +371,11 @@ handle('shell:set-view-state', (event, view: ViewState) => {
   record.view = view
   refreshMenu()
 })
-handle('shell:set-recents', (_event, paths: readonly string[]) => {
+handle('shell:set-recents', (_event, payload: unknown) => {
   // Every window reports on every change, and a new preview changes nothing the menu shows.
-  if (paths.length === recentPaths.length && paths.every((path, index) => path === recentPaths[index])) return
-  recentPaths = paths
+  const next = acceptRecents(recentPaths, payload)
+  if (next === recentPaths) return
+  recentPaths = next
   refreshMenu()
 })
 // Through IPC rather than the HTML Fullscreen API: that needs a click or key press in the page, and

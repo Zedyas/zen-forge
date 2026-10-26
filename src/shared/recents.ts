@@ -1,5 +1,30 @@
+import { isReadableExtension } from './applications'
+
 /** How many recent files File > Open Recent and the command palette list. */
 export const recentMenuLimit = 10
+
+/** The most paths the main process keeps; Home lists no more than this many recent files. */
+export const recentPathLimit = 40
+
+const absolutePath = /^(\/|[A-Za-z]:[\\/]|\\\\)/
+
+function isRecentPath(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length > 4096 || value.includes('\0') || !absolutePath.test(value)) return false
+  const name = value.slice(Math.max(value.lastIndexOf('/'), value.lastIndexOf('\\')) + 1)
+  return name.includes('.') && isReadableExtension(name.slice(name.lastIndexOf('.') + 1))
+}
+
+/**
+ * The list the main process keeps after a window reports `payload`, which crosses IPC and so may be
+ * anything. Entries that are not absolute paths to a file Zen Suzu opens are left out, and at most
+ * `recentPathLimit` stay. A payload that is not a list, or that changes nothing, returns `current`
+ * itself.
+ */
+export function acceptRecents(current: readonly string[], payload: unknown): readonly string[] {
+  if (!Array.isArray(payload)) return current
+  const next = payload.filter(isRecentPath).slice(0, recentPathLimit)
+  return next.length === current.length && next.every((path, index) => path === current[index]) ? current : next
+}
 
 export interface RecentMenuItem {
   readonly path: string
