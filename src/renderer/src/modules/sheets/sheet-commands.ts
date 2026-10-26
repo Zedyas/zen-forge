@@ -1,5 +1,6 @@
 import type { Item } from '@glideapps/glide-data-grid'
 import { toast } from 'sonner'
+import { platformClient } from '../../services/platform/client'
 import { askConfirm } from '../../ui/ConfirmDialog'
 import { measureCellHeight } from './cell-text'
 import { numberFormatStyle } from './io/number-format'
@@ -61,6 +62,47 @@ export function setFormatCode(controller: SheetController, code: string): void {
     decimalPlaces: style.decimalPlaces,
     formatCode: general ? undefined : trimmed,
   })
+}
+
+/**
+ * A link as typed, read as Sumi reads one: `example.com` becomes `https://example.com` and
+ * `name@example.com` a mail link. `#Sheet2!A1`, a place in the workbook, is kept as Excel writes it.
+ * Other schemes are refused.
+ */
+export function linkAddress(input: string): string | undefined {
+  const text = input.trim()
+  if (text === '') return undefined
+  if (/^(https?:\/\/|mailto:|#)\S+$/i.test(text)) return text
+  if (/^[^\s@/]+@[^\s@/]+\.[^\s@/]+$/.test(text)) return `mailto:${text}`
+  if (/\s/.test(text) || (/^[a-z][a-z0-9+.-]*:/i.test(text) && !/^[^:/]+:\d/.test(text))) return undefined
+  return `https://${text}`
+}
+
+/** Links every selected cell, as Excel does; false (after saying why) when the address is not a link. */
+export function setLink(controller: SheetController, input: string): boolean {
+  const link = linkAddress(input)
+  if (link === undefined) {
+    toast.error('Use a web or email address', { description: 'For example example.com or name@example.com.' })
+    return false
+  }
+  setStyle(controller, { link })
+  return true
+}
+
+/** Opens a web link in the default browser. Other links never open; the window never navigates itself. */
+export function openCellLink(link: string): void {
+  if (!/^https?:\/\//i.test(link)) {
+    toast.info('Only web links open from Zen Suzu', { description: link })
+    return
+  }
+  void platformClient.openExternal(link)
+}
+
+/** A note on the active cell only, as in Excel; empty text deletes it. */
+export function setNote(controller: SheetController, text: string): void {
+  const { workbook, sheetId, cell } = controller
+  const note = text.trimEnd()
+  workbook.updateStyle(sheetId, [{ x: cell[0], y: cell[1], width: 1, height: 1 }], { note: note === '' ? undefined : note })
 }
 
 /** The selection's visible rows, for row height. */

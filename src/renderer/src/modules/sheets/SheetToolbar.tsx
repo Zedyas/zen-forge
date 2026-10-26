@@ -15,8 +15,10 @@ import {
   DecimalsArrowLeft,
   DecimalsArrowRight,
   DollarSign,
+  ExternalLink,
   Hash,
   Italic,
+  Link2,
   PaintBucket,
   Percent,
   Redo2,
@@ -24,6 +26,7 @@ import {
   Rows3,
   Search,
   Sigma,
+  StickyNote,
   Strikethrough,
   TableCellsMerge,
   TableCellsSplit,
@@ -44,7 +47,10 @@ import {
   fontFamilies,
   fontSizes,
   mergeSelection,
+  openCellLink,
   setFormatCode,
+  setLink,
+  setNote,
   setStyle,
   sortByActiveColumn,
   textColors,
@@ -217,6 +223,52 @@ function FormatCodeTool({ controller }: { readonly controller: SheetController }
   )
 }
 
+/** A link on the selected cells: typed, removed, or opened from here as well as with ⌘-click. */
+function LinkTool({ controller }: { readonly controller: SheetController }) {
+  const { link } = controller.workbook.getStyle(controller.sheetId, controller.cell)
+  return (
+    <CellPopover
+      icon={Link2}
+      label={link === undefined ? 'Link' : 'Edit link'}
+      pressed={link !== undefined}
+      initial={link ?? ''}
+      placeholder="Web or email address"
+      submitLabel={link === undefined ? 'Link' : 'Update'}
+      onSubmit={address => setLink(controller, address)}
+      {...(link === undefined ? {} : { onRemove: () => setStyle(controller, { link: undefined }) })}
+    >
+      {() => link !== undefined && (
+        <p className="sheet-cell-popover-note">
+          <button type="button" className="button is-quiet" onClick={() => openCellLink(link)}>
+            <ExternalLink {...smallIcon} /> Open in browser (⌘-click the cell)
+          </button>
+        </p>
+      )}
+    </CellPopover>
+  )
+}
+
+/** The active cell's note. */
+function NoteTool({ controller }: { readonly controller: SheetController }) {
+  const { note } = controller.workbook.getStyle(controller.sheetId, controller.cell)
+  return (
+    <CellPopover
+      icon={StickyNote}
+      label={note === undefined ? 'Add note' : 'Edit note'}
+      pressed={note !== undefined}
+      initial={note ?? ''}
+      placeholder="Note"
+      multiline
+      submitLabel="Save"
+      onSubmit={text => {
+        setNote(controller, text)
+        return true
+      }}
+      {...(note === undefined ? {} : { onRemove: () => setNote(controller, '') })}
+    />
+  )
+}
+
 interface SheetToolbarProps {
   readonly controller: SheetController
   readonly findOpen: boolean
@@ -295,6 +347,9 @@ export function SheetToolbar({ controller, findOpen }: SheetToolbarProps) {
         <ToolButton icon={Sigma} label="AutoSum" onClick={() => autoSum(controller)} />
         <ToolButton icon={ArrowDownAZ} label="Sort A to Z by this column" onClick={() => sortByActiveColumn(controller, true)} />
         <ToolButton icon={ArrowUpZA} label="Sort Z to A by this column" onClick={() => sortByActiveColumn(controller, false)} />
+        <ToolSeparator />
+        <LinkTool controller={controller} />
+        <NoteTool controller={controller} />
         <ToolSeparator />
         <StructureMenu controller={controller} axis="rows" />
         <StructureMenu controller={controller} axis="columns" />

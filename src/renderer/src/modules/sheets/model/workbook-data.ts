@@ -36,6 +36,13 @@ export interface CellStyle {
    * back unchanged either way; choosing one of the five formats drops it.
    */
   readonly formatCode?: string
+  /** A note (Excel's plain cell comment), shown on hover and when the cell is selected. */
+  readonly note?: string
+  /**
+   * A hyperlink address: a web or mail address, or an Excel place such as `#Sheet2!A1`, kept from the
+   * file. The cell shows as a link; ⌘-click opens web links in the browser.
+   */
+  readonly link?: string
 }
 
 export const defaultCellStyle: CellStyle = { numberFormat: 'general', decimalPlaces: 2 }

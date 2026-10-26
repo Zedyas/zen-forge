@@ -196,11 +196,9 @@ function readCellValue(cell: ExcelJS.Cell, context: CellContext): ImportedCell |
       return { input: textCellInput(text), value: text }
     }
 
-    case ExcelJS.ValueType.Hyperlink: {
-      if (!isHyperlink(value)) return undefined
-      cellEvent(context, 'Hyperlinks', 'dropped')
-      return { input: textCellInput(value.text), value: value.text }
-    }
+    case ExcelJS.ValueType.Hyperlink:
+      // The address is part of the cell's style (readCellStyle).
+      return isHyperlink(value) ? { input: textCellInput(value.text), value: value.text } : undefined
 
     case ExcelJS.ValueType.Error:
       if (!isError(value)) return undefined
@@ -315,6 +313,12 @@ function readCellStyle(cell: ExcelJS.Cell, context: CellContext): CellStyle {
   if (border !== undefined && Object.values(border).some(side => side !== undefined)) {
     cellEvent(context, 'Cell borders')
   }
+
+  // ExcelJS gives a plain note as a string and a formatted one as rich text runs; undefined when there is none.
+  const note: string | ExcelJS.Comment | undefined = cell.note
+  const noteText = typeof note === 'string' ? note : note?.texts?.map(run => run.text).join('')
+  if (noteText !== undefined && noteText !== '') style = { ...style, note: noteText }
+  if (isHyperlink(cell.value) && cell.value.hyperlink !== '') style = { ...style, link: cell.value.hyperlink }
 
   return style
 }
@@ -528,6 +532,7 @@ function writeCellStyle(cell: ExcelJS.Cell, style: CellStyle): void {
   if (style.align !== undefined) alignment.horizontal = style.align
   if (style.wrap === true) alignment.wrapText = true
   if (Object.keys(alignment).length > 0) cell.alignment = alignment
+  if (style.note !== undefined) cell.note = style.note
 }
 
 function writeCellValue(
@@ -551,7 +556,9 @@ function writeCellValue(
   }
 
   // The apostrophe only tells the engine the input is text; the file stores the text itself.
-  cell.value = typeof input === 'string' && input.startsWith("'") ? input.slice(1) : input
+  const value = typeof input === 'string' && input.startsWith("'") ? input.slice(1) : input
+  // ExcelJS links text only, so a link on a number keeps the number and loses the link.
+  cell.value = style?.link !== undefined && typeof value === 'string' ? { text: value, hyperlink: style.link } : value
 }
 
 export async function writeXlsx(data: WorkbookData): Promise<Uint8Array> {

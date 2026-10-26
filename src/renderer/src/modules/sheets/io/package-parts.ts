@@ -18,6 +18,9 @@ export interface WorkbookPackage {
   readonly defaultFont: DefaultFont
 }
 
+/** Notes and the VML shapes that place them, which ExcelJS reads as cell notes. */
+const notesPart = /^xl\/(comments\d*\.xml|drawings\/(_rels\/)?vmlDrawing\d*\.vml(\.rels)?)$/
+
 interface PartDetector {
   readonly construct: string
   readonly severity: 'degraded' | 'dropped'
@@ -35,13 +38,13 @@ const detectors: readonly PartDetector[] = [
   {
     construct: 'Images and drawings',
     severity: 'dropped',
-    matches: part => part.startsWith('xl/drawings/') || part.startsWith('xl/media/'),
+    matches: part => (part.startsWith('xl/drawings/') && !notesPart.test(part)) || part.startsWith('xl/media/'),
   },
   { construct: 'External links', severity: 'dropped', matches: part => part.startsWith('xl/externalLinks/') },
   {
-    construct: 'Comments',
-    severity: 'dropped',
-    matches: part => /^xl\/(comments\d*\.xml|threadedComments\/|persons\/)/.test(part),
+    construct: 'Threaded comments',
+    severity: 'degraded',
+    matches: part => part.startsWith('xl/threadedComments/') || part.startsWith('xl/persons/'),
   },
   {
     construct: 'Form controls',
@@ -147,7 +150,7 @@ export function packageFindings(parts: readonly string[]): readonly FindingEvent
 
   for (const part of parts) {
     if (!part.startsWith('xl/')) continue
-    if (readParts.has(part) || readPrefixes.some(prefix => part.startsWith(prefix))) continue
+    if (readParts.has(part) || readPrefixes.some(prefix => part.startsWith(prefix)) || notesPart.test(part)) continue
     if (detectors.some(detector => detector.matches(part))) continue
     events.push({ construct: 'Unrecognized workbook content', severity: 'degraded', location: part })
   }

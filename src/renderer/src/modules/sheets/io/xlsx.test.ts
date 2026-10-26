@@ -32,8 +32,9 @@ const workbook: WorkbookData = {
           italic: true,
           underline: true,
           textColor: '#b91c1c',
+          link: 'https://example.com/north',
         }],
-        [1, 1, { numberFormat: 'currency', decimalPlaces: 2 }],
+        [1, 1, { numberFormat: 'currency', decimalPlaces: 2, note: 'Includes refunds.\nSee Totals.' }],
         [2, 1, { numberFormat: 'percent', decimalPlaces: 1 }],
         [3, 1, { numberFormat: 'date', decimalPlaces: 0 }],
         [1, 2, { numberFormat: 'currency', decimalPlaces: 2 }],
@@ -82,7 +83,7 @@ describe('xlsx', () => {
     expect(imported.data).toEqual(workbook)
   })
 
-  it('reports macros, pivot tables and charts as aggregated findings, and keeps merged cells', async () => {
+  it('reports macros, pivot tables, charts and threaded comments as aggregated findings, and keeps merged cells', async () => {
     const source = new ExcelJS.Workbook()
     const sheet = source.addWorksheet('Sheet1')
     sheet.getCell('A1').value = 'merged'
@@ -94,6 +95,7 @@ describe('xlsx', () => {
     entries['xl/vbaProject.bin'] = new Uint8Array([1, 2, 3])
     entries['xl/pivotTables/pivotTable1.xml'] = new TextEncoder().encode('<pivotTableDefinition/>')
     entries['xl/charts/chart1.xml'] = new TextEncoder().encode('<chartSpace/>')
+    entries['xl/threadedComments/threadedComment1.xml'] = new TextEncoder().encode('<ThreadedComments/>')
 
     const { data, findings } = await readXlsx(zipSync(entries))
     const byConstruct = new Map(findings.map(finding => [finding.construct, finding]))
@@ -101,6 +103,7 @@ describe('xlsx', () => {
     expect(byConstruct.get('Macros (VBA)')?.severity).toBe('dropped')
     expect(byConstruct.get('Pivot tables')?.severity).toBe('dropped')
     expect(byConstruct.get('Charts')?.severity).toBe('dropped')
+    expect(byConstruct.get('Threaded comments')?.severity).toBe('degraded')
     expect(data.sheets[0]?.layout.merges).toEqual([{ x: 0, y: 0, width: 2, height: 2 }, { x: 3, y: 0, width: 2, height: 1 }])
     expect(byConstruct.has('Merged cells')).toBe(false)
     expect(findings.length).toBe(byConstruct.size)

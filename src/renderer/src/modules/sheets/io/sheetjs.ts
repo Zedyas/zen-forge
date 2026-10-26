@@ -10,6 +10,7 @@ import { unzipSync } from 'fflate'
 import type { CellObject, WorkBook, WorkSheet } from 'xlsx'
 import type { ImportFindingInput } from '@shared/fidelity'
 import {
+  defaultCellStyle,
   defaultColumnCount,
   defaultRowCount,
   isDefaultStyle,
@@ -131,13 +132,18 @@ function cellEvent(context: SheetContext, construct: string, severity: 'degraded
 function readCell(cell: CellObject, context: SheetContext): ImportedCell {
   const format = typeof cell.z === 'string' ? numberFormatStyle(cell.z) : undefined
   if (format?.mapped === false) cellEvent(context, 'Unmapped number formats', 'degraded')
-  if (cell.c !== undefined && cell.c.length > 0) cellEvent(context, 'Comments', 'dropped')
-  if (cell.l !== undefined) cellEvent(context, 'Hyperlinks', 'dropped')
   if (cell.F !== undefined) cellEvent(context, 'Array formulas', 'degraded')
+  const note = cell.c?.map(comment => comment.t).join('\n') ?? ''
+  const link = cell.l?.Target ?? ''
+  const style: CellStyle = {
+    ...(format?.style ?? defaultCellStyle),
+    ...(note === '' ? {} : { note }),
+    ...(link === '' ? {} : { link }),
+  }
 
-  const value = cellValue(cell, format?.style.numberFormat === 'date', context.dateOffset)
+  const value = cellValue(cell, style.numberFormat === 'date', context.dateOffset)
   const input = typeof cell.f === 'string' && cell.f !== '' ? `=${cell.f}` : typeof value === 'string' && cell.t === 's' ? textCellInput(value) : value
-  return { input, value, ...(format === undefined || isDefaultStyle(format.style) ? {} : { style: format.style }) }
+  return { input, value, ...(isDefaultStyle(style) ? {} : { style }) }
 }
 
 /** `usedRows` and `usedColumns` are the extent of the cells read, which the grid always covers. */

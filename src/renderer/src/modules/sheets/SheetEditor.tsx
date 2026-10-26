@@ -1,14 +1,17 @@
-import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type KeyboardEvent } from 'react'
+import { createPortal } from 'react-dom'
 import { closestCenter, DndContext, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { horizontalListSortingStrategy, SortableContext } from '@dnd-kit/sortable'
 import DataEditor, {
   CompactSelection,
   GridCellKind,
+  type CellClickedEventArgs,
   type DrawCellCallback,
   type EditableGridCell,
   type GridCell,
   type GridColumn,
   type GridKeyEventArgs,
+  type GridMouseEventArgs,
   type GridSelection,
   type DataEditorRef,
   type Highlight,
@@ -26,13 +29,13 @@ import { Tip } from '../../ui/Tip'
 import { cancelCut, copyCells, pasteCells, usePendingCut } from './clipboard'
 import { FindBar } from './FindBar'
 import { FormulaBar } from './FormulaBar'
-import { drawCellText, drawsOwnText, fontStack, fontStyle, measureCellHeight } from './cell-text'
+import { drawCellText, drawNoteMarker, drawsOwnText, fontStack, fontStyle, measureCellHeight } from './cell-text'
 import { gridTheme, headerHeight, isLightColor } from './grid-theme'
 import { coverBlocks, fillLines, mapCell, mapRange, snapCell, viewRange as viewRangeOf, visibleAreas } from './grid-mapping'
 import { columnName, sheetNameProblem } from './model/address'
 import { formatCellValue, formatColor, formatStatistic } from './model/format'
 import type { FindMatch, Workbook, WorkbookSheet } from './model/Workbook'
-import { setActiveSheet, type SheetController } from './sheet-commands'
+import { openCellLink, setActiveSheet, type SheetController } from './sheet-commands'
 import { SheetContextMenu } from './SheetContextMenu'
 import { SheetInspector } from './SheetInspector'
 import { SheetTab } from './SheetTab'
@@ -112,6 +115,15 @@ function selectionFromRows(selection: GridSelection, rowOffset: number): GridSel
  * narrower one than the grid below it and their columns would not line up. Both use the width Glide
  * picks for the largest row number shown.
  */
+/** Beside the cell, or to its left when the right edge of the window is too close. */
+function noteCardPosition(bounds: Rectangle): CSSProperties {
+  const gap = 6
+  const maxWidth = 260
+  return bounds.x + bounds.width + gap + maxWidth > window.innerWidth
+    ? { top: bounds.y, right: window.innerWidth - bounds.x + gap }
+    : { top: bounds.y, left: bounds.x + bounds.width + gap }
+}
+
 function rowMarkerWidth(largestRowNumber: number): number {
   return largestRowNumber > 10_000 ? 48 : largestRowNumber > 1_000 ? 44 : largestRowNumber > 100 ? 36 : 32
 }
@@ -144,6 +156,9 @@ export function SheetEditor({ document, workbook }: SheetEditorProps) {
   const [selection, setSelection] = useState<GridSelection>(() => selectionForCell([0, 0]))
   const [findOpen, setFindOpen] = useState(false)
   const frozenGridRef = useRef<DataEditorRef>(null)
+  const scrollingGridRef = useRef<DataEditorRef>(null)
+  const [hoveredNote, setHoveredNote] = useState<{ readonly text: string; readonly bounds: Rectangle }>()
+  const [selectedNoteBounds, setSelectedNoteBounds] = useState<Rectangle>()
   const activeSheet = requiredSheet(sheets, activeSheetName)
   const sheetId = activeSheet.id
 
@@ -181,7 +196,7 @@ export function SheetEditor({ document, workbook }: SheetEditorProps) {
     const value = workbook.getCellValue(sheetId, cell)
     const style = workbook.getStyle(sheetId, cell)
     const displayed = formatCellValue(value, style)
-    const textColor = formatColor(value, style) ?? style.textColor ?? (style.fillColor !== undefined && isLightColor(style.fillColor) ? '#1d1f23' : undefined)
+    const textColor = formatColor(value, style) ?? style.textColor ?? (style.link !== undefined ? theme.linkColor : undefined) ?? (style.fillColor !== undefined && isLightColor(style.fillColor) ? '#1d1f23' : undefined)
     return {
       kind: GridCellKind.Text,
       allowOverlay: true,
@@ -204,12 +219,17 @@ export function SheetEditor({ document, workbook }: SheetEditorProps) {
     }
   }, [mergeOf, sheetId, revision, theme, visibleColumns, workbook])
 
-  const editCell = useCallback((viewCell: Item, value: EditableGridCell, rows: readonly number[]) => {
+  /** The model cell a view cell shows: its merged block's top-left cell, or itself. */
+  const ownerCell = useCallback((viewCell: Item, rows: readonly number[]): Item => {
     const merge = mergeOf(mapCell(viewCell, visibleColumns, rows))
-    const cell: Item = merge === undefined ? mapCell(viewCell, visibleColumns, rows) : [merge.model.x, merge.model.y]
+    return merge === undefined ? mapCell(viewCell, visibleColumns, rows) : [merge.model.x, merge.model.y]
+  }, [mergeOf, visibleColumns])
+
+  const editCell = useCallback((viewCell: Item, value: EditableGridCell, rows: readonly number[]) => {
+    const cell = ownerCell(viewCell, rows)
     if (value.kind === GridCellKind.Text) workbook.setCellInput(sheetId, cell, value.data, measureCellHeight)
     if (value.kind === GridCellKind.Number) workbook.setCellInput(sheetId, cell, value.data ?? null, measureCellHeight)
-  }, [mergeOf, sheetId, visibleColumns, workbook])
+  }, [ownerCell, sheetId, workbook])
 
   /**
    * Glide draws plain text. Wrapped, underlined and struck-through text Ledger draws itself (cell-text.ts),
@@ -217,9 +237,12 @@ export function SheetEditor({ document, workbook }: SheetEditorProps) {
    */
   const drawCell = useCallback((args: Parameters<DrawCellCallback>[0], drawContent: () => void, rows: readonly number[]) => {
     const merge = mergeOf(mapCell([args.col, args.row], visibleColumns, rows))
-    const style = workbook.getStyle(sheetId, merge === undefined ? mapCell([args.col, args.row], visibleColumns, rows) : [merge.model.x, merge.model.y])
+    const own = workbook.getStyle(sheetId, merge === undefined ? mapCell([args.col, args.row], visibleColumns, rows) : [merge.model.x, merge.model.y])
+    // A linked cell shows as a link: underlined, in the link colour that getCell gives it.
+    const style = own.link === undefined ? own : { ...own, underline: true }
     if (args.cell.kind !== GridCellKind.Text || (merge === undefined && !drawsOwnText(style))) {
       drawContent()
+      if (style.note !== undefined) drawNoteMarker(args.ctx, args.rect)
       return
     }
     let { y: top, height } = args.rect
@@ -236,6 +259,8 @@ export function SheetEditor({ document, workbook }: SheetEditorProps) {
       for (let index = args.row + 1; inBlock(index); index += 1) height += workbook.getRowHeight(sheetId, rows[index] ?? 0)
     }
     drawCellText(args, args.cell.displayData, style, { ...args.rect, y: top, height })
+    // A merged block's marker sits on its top row only.
+    if (style.note !== undefined && top === args.rect.y) drawNoteMarker(args.ctx, args.rect)
   }, [mergeOf, sheetId, revision, visibleColumns, workbook])
   const drawScrollingCell = useCallback<DrawCellCallback>((args, draw) => drawCell(args, draw, scrollingRows), [drawCell, scrollingRows])
   const drawFrozenCell = useCallback<DrawCellCallback>((args, draw) => drawCell(args, draw, frozenRows), [drawCell, frozenRows])
@@ -328,6 +353,33 @@ export function SheetEditor({ document, workbook }: SheetEditorProps) {
   }, [])
   const activeStyle = workbook.getStyle(sheetId, selectedCell)
 
+  /*
+   * A note shows beside its cell while the pointer is over the cell, else beside the selected cell.
+   * The card is placed once from the cell's bounds and hidden on scroll, so it never trails the grid.
+   */
+  const activeViewCell = selection.current?.cell
+  useEffect(() => {
+    if (activeViewCell === undefined || activeStyle.note === undefined) {
+      setSelectedNoteBounds(undefined)
+      return
+    }
+    const frozen = activeViewCell[1] < frozenRowCount
+    const grid = frozen ? frozenGridRef.current : scrollingGridRef.current
+    setSelectedNoteBounds(grid?.getBounds(activeViewCell[0], frozen ? activeViewCell[1] : activeViewCell[1] - frozenRowCount))
+  }, [activeViewCell?.[0], activeViewCell?.[1], activeStyle.note, frozenRowCount, inspectorShown])
+  const hoverNote = (args: GridMouseEventArgs, rows: readonly number[]): void => {
+    const note = args.kind === 'cell' ? workbook.getStyle(sheetId, ownerCell(args.location, rows)).note : undefined
+    setHoveredNote(note === undefined || args.kind !== 'cell' ? undefined : { text: note, bounds: args.bounds })
+  }
+  const noteCard = hoveredNote ?? (activeStyle.note === undefined || selectedNoteBounds === undefined ? undefined : { text: activeStyle.note, bounds: selectedNoteBounds })
+
+  /** ⌘-click opens a cell's link; a plain click only selects, so a link never gets in the way of editing. */
+  const openLinkOnClick = (viewCell: Item, event: CellClickedEventArgs, rows: readonly number[]): void => {
+    if (!event.metaKey) return
+    const { link } = workbook.getStyle(sheetId, ownerCell(viewCell, rows))
+    if (link !== undefined) openCellLink(link)
+  }
+
   const handleSheetDragEnd = (event: DragEndEvent): void => {
     if (event.over === null) return
     const from = sheets.findIndex(sheet => sheet.id === event.active.id)
@@ -399,7 +451,7 @@ export function SheetEditor({ document, workbook }: SheetEditorProps) {
         {findOpen && <FindBar workbook={workbook} revision={revision} onClose={() => setFindOpen(false)} onSelectMatch={selectMatch} />}
         <SheetContextMenu controller={controller}>
           {frozenRowCount > 0 && (
-            <div className="sheet-frozen-rows" style={{ height: headerHeight + frozenHeight + 1 }}>
+            <div className="sheet-frozen-rows" style={{ height: headerHeight + frozenHeight + 1 }} onMouseLeave={() => setHoveredNote(undefined)}>
               <DataEditor
                 {...sharedGridProps}
                 ref={frozenGridRef}
@@ -419,12 +471,15 @@ export function SheetEditor({ document, workbook }: SheetEditorProps) {
                 }}
                 rowMarkers={{ kind: 'number', rowNumber: frozenRowNumber, width: markerWidth }}
                 onCellContextMenu={cell => selectOnContextMenu(cell, 0)}
+                onItemHovered={args => hoverNote(args, frozenRows)}
+                onCellClicked={(cell, event) => openLinkOnClick(cell, event, frozenRows)}
               />
             </div>
           )}
-          <div className="sheet-scrolling-rows">
+          <div className="sheet-scrolling-rows" onMouseLeave={() => setHoveredNote(undefined)}>
             <DataEditor
               {...sharedGridProps}
+              ref={scrollingGridRef}
               headerHeight={frozenRowCount > 0 ? 0 : headerHeight}
               rows={scrollingRows.length}
               getCellContent={getScrollingCell}
@@ -441,9 +496,13 @@ export function SheetEditor({ document, workbook }: SheetEditorProps) {
               }}
               rowMarkers={{ kind: 'number', rowNumber: scrollingRowNumber, width: markerWidth }}
               onCellContextMenu={cell => selectOnContextMenu(cell, frozenRowCount)}
+              onItemHovered={args => hoverNote(args, scrollingRows)}
+              onCellClicked={(cell, event) => openLinkOnClick(cell, event, scrollingRows)}
               smoothScrollY
               onVisibleRegionChanged={region => {
                 if (frozenRowCount > 0) frozenGridRef.current?.scrollTo(region.x, 0, 'horizontal')
+                setHoveredNote(undefined)
+                setSelectedNoteBounds(undefined)
               }}
             />
           </div>
@@ -499,6 +558,10 @@ export function SheetEditor({ document, workbook }: SheetEditorProps) {
         </footer>
       </div>
       {inspectorShown && <SheetInspector controller={controller} />}
+      {noteCard !== undefined && createPortal(
+        <div className="sheet-note-card" role="note" style={noteCardPosition(noteCard.bounds)}>{noteCard.text}</div>,
+        window.document.body,
+      )}
     </div>
   )
 }

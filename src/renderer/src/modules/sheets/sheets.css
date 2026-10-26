@@ -72,6 +72,14 @@
 
 .sheet-choice-menu { max-height: 60vh; overflow-y: auto; }
 
+/* A cell's note, beside the hovered or selected cell (SheetEditor). It never takes the pointer. */
+.sheet-note-card {
+  position: fixed; z-index: 40; max-width: 260px; padding: 7px 10px;
+  border-radius: var(--radius); background: var(--raised); box-shadow: var(--shadow-pop);
+  color: var(--ink); font-size: 12px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere;
+  pointer-events: none;
+}
+
 /* Toolbar popovers that edit one text property of the selected cells (CellPopover.tsx). */
 .sheet-cell-popover form { display: flex; flex-direction: column; gap: 8px; width: 300px; padding: 8px 10px 10px; }
 .sheet-cell-popover textarea.text-field { height: auto; padding: 6px 8px; resize: vertical; line-height: 1.4; }

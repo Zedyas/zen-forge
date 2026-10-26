@@ -363,8 +363,9 @@ export class Workbook {
     this.#amend(() => this.#fitRows(sheetId, rows, fit, false))
   }
 
+  /** Notes and links are content, as in Excel, so they stay. */
   clearFormatting(sheetId: number, areas: readonly CellRange[]): void {
-    this.#commit(() => this.#mapStyles(sheetId, areas, () => defaultCellStyle))
+    this.#commit(() => this.#mapStyles(sheetId, areas, style => mergeStyle(defaultCellStyle, { note: style.note, link: style.link })))
   }
 
   /**

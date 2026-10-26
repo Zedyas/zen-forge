@@ -106,6 +106,22 @@ export function drawCellText(args: Parameters<DrawCellCallback>[0], text: string
   ctx.restore()
 }
 
+/** Excel's red corner triangle on a cell with a note. */
+export function drawNoteMarker(ctx: CanvasRenderingContext2D, rect: Rectangle): void {
+  const size = 6
+  const right = rect.x + rect.width - 1
+  const top = rect.y + 1
+  ctx.save()
+  ctx.fillStyle = '#c9352b'
+  ctx.beginPath()
+  ctx.moveTo(right - size, top)
+  ctx.lineTo(right, top)
+  ctx.lineTo(right, top + size)
+  ctx.closePath()
+  ctx.fill()
+  ctx.restore()
+}
+
 let measuringContext: CanvasRenderingContext2D | null | undefined
 
 /**

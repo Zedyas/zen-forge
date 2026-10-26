@@ -33,6 +33,8 @@ const styleFields = {
   fillColor: color.optional(),
   align: z.enum(['left', 'center', 'right']).optional(),
   formatCode: z.string().max(255).optional(),
+  note: z.string().max(32_767).optional(),
+  link: z.string().max(2_084).optional(),
 } satisfies Record<keyof CellStyle, z.ZodType>
 const index = z.number().int().min(0).max(1_048_575)
 const cell = z.object({
