@@ -13,6 +13,15 @@ export interface OpenDocument {
   readonly kind: EditorApplicationId
   readonly path?: string
   readonly dirty: boolean
+  /** The file's size and modification time when this tab last opened or saved it. */
+  readonly onDisk?: FileStamp
+}
+
+export type FileStamp = Pick<FileReference, 'size' | 'lastModified'>
+
+/** True when the file now on disk is not the one a tab last opened or saved, so another app changed it. */
+export function changedOnDisk(known: FileStamp, current: FileStamp): boolean {
+  return known.size !== current.size || known.lastModified !== current.lastModified
 }
 
 interface DocumentsState {
@@ -50,7 +59,15 @@ function untitledName(documents: readonly OpenDocument[]): string {
 function fileDocument(file: FileReference): OpenDocument {
   const kind = applicationForExtension(file.extension)
   if (kind === undefined) throw new Error(`.${file.extension || 'unknown'} files cannot be opened.`)
-  return { id: file.path, name: nameWithoutExtension(file.name), extension: file.extension, kind, path: file.path, dirty: false }
+  return {
+    id: file.path,
+    name: nameWithoutExtension(file.name),
+    extension: file.extension,
+    kind,
+    path: file.path,
+    dirty: false,
+    onDisk: { size: file.size, lastModified: file.lastModified },
+  }
 }
 
 /** A new tab joins the end of its own kind's group, so spreadsheets stay together and PDFs stay together. */
