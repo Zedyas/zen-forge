@@ -22,6 +22,7 @@ describe('fillSeries', () => {
     ['weekdays continue', seeds('mon', 'tue'), [2], ['wed']],
     ['numbered text counts on, keeping zeros', seeds('Item 09'), [1], ["'Item 10"]],
     ['quarters wrap after Q4', seeds('Q3', 'Q4'), [2], ["'Q1"]],
+    ['long digit runs count on exactly', seeds('12345678901234567890'), [1, -1], ["'12345678901234567891", "'12345678901234567889"]],
     ['other text repeats as a pattern', seeds('a', 'b'), [2, 3, -1], ['a', 'b', 'b']],
   ])('%s', (_, from, positions, expected) => {
     expect(inputs(from, positions)).toEqual(expected)

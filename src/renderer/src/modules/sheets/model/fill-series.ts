@@ -120,15 +120,23 @@ function numberedTextSeries(texts: readonly string[]): ((position: number) => Ce
   const prefix = parts[0]?.[1]
   if (prefix === undefined || parts.some(part => part === null || part[1] !== prefix)) return undefined
   const digits = parts.map(part => part?.[2] ?? '')
-  const numbers = digits.map(Number)
-  const quarter = /^(?:q|qtr|quarter)\s*$/i.test(prefix) && numbers.every(number => number >= 1 && number <= 4)
-  const step = evenStep(quarter ? numbers.map(number => number - 1) : numbers, quarter ? 4 : undefined)
-  if (step === undefined) return undefined
-  const first = numbers[0] ?? 0
   const width = digits[0]?.startsWith('0') === true ? (digits[0]?.length ?? 0) : 0
+  const text = (number: number | bigint): CellInput => textCellInput(`${prefix}${String(number).padStart(width, '0')}`)
+  const quarters = digits.map(Number)
+  if (/^(?:q|qtr|quarter)\s*$/i.test(prefix) && quarters.every(number => number >= 1 && number <= 4)) {
+    const step = evenStep(quarters.map(number => number - 1), 4)
+    const first = quarters[0] ?? 1
+    return step === undefined ? undefined : position => text(modulo(first - 1 + step * position, 4) + 1)
+  }
+  // A run of digits can be longer than a float holds exactly (a 20-digit ID), so it counts as a BigInt.
+  const numbers = digits.map(digit => BigInt(digit))
+  const steps = numbers.slice(1).map((number, index) => number - (numbers[index] ?? 0n))
+  const step = steps.length === 0 ? 1n : steps.every(value => value === steps[0]) && steps[0] !== 0n ? steps[0] : undefined
+  if (step === undefined) return undefined
+  const first = numbers[0] ?? 0n
   return position => {
-    const number = quarter ? modulo(first - 1 + step * position, 4) + 1 : Math.abs(first + step * position)
-    return textCellInput(`${prefix}${String(number).padStart(width, '0')}`)
+    const number = first + step * BigInt(position)
+    return text(number < 0n ? -number : number)
   }
 }
 
