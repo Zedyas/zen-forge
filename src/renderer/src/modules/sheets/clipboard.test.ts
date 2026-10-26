@@ -43,6 +43,34 @@ describe('Ledger clipboard', () => {
     expect(workbook.getCellInput(sheetId, [1, 0])).toBe('=A1*2')
   })
 
+  it('skips hidden rows where cut cells land, as copy and paste does, as one undo step', () => {
+    const { workbook, sheetId } = sheetWith([['a'], ['hidden'], [], [4], [5]])
+    workbook.hideRows(sheetId, 1)
+    const data = new DataTransfer()
+    const column = (): unknown[] => [0, 1, 2, 3, 4].map(row => workbook.getCellValue(sheetId, [0, row]))
+
+    copyCells(data, { workbook, sheetId, columns: [0], rows: [3, 4], range: { x: 0, y: 3, width: 1, height: 2 } }, true)
+    pasteCells(data, { workbook, sheetId, selection: { x: 0, y: 0, width: 1, height: 1 }, columns: all, rows: workbook.visibleRows(sheetId) })
+
+    expect(column()).toEqual([4, 'hidden', 5, null, null])
+    workbook.undo()
+    expect(column()).toEqual(['a', 'hidden', null, 4, 5])
+  })
+
+  it('empties only the cut cells that landed when pasting into another workbook', () => {
+    const { workbook, sheetId } = sheetWith([[1], [2], [3]])
+    workbook.hideRows(sheetId, 1)
+    const other = sheetWith([])
+    const data = new DataTransfer()
+
+    // Row 2 is hidden, and the other workbook's grid has room for one row below the paste.
+    copyCells(data, { workbook, sheetId, columns: [0], rows: [0, 2], range: { x: 0, y: 0, width: 1, height: 3 } }, true)
+    pasteCells(data, { workbook: other.workbook, sheetId: other.sheetId, selection: { x: 0, y: 2, width: 1, height: 1 }, columns: [0], rows: [0, 1, 2] })
+
+    expect([0, 1, 2].map(row => other.workbook.getCellValue(other.sheetId, [0, row]))).toEqual([null, null, 1])
+    expect([0, 1, 2].map(row => workbook.getCellValue(sheetId, [0, row]))).toEqual([null, 2, 3])
+  })
+
   it('pastes tab-separated text from other apps as typed values', () => {
     const { workbook, sheetId } = sheetWith([])
     const data = new DataTransfer()

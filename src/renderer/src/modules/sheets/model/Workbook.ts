@@ -365,10 +365,19 @@ export class Workbook {
     }
   }
 
-  /** Writes pasted cells and their styles as one undo step; copied formulas keep pointing the same distance away. */
-  pasteCells(sheetId: number, cells: readonly PastedCell[]): void {
+  /**
+   * Writes pasted cells and their styles as one undo step; copied formulas keep pointing the same distance away.
+   * With `cutSheetId`, the cells were cut from that sheet, so their sources are emptied first, styles included.
+   */
+  pasteCells(sheetId: number, cells: readonly PastedCell[], cutSheetId?: number): void {
     if (cells.length === 0) return
     this.#commit(() => {
+      if (cutSheetId !== undefined) {
+        this.#clearValues(cutSheetId, this.#filledAreas(cutSheetId, cells.flatMap(({ source }) =>
+          source === undefined ? [] : [{ x: source[0], y: source[1], width: 1, height: 1 }])))
+        const cutStyles = this.#sheetStyles(this.#sheetName(cutSheetId))
+        cells.forEach(({ source }) => { if (source !== undefined) cutStyles.delete(styleKey(source[0], source[1])) })
+      }
       const styles = this.#sheetStyles(this.#sheetName(sheetId))
       this.#engine.batch(() => cells.forEach(({ target: [col, row], input, style, source }) => {
         const moved = typeof input === 'string' && source !== undefined ? shiftFormula(input, col - source[0], row - source[1]) : input

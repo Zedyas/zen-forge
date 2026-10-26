@@ -101,7 +101,7 @@ export interface CopySource {
   /** The selection's visible columns and rows, in view order. */
   readonly columns: readonly number[]
   readonly rows: readonly number[]
-  /** The selection from first to last cell; a cut moves all of it. */
+  /** The selection from first to last cell; a cut without hidden rows or columns moves it as a block. */
   readonly range: CellRange
 }
 
@@ -173,6 +173,32 @@ function textCells(text: string, target: PasteTarget): PastedCell[] {
   })
 }
 
+/**
+ * Cut cells land from the selection's top-left cell. They move as a block, so formulas that refer to
+ * them follow, when the block lands as copy and paste would place it: whole (no hidden rows or columns
+ * in the cut), unbroken where it lands, and inside the grid. Otherwise the visible cells paste as copy
+ * and paste places them, and only the cut cells that landed are emptied.
+ */
+function pasteCut(cut: PendingCut, copied: CopiedCells, target: PasteTarget): void {
+  const cells = copiedCells(copied, { ...target, selection: { ...target.selection, width: 1, height: 1 } })
+  const first = cells[0]?.target
+  const last = cells.at(-1)?.target
+  if (first === undefined || last === undefined) return
+  if (cut.workbook !== target.workbook) {
+    target.workbook.pasteCells(target.sheetId, cells)
+    cut.workbook.clearCells(cut.sheetId, cells.flatMap(({ source }) => source === undefined ? [] : [{ x: source[0], y: source[1], width: 1, height: 1 }]))
+    return
+  }
+  const { width, height } = cut.range
+  const block = copied.columns.length === width && copied.rows.length === height && cells.length === width * height
+    && last[0] - first[0] === width - 1 && last[1] - first[1] === height - 1
+  if (!block) {
+    target.workbook.pasteCells(target.sheetId, cells, cut.sheetId)
+  } else if (!target.workbook.moveCells(cut.sheetId, cut.range, target.sheetId, first)) {
+    toast.error('Those cells can’t move there', { description: 'Part of an array formula would be split.' })
+  }
+}
+
 /** Pastes Ledger's own cells when the clipboard has them, otherwise tab-separated text. False when it holds neither. */
 export function pasteCells(data: DataTransfer, target: PasteTarget): boolean {
   const json = data.getData(clipboardType)
@@ -185,16 +211,7 @@ export function pasteCells(data: DataTransfer, target: PasteTarget): boolean {
     const cut = livePendingCut()
     if (cut !== undefined && copied.cut === cut.id) {
       setPendingCut(undefined)
-      const destination = [target.columns[target.selection.x] ?? 0, target.rows[target.selection.y] ?? 0] as const
-      if (cut.workbook === target.workbook) {
-        if (!target.workbook.moveCells(cut.sheetId, cut.range, target.sheetId, destination)) {
-          toast.error('Those cells can’t move there', { description: 'Part of an array formula would be split.' })
-        }
-        return true
-      }
-      // Into another workbook, the cells are copied and then cleared where they were.
-      target.workbook.pasteCells(target.sheetId, copiedCells(copied, target))
-      cut.workbook.clearCells(cut.sheetId, [cut.range])
+      pasteCut(cut, copied, target)
       return true
     }
     target.workbook.pasteCells(target.sheetId, copiedCells(copied, target))
