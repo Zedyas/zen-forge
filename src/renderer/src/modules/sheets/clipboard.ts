@@ -2,10 +2,12 @@ import type { Item, Rectangle } from '@glideapps/glide-data-grid'
 import { useSyncExternalStore } from 'react'
 import { toast } from 'sonner'
 import { z } from 'zod'
+import { askConfirm } from '../../ui/ConfirmDialog'
 import { delimitedText, readTabbedText } from './io'
 import { parseCellText } from './model/cell-parse'
 import { formatCellValue } from './model/format'
 import type { CellRange, CellStyle, CopiedCells, PastedCell, Workbook } from './model/Workbook'
+import { refuseMergedPart } from './sheet-commands'
 
 /*
  * Edit > Copy, Cut and Paste reach the page as clipboard events. Ledger puts two things on the
@@ -175,34 +177,77 @@ function textCells(text: string, target: PasteTarget): PastedCell[] {
   })
 }
 
+/** A selection that is exactly one merged cell pastes as that one cell, as in Excel: a copied cell fills it once. */
+function pasteSelection({ workbook, sheetId, selection, columns, rows }: PasteTarget): Rectangle {
+  const merge = workbook.mergeAt(sheetId, [columns[selection.x] ?? 0, rows[selection.y] ?? 0])
+  const whole = merge !== undefined && merge.x === columns[selection.x] && merge.y === rows[selection.y]
+    && merge.x + merge.width - 1 === columns[selection.x + selection.width - 1] && merge.y + merge.height - 1 === rows[selection.y + selection.height - 1]
+  return whole ? { ...selection, width: 1, height: 1 } : selection
+}
+
+/**
+ * Writes a paste unless it would change part of a merged cell, which Excel refuses. A paste that lands
+ * exactly on one merged cell keeps only its upper-left value, after asking when others would be lost.
+ */
+function pasteChecked({ workbook, sheetId }: PasteTarget, cells: readonly PastedCell[], write: () => void): void {
+  const covered = cells.filter(cell => workbook.isCovered(sheetId, cell.target))
+  const first = cells[0]?.target
+  const merge = first === undefined ? undefined : workbook.mergeAt(sheetId, first)
+  if (covered.length > 0) {
+    const exact = merge !== undefined && merge.x === first?.[0] && merge.y === first[1] && cells.length === merge.width * merge.height
+      && cells.every(cell => workbook.mergeAt(sheetId, cell.target) === merge)
+    if (!exact) {
+      refuseMergedPart()
+      return
+    }
+  }
+  const discarded = covered.filter(cell => cell.input !== null && cell.input !== '').length
+  if (discarded === 0) {
+    write()
+    return
+  }
+  void askConfirm({
+    title: 'Paste into a merged cell?',
+    message: `A merged cell keeps only its upper-left value, so the other ${discarded === 1 ? 'pasted value is' : `${discarded} pasted values are`} discarded.`,
+    actions: [{ label: 'Paste', value: 'paste', primary: true }],
+  }).then(({ value }) => {
+    if (value === 'paste') write()
+  })
+}
+
 /**
  * Cut cells land from the selection's top-left cell. They move as a block, so formulas that refer to
  * them follow, when the block lands as copy and paste would place it: whole (no hidden rows or columns
- * in the cut), unbroken where it lands, and inside the grid. Otherwise the visible cells paste as copy
- * and paste places them, and only the cut cells that landed are emptied.
+ * in the cut), unbroken where it lands, inside the grid, and not onto a merged cell's covered cells.
+ * Otherwise the visible cells paste as copy and paste places them, and the cut cells are emptied.
  */
 function pasteCut(cut: PendingCut, copied: CopiedCells, target: PasteTarget): void {
+  const { workbook, sheetId } = target
   const cells = copiedCells(copied, { ...target, selection: { ...target.selection, width: 1, height: 1 } })
   const first = cells[0]?.target
   const last = cells.at(-1)?.target
   if (first === undefined || last === undefined) return
-  if (cut.workbook !== target.workbook) {
-    target.workbook.pasteCells(target.sheetId, cells)
-    cut.workbook.clearCells(cut.sheetId, cells.flatMap(({ source }) => source === undefined ? [] : [{ x: source[0], y: source[1], width: 1, height: 1 }]))
-    return
-  }
-  const { width, height } = cut.range
-  const block = copied.columns.length === width && copied.rows.length === height && cells.length === width * height
-    && last[0] - first[0] === width - 1 && last[1] - first[1] === height - 1
-  if (!block) {
-    target.workbook.pasteCells(target.sheetId, cells, cut.sheetId)
-  } else if (!target.workbook.moveCells(cut.sheetId, cut.range, target.sheetId, first)) {
-    toast.error('Those cells can’t move there', { description: 'Part of an array formula would be split.' })
-  }
+  pasteChecked(target, cells, () => {
+    if (cut.workbook !== workbook) {
+      workbook.pasteCells(sheetId, cells)
+      cut.workbook.clearCells(cut.sheetId, cells.flatMap(({ source }) => source === undefined ? [] : [{ x: source[0], y: source[1], width: 1, height: 1 }]))
+      return
+    }
+    const { width, height } = cut.range
+    const block = copied.columns.length === width && copied.rows.length === height && cells.length === width * height
+      && last[0] - first[0] === width - 1 && last[1] - first[1] === height - 1 && !cells.some(cell => workbook.isCovered(sheetId, cell.target))
+    if (!block) {
+      workbook.pasteCells(sheetId, cells, cut.sheetId)
+    } else if (!workbook.moveCells(cut.sheetId, cut.range, sheetId, first)) {
+      toast.error('Those cells can’t move there', { description: 'Part of an array formula would be split.' })
+    }
+  })
 }
 
 /** Pastes Ledger's own cells when the clipboard has them, otherwise tab-separated text. False when it holds neither. */
 export function pasteCells(data: DataTransfer, target: PasteTarget): boolean {
+  const { workbook, sheetId } = target
+  const at = { ...target, selection: pasteSelection(target) }
   const json = data.getData(clipboardType)
   if (json !== '') {
     const copied = readPayload(json)
@@ -216,11 +261,13 @@ export function pasteCells(data: DataTransfer, target: PasteTarget): boolean {
       pasteCut(cut, copied, target)
       return true
     }
-    target.workbook.pasteCells(target.sheetId, copiedCells(copied, target))
+    const cells = copiedCells(copied, at)
+    pasteChecked(target, cells, () => workbook.pasteCells(sheetId, cells))
     return true
   }
   const text = data.getData('text/plain')
   if (text === '') return false
-  target.workbook.pasteCells(target.sheetId, textCells(text, target))
+  const cells = textCells(text, at)
+  pasteChecked(target, cells, () => workbook.pasteCells(sheetId, cells))
   return true
 }

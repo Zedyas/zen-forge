@@ -35,7 +35,7 @@ import { coverBlocks, fillLines, mapCell, mapRange, snapCell, viewRange as viewR
 import { columnName, sheetNameProblem } from './model/address'
 import { formatCellValue, formatColor, formatStatistic } from './model/format'
 import type { FindMatch, Workbook, WorkbookSheet } from './model/Workbook'
-import { openCellLink, setActiveSheet, type SheetController } from './sheet-commands'
+import { openCellLink, refuseMergedPart, setActiveSheet, type SheetController } from './sheet-commands'
 import { SheetContextMenu } from './SheetContextMenu'
 import { SheetInspector } from './SheetInspector'
 import { SheetTab } from './SheetTab'
@@ -467,7 +467,7 @@ export function SheetEditor({ document, workbook }: SheetEditorProps) {
                 onFillPattern={event => {
                   event.preventDefault()
                   const { lines, backward } = fillLines(event.patternSource, event.fillDestination, visibleColumns, frozenRows)
-                  workbook.fillCells(sheetId, lines, backward)
+                  if (!workbook.fillCells(sheetId, lines, backward)) refuseMergedPart()
                 }}
                 rowMarkers={{ kind: 'number', rowNumber: frozenRowNumber, width: markerWidth }}
                 onCellContextMenu={cell => selectOnContextMenu(cell, 0)}
@@ -492,7 +492,7 @@ export function SheetEditor({ document, workbook }: SheetEditorProps) {
               onFillPattern={event => {
                 event.preventDefault()
                 const { lines, backward } = fillLines(event.patternSource, event.fillDestination, visibleColumns, scrollingRows)
-                workbook.fillCells(sheetId, lines, backward)
+                if (!workbook.fillCells(sheetId, lines, backward)) refuseMergedPart()
               }}
               rowMarkers={{ kind: 'number', rowNumber: scrollingRowNumber, width: markerWidth }}
               onCellContextMenu={cell => selectOnContextMenu(cell, frozenRowCount)}

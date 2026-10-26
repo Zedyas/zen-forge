@@ -156,6 +156,18 @@ describe('Workbook', () => {
     expect(workbook.getCellValue(sheetId, [5, 0])).toBe(144_111)
   })
 
+  it('never writes the cells a merged cell covers', () => {
+    const workbook = new Workbook()
+    const sheetId = workbook.sheets()[0]?.id ?? 0
+    workbook.setCellInput(sheetId, [0, 0], 5)
+    workbook.mergeCells(sheetId, { x: 0, y: 1, width: 1, height: 2 }, false)
+
+    expect(workbook.setCellInput(sheetId, [0, 2], 7)).toBe(false)
+    expect(workbook.fillCells(sheetId, [{ seeds: [[0, 0]], targets: [[0, 1], [0, 2]] }], false)).toBe(false)
+    workbook.pasteCells(sheetId, [{ target: [0, 1], input: 1 }, { target: [0, 2], input: 2 }])
+    expect([1, 2].map(row => workbook.getCellValue(sheetId, [0, row]))).toEqual([1, null])
+  })
+
   it('moves a named range with its cut cells, through undo, redo and a reopen', () => {
     const workbook = new Workbook()
     const sheetId = workbook.sheets()[0]?.id ?? 0

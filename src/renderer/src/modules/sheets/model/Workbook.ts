@@ -380,15 +380,20 @@ export class Workbook {
     }))
   }
 
-  /** With `fit`, a row too short for the new text of a wrapped or larger-font cell grows to show it. */
-  setCellInput(sheetId: number, [col, row]: Item, input: CellInput, fit?: CellMeasure): void {
+  /**
+   * With `fit`, a row too short for the new text of a wrapped or larger-font cell grows to show it.
+   * False when a merged cell covers the cell, as only a merged cell's upper-left cell holds a value.
+   */
+  setCellInput(sheetId: number, [col, row]: Item, input: CellInput, fit?: CellMeasure): boolean {
+    if (this.isCovered(sheetId, [col, row])) return false
     const current = this.#engine.getCellSerialized({ sheet: sheetId, col, row })
-    if (current === input || shownCellInput(current) === String(input ?? '')) return
+    if (current === input || shownCellInput(current) === String(input ?? '')) return true
     this.#commit(() => {
       this.#engine.setCellContents({ sheet: sheetId, col, row }, [[input]])
       const style = this.#style(sheetId, col, row)
       if (fit !== undefined && textLayoutKeys.some(key => style[key] !== undefined)) this.#fitRows(sheetId, [row], fit, true)
     })
+    return true
   }
 
   /** Empties values and formulas in the areas as one undo step, keeping formatting. */
@@ -420,6 +425,7 @@ export class Workbook {
   /**
    * Writes pasted cells and their styles as one undo step; copied formulas keep pointing the same distance away.
    * With `cutSheetId`, the cells were cut from that sheet, so their sources are emptied first, styles included.
+   * Cells a merged cell covers are left out: only its upper-left cell holds a value.
    */
   pasteCells(sheetId: number, cells: readonly PastedCell[], cutSheetId?: number): void {
     if (cells.length === 0) return
@@ -431,7 +437,8 @@ export class Workbook {
         cells.forEach(({ source }) => { if (source !== undefined) cutStyles.delete(styleKey(source[0], source[1])) })
       }
       const styles = this.#sheetStyles(this.#sheetName(sheetId))
-      this.#engine.batch(() => cells.forEach(({ target: [col, row], input, style, source }) => {
+      const written = cells.filter(({ target }) => !this.isCovered(sheetId, target))
+      this.#engine.batch(() => written.forEach(({ target: [col, row], input, style, source }) => {
         const moved = typeof input === 'string' && source !== undefined ? shiftFormula(input, col - source[0], row - source[1]) : input
         this.#engine.setCellContents({ sheet: sheetId, col, row }, [[moved]])
         if (style === undefined || isDefaultStyle(style)) styles.delete(styleKey(col, row))
@@ -515,9 +522,11 @@ export class Workbook {
   /**
    * The fill handle, as one undo step: each line continues its seeds as a series (1, 2 → 3, 4; Jan →
    * Feb; Item 1 → Item 2) or repeats them, with copied formulas' references moved and styles copied.
-   * `backward` fills up or left, so the targets count down from the seeds.
+   * `backward` fills up or left, so the targets count down from the seeds. False, writing nothing, when
+   * a target is a cell a merged cell covers.
    */
-  fillCells(sheetId: number, lines: readonly FillLine[], backward: boolean): void {
+  fillCells(sheetId: number, lines: readonly FillLine[], backward: boolean): boolean {
+    if (lines.some(({ targets }) => targets.some(target => this.isCovered(sheetId, target)))) return false
     // The engine cannot be read inside a batch, so every seed is read before anything is written.
     const writes = lines.flatMap(({ seeds, targets }) => {
       const filled = fillSeries(
@@ -534,7 +543,7 @@ export class Workbook {
         return cell === undefined || source === undefined ? [] : [{ target, source, input: cell.input }]
       })
     })
-    if (writes.length === 0) return
+    if (writes.length === 0) return true
     this.#commit(() => {
       const styles = this.#sheetStyles(this.#sheetName(sheetId))
       this.#engine.batch(() => writes.forEach(({ target: [col, row], source, input }) => {
@@ -545,10 +554,17 @@ export class Workbook {
         else styles.set(styleKey(col, row), style)
       }))
     })
+    return true
   }
 
   merges(sheetId: number): readonly CellRange[] {
     return this.#layout(sheetId).merges
+  }
+
+  /** Whether a merged cell covers the cell: it is in a merged block but not the block's upper-left cell. */
+  isCovered(sheetId: number, cell: Item): boolean {
+    const merge = this.mergeAt(sheetId, cell)
+    return merge !== undefined && (merge.x !== cell[0] || merge.y !== cell[1])
   }
 
   /** The merged block holding the cell, if any. */

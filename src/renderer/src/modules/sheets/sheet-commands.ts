@@ -149,6 +149,13 @@ export async function mergeSelection(controller: SheetController, across: boolea
   workbook.mergeCells(sheetId, range, across)
 }
 
+/** Excel's refusal when a paste, fill or edit would write a cell that a merged cell covers. */
+export function refuseMergedPart(): void {
+  toast.error('Can’t change part of a merged cell', {
+    description: 'Only a merged cell’s upper-left cell holds a value. Select the whole merged cell, or unmerge it first.',
+  })
+}
+
 export function autoSum(controller: SheetController): void {
   if (!controller.workbook.autoSum(controller.sheetId, controller.cell)) {
     toast.info('Nothing to sum', { description: 'AutoSum adds the numbers directly above or to the left of the selected cell.' })

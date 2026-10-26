@@ -4,6 +4,7 @@ import { measureCellHeight } from './cell-text'
 import type { Workbook } from './model/Workbook'
 import { cellName, formulaReferences } from './model/address'
 import { FunctionAutocomplete } from './FunctionAutocomplete'
+import { refuseMergedPart } from './sheet-commands'
 
 interface FormulaBarProps {
   readonly workbook: Workbook
@@ -33,7 +34,7 @@ export function FormulaBar({ workbook, sheetId, selectedCell }: FormulaBarProps)
   const commit = (event?: FormEvent): void => {
     event?.preventDefault()
     committedRef.current = draft
-    workbook.setCellInput(sheetId, selectedCell, draft, measureCellHeight)
+    if (!workbook.setCellInput(sheetId, selectedCell, draft, measureCellHeight)) refuseMergedPart()
   }
 
   const chooseFunction = (name: string): void => {
