@@ -6,9 +6,10 @@ const lastRow = 1_048_575
 
 /**
  * A1 references outside text and quoted sheet names: a cell or cell range, a column range (A:C) or a
- * row range (1:3). The lookarounds leave out function names (LOG10), names and number literals (1E5).
+ * row range (1:3). The lookarounds leave out function names (LOG10), number literals (1E5) and names,
+ * whose letters can be any script's (ÄA1, A1é).
  */
-const reference = /(?<![\w.$])(?:(\$?)([A-Za-z]{1,3})(\$?)(\d+)(?::(\$?)([A-Za-z]{1,3})(\$?)(\d+))?|(\$?)([A-Za-z]{1,3}):(\$?)([A-Za-z]{1,3})|(\$?)(\d+):(\$?)(\d+))(?![\w(!.])/g
+const reference = /(?<![\p{L}\p{M}\p{N}_.\\?$])(?:(\$?)([A-Za-z]{1,3})(\$?)(\d+)(?::(\$?)([A-Za-z]{1,3})(\$?)(\d+))?|(\$?)([A-Za-z]{1,3}):(\$?)([A-Za-z]{1,3})|(\$?)(\d+):(\$?)(\d+))(?![\p{L}\p{M}\p{N}_.\\?(!])/gu
 
 /** Text in quotes ("a""b") or a quoted sheet name ('Q1 ''26'), which never hold references to move. */
 const quoted = /"(?:[^"]|"")*"?|'(?:[^']|'')*'?/g

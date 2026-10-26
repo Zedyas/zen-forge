@@ -10,6 +10,7 @@ describe('shiftFormula', () => {
     ['=SUM(A:A)+SUM(1:2)', 1, 1, '=SUM(B:B)+SUM(2:3)'],
     ['=LOG10(A1)+1E5+Total', 0, 1, '=LOG10(A2)+1E5+Total'],
     ['=A1', 0, -1, '=#REF!'],
+    ['=ÄA1+A1+Total_é1+A1é', 1, 1, '=ÄA1+B2+Total_é1+A1é'],
     ['plain A1 text', 1, 1, 'plain A1 text'],
   ])('%s moved %i across and %i down is %s', (formula, columns, rows, expected) => {
     expect(shiftFormula(formula, columns, rows)).toBe(expected)
