@@ -39,8 +39,10 @@ export function formatCellValue(value: string | number | boolean | null, style: 
         return value.toLocaleString(undefined, { maximumFractionDigits: 8, useGrouping: false })
     }
   }
-  if (style.numberFormat === 'date') {
-    const date = new Date(value)
+  if (style.numberFormat === 'date' && typeof value === 'string') {
+    // `new Date('2024-03-05')` is midnight UTC, the day before west of Greenwich; a date alone means that day here.
+    const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+    const date = iso === null ? new Date(value) : new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]))
     if (!Number.isNaN(date.valueOf())) return date.toLocaleDateString()
   }
   return value
