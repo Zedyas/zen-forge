@@ -23,7 +23,7 @@ const consequences: Readonly<Record<string, string>> = {
   'Charts': 'Not shown, and not kept when saved.',
   'Images and drawings': 'Not shown, and not kept when saved.',
   'External links': 'Cells keep their last values; the links to other files are not kept.',
-  'Threaded comments': 'Shown and saved as plain notes, so replies and their authors are no longer a separate thread.',
+  'Threaded comments': 'Not kept when saved. Excel also saves each one as a plain note, which shows and is kept; a comment without that copy is not shown.',
   'Form controls': 'Not shown, and not kept when saved.',
   'Slicers': 'Not shown, and not kept when saved.',
   'External data connections': 'Cells keep their last values; the connection is not kept, so the data no longer refreshes.',

@@ -43,7 +43,7 @@ const detectors: readonly PartDetector[] = [
   { construct: 'External links', severity: 'dropped', matches: part => part.startsWith('xl/externalLinks/') },
   {
     construct: 'Threaded comments',
-    severity: 'degraded',
+    severity: 'dropped',
     matches: part => part.startsWith('xl/threadedComments/') || part.startsWith('xl/persons/'),
   },
   {

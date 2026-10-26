@@ -103,7 +103,7 @@ describe('xlsx', () => {
     expect(byConstruct.get('Macros (VBA)')?.severity).toBe('dropped')
     expect(byConstruct.get('Pivot tables')?.severity).toBe('dropped')
     expect(byConstruct.get('Charts')?.severity).toBe('dropped')
-    expect(byConstruct.get('Threaded comments')?.severity).toBe('degraded')
+    expect(byConstruct.get('Threaded comments')?.severity).toBe('dropped')
     expect(data.sheets[0]?.layout.merges).toEqual([{ x: 0, y: 0, width: 2, height: 2 }, { x: 3, y: 0, width: 2, height: 1 }])
     expect(byConstruct.has('Merged cells')).toBe(false)
     expect(findings.length).toBe(byConstruct.size)
@@ -186,6 +186,27 @@ describe('xlsx', () => {
     const other = new ExcelJS.Workbook()
     await (other.xlsx as unknown as { load(data: Uint8Array): Promise<unknown> }).load(saved)
     expect(['A1', 'B1', 'C1', 'E1'].map(address => (other.worksheets[0]?.getCell(address).value as ExcelJS.CellHyperlinkValue).hyperlink)).toEqual(targets.filter((_, column) => column !== 3))
+  })
+
+  it('reports threaded comments as dropped, keeping only the plain-note copy Excel saves with one', async () => {
+    const source = new ExcelJS.Workbook()
+    const sheet = source.addWorksheet('Sheet1')
+    sheet.getCell('A1').value = 'copied'
+    sheet.getCell('A1').note = '[Threaded comment] Comment: Ship by Friday'
+    sheet.getCell('A2').value = 'threaded only'
+    const entries = unzipSync(new Uint8Array(await source.xlsx.writeBuffer()))
+    entries['xl/threadedComments/threadedComment1.xml'] = new TextEncoder().encode(
+      '<ThreadedComments><threadedComment ref="A1"><text>Ship by Friday</text></threadedComment><threadedComment ref="A2"><text>Check the total</text></threadedComment></ThreadedComments>',
+    )
+    entries['xl/persons/person.xml'] = new TextEncoder().encode('<personList><person displayName="Sam"/></personList>')
+
+    const { data, findings } = await readXlsx(zipSync(entries))
+    const notes = data.sheets[0]?.styles.map(([column, row, style]) => [column, row, style.note])
+    expect(notes).toEqual([[0, 0, '[Threaded comment] Comment: Ship by Friday']])
+    expect(findings.find(finding => finding.construct === 'Threaded comments')).toMatchObject({
+      severity: 'dropped',
+      suggestedAlternative: expect.stringContaining('without that copy is not shown'),
+    })
   })
 
   it('keeps the file number format, such as euros, through open and save', async () => {
