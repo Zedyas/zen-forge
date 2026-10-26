@@ -31,6 +31,10 @@ describe('NodeFileService contract', () => {
     })
   })
 
+  it('names a file that was moved or deleted', async () => {
+    await expect(service.describeFile(join(temporaryDirectory, 'gone.csv'))).rejects.toThrow('“gone.csv” was moved or deleted.')
+  })
+
   it('rejects a directory passed as a file', async () => {
     const path = join(temporaryDirectory, 'not-a-file.pdf')
     await mkdir(path)
