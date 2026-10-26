@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { FileReference } from '@shared/shell'
-import { homeTabId, useDocumentsStore } from './documents-store'
+import { homeTabId, openInOtherTab, useDocumentsStore } from './documents-store'
 
 function file(path: string): FileReference {
   const name = path.split('/').pop() ?? path
@@ -59,5 +59,15 @@ describe('documents store', () => {
     expect(useDocumentsStore.getState().activeId).toBe('/b.pdf')
     store.selectIndex(1)
     expect(useDocumentsStore.getState().activeId).toBe('/a.pdf')
+  })
+
+  it('finds another tab holding a Save As path, but not the tab being saved', () => {
+    const store = useDocumentsStore.getState()
+    store.openFile(file('/a.docx'))
+    const untitled = store.openUntitled('docs')
+
+    expect(openInOtherTab(useDocumentsStore.getState(), untitled, '/a.docx')?.id).toBe('/a.docx')
+    expect(openInOtherTab(useDocumentsStore.getState(), '/a.docx', '/a.docx')).toBeUndefined()
+    expect(openInOtherTab(useDocumentsStore.getState(), untitled, '/b.docx')).toBeUndefined()
   })
 })

@@ -4,6 +4,7 @@ import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
 import { Placeholder, Selection } from '@tiptap/extensions'
 import { toast } from 'sonner'
 import { createImportReport, type ImportFindingInput, type ImportReport } from '@shared/fidelity'
+import { chooseDocumentPath } from '../../app/document-actions'
 import { useDocumentsStore, type OpenDocument } from '../../app/documents-store'
 import { fileService } from '../../services/file/IpcFileService'
 import { useFidelityStore } from '../../services/fidelity/fidelity-store'
@@ -261,7 +262,7 @@ export async function saveDoc(documentId: string, saveAs: boolean): Promise<bool
   if (path === undefined) {
     const formats = saveFormats(document.extension)
     const suffix = !saveAs && document.path !== undefined ? ' (edited)' : ''
-    path = await fileService.chooseSavePath({ defaultName: `${document.name}${suffix}.${formats[0] ?? 'docx'}`, extensions: formats })
+    path = await chooseDocumentPath(documentId, { defaultName: `${document.name}${suffix}.${formats[0] ?? 'docx'}`, extensions: formats })
     if (path === undefined) return false
   }
 

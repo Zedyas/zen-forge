@@ -21,8 +21,12 @@ function ownerOf(event: IpcMainInvokeEvent): BrowserWindow | undefined {
   return BrowserWindow.fromWebContents(event.sender) ?? undefined
 }
 
-/** Registers the only main-process filesystem operations exposed to the renderer. */
-export function registerFileIpc(): void {
+/**
+ * Registers the only main-process filesystem operations exposed to the renderer. `openInOtherWindow`
+ * says whether a window other than the sender has a tab on a path; the save dialog refuses such a
+ * path, since writing there would replace a file another window is editing.
+ */
+export function registerFileIpc(openInOtherWindow: (event: IpcMainInvokeEvent, path: string) => boolean): void {
   handle('file:show-open-dialog', async (event, options: OpenFileOptions) => {
     const properties: Array<'openFile' | 'multiSelections'> = ['openFile']
     if (options.allowMultiple === true) properties.push('multiSelections')
@@ -50,7 +54,11 @@ export function registerFileIpc(): void {
     const result = owner === undefined
       ? await dialog.showSaveDialog(settings)
       : await dialog.showSaveDialog(owner, settings)
-    return result.canceled ? undefined : result.filePath
+    if (result.canceled) return undefined
+    if (openInOtherWindow(event, result.filePath)) {
+      throw new Error(`“${basename(result.filePath)}” is open in another window. Close it there first, or save with a different name.`)
+    }
+    return result.filePath
   })
 
   handle('file:confirm-close', async (event, documentName: string): Promise<CloseChoice> => {

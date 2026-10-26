@@ -2,7 +2,7 @@ import { useEffect, useSyncExternalStore } from 'react'
 import { toast } from 'sonner'
 import { findApplication, isWritableExtension } from '@shared/applications'
 import { createImportReport } from '@shared/fidelity'
-import { openFiles } from '../../app/document-actions'
+import { chooseDocumentPath, openFiles } from '../../app/document-actions'
 import { useDocumentsStore, type OpenDocument } from '../../app/documents-store'
 import { fileService } from '../../services/file/IpcFileService'
 import { useFidelityStore } from '../../services/fidelity/fidelity-store'
@@ -139,7 +139,7 @@ export async function saveWorkbook(documentId: string, saveAs: boolean): Promise
     const format = isDelimitedFormat(document.extension) && !multiSheetText ? document.extension : 'xlsx'
     // The copy needs a new name only when it would otherwise replace the original.
     const suffix = losesContent && !saveAs && format === document.extension ? ' (edited)' : ''
-    path = await fileService.chooseSavePath({
+    path = await chooseDocumentPath(documentId, {
       defaultName: `${document.name}${suffix}.${format}`,
       // Delimited text holds one sheet; a multi-sheet workbook is only offered .xlsx (Export Sheet as CSV covers one sheet).
       extensions: multiSheet ? ['xlsx'] : [format, ...findApplication('sheets').saves.filter(extension => extension !== format)],

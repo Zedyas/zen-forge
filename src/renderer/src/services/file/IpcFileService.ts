@@ -32,7 +32,7 @@ export class IpcFileService implements FileService {
   }
 
   chooseSavePath(options: SaveFileOptions): Promise<string | undefined> {
-    return requireBridge('Saving files').showSaveDialog(options)
+    return mainProcessMessage(requireBridge('Saving files').showSaveDialog(options))
   }
 
   describe(path: string): Promise<FileReference> {

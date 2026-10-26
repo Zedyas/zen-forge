@@ -1,11 +1,11 @@
 import { toast } from 'sonner'
 import { applicationForExtension, applications, findApplication, type EditorApplicationId } from '@shared/applications'
-import type { FileReference } from '@shared/shell'
+import type { FileReference, SaveFileOptions } from '@shared/shell'
 import { fileService } from '../services/file/IpcFileService'
 import { recordRecent } from '../services/index/document-index'
 import { platformClient } from '../services/platform/client'
 import { editorFor } from './editors'
-import { useDocumentsStore, type OpenDocument } from './documents-store'
+import { openInOtherTab, useDocumentsStore, type OpenDocument } from './documents-store'
 
 function findDocument(id: string): OpenDocument | undefined {
   return useDocumentsStore.getState().documents.find(candidate => candidate.id === id)
@@ -41,6 +41,20 @@ export async function openDroppedFiles(files: FileList): Promise<void> {
     throw new Error(`Drop a ${openableExtensions().map(extension => `.${extension}`).join(', ')} file.`)
   }
   await openFiles(openable)
+}
+
+/**
+ * Asks where to save a document. A file open in another tab is refused: this tab would take that
+ * tab's place, and the other tab's unsaved changes would be lost. The main process refuses files
+ * open in other windows the same way.
+ */
+export async function chooseDocumentPath(id: string, options: SaveFileOptions): Promise<string | undefined> {
+  const path = await fileService.chooseSavePath(options)
+  const other = path === undefined ? undefined : openInOtherTab(useDocumentsStore.getState(), id, path)
+  if (other !== undefined) {
+    throw new Error(`“${other.name}” is open in another tab. Close that tab first, or save with a different name.`)
+  }
+  return path
 }
 
 /** Saves one document through its module; reports failure as a toast and resolves false. */

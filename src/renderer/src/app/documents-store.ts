@@ -133,6 +133,11 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
   },
 }))
 
+/** The tab, other than `id`, that has `path` open. Saving `id` to that path would put two tabs on one file. */
+export function openInOtherTab(state: Pick<DocumentsState, 'documents'>, id: string, path: string): OpenDocument | undefined {
+  return state.documents.find(document => document.id !== id && document.path === path)
+}
+
 export function activeDocument(state: Pick<DocumentsState, 'documents' | 'activeId'>): OpenDocument | undefined {
   return state.documents.find(document => document.id === state.activeId)
 }

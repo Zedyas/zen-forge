@@ -359,7 +359,8 @@ app.whenReady().then(() => {
   if (!app.isPackaged) app.dock?.setIcon(join(__dirname, '../../build/icon.png'))
   applySecurity()
   applyStoredAppearance()
-  registerFileIpc()
+  registerFileIpc((event, path) => records.some(record =>
+    record.window.webContents !== event.sender && record.state.session.paths.includes(path)))
   registerUpdates(broadcast)
   registerPrintIpc()
   registerLinkIpc()
