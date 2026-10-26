@@ -5,7 +5,8 @@
  *   style gallery and list tools work;
  * - formatting on the text as direct formatting (fonts, sizes, colours, highlights, spacing,
  *   indents, alignment), and the file properties;
- * - the page setup as the section's page size and margins, and page numbers as a footer field;
+ * - the page setup as the section's page size and margins, and the headers and footers as the
+ *   section's, with page numbers as PAGE and NUMPAGES fields;
  * - blocks Word has no style for (code, rule, checklist) as named styles, and a block that
  *   continues a list item as a list level with no number, so it stays inside the item.
  * Whatever does not come back the same (a table inside a list item, say) is caught when saving
@@ -19,6 +20,7 @@ import {
   Document,
   ExternalHyperlink,
   Footer,
+  Header,
   HeadingLevel,
   HighlightColor,
   ImageRun,
@@ -42,6 +44,7 @@ import {
   type IRunOptions,
   type ParagraphChild,
 } from 'docx'
+import { documentHeadersAndFooters, type HeaderFooterContent } from '../header-footer'
 import { contentWidthPixels, documentPage, documentProperties, documentTheme, toPoints, type BlockStyle, type PageSetup } from '../theme'
 import { checklistMarks, docxStyleNames, hexColor, highlightColors, safeHref, type DocxStyleId } from './docx-styles'
 import { fromDataUrl, imageSize, type PixelSize } from './images'
@@ -193,6 +196,7 @@ function textRuns(node: JSONContent, text: string, inLink: boolean): Array<TextR
 
 function inlineRuns(node: JSONContent, context: ExportContext, inLink: boolean): Array<TextRun | ImageRun | PageBreak> {
   if (node.type === 'hardBreak') return [new TextRun({ break: 1 })]
+  if (node.type === 'pageField') return [new TextRun({ ...runOptions(node, inLink), children: [node.attrs?.['kind'] === 'total' ? PageNumber.TOTAL_PAGES : PageNumber.CURRENT] })]
   if (node.type === 'image') {
     const image = imageRun(node, context)
     return image === undefined ? [] : [image]
@@ -432,8 +436,9 @@ function styleProperties(style: BlockStyle, keepNext = false): Required<Pick<IPa
   }
 }
 
-function pageNumberFooter(): Footer {
-  return new Footer({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ children: [PageNumber.CURRENT] })] })] })
+/** A header or footer's paragraphs, in Word's Header or Footer style. */
+function partParagraphs(content: HeaderFooterContent, style: 'Header' | 'Footer', context: ExportContext): Paragraph[] {
+  return content.map(node => new Paragraph({ ...alignment(node), style, children: runs(node.content ?? [], context) }))
 }
 
 export async function writeDocx(content: JSONContent): Promise<DocxExport> {
@@ -442,6 +447,10 @@ export async function writeDocx(content: JSONContent): Promise<DocxExport> {
   const properties = documentProperties(content.attrs?.['properties'])
   const context: ExportContext = { page, listStarts: new Set(), listInstances: 0, skippedImages: 0 }
   const children = blocks(content.content ?? [], context)
+  const headerFooter = documentHeadersAndFooters(content.attrs?.['headerFooter'])
+  // The first page's own header and footer are written even while unused, as Word keeps them.
+  const header = (part: HeaderFooterContent): Header | undefined => part.length === 0 ? undefined : new Header({ children: partParagraphs(part, 'Header', context) })
+  const footer = (part: HeaderFooterContent): Footer | undefined => part.length === 0 ? undefined : new Footer({ children: partParagraphs(part, 'Footer', context) })
   const document = new Document({
     title: xmlText(properties.title),
     subject: xmlText(properties.subject),
@@ -476,6 +485,8 @@ export async function writeDocx(content: JSONContent): Promise<DocxExport> {
         { id: 'ListContinue', name: docxStyleNames.ListContinue, basedOn: 'Normal', paragraph: { indent: { left: 720 } } },
         { id: 'Checklist', name: docxStyleNames.Checklist, basedOn: 'Normal', paragraph: { contextualSpacing: true } },
         { id: 'TableText', name: docxStyleNames.TableText, basedOn: 'Normal', paragraph: { spacing: { before: 0, after: 0 } } },
+        { id: 'Header', name: 'header', basedOn: 'Normal', paragraph: { spacing: { before: 0, after: 0, line: 240, lineRule: LineRuleType.AUTO } } },
+        { id: 'Footer', name: 'footer', basedOn: 'Normal', paragraph: { spacing: { before: 0, after: 0, line: 240, lineRule: LineRuleType.AUTO } } },
       ],
       characterStyles: [
         { id: 'InlineCode', name: docxStyleNames.InlineCode, basedOn: 'DefaultParagraphFont', run: { font: 'Courier New', size: 20 } },
@@ -498,8 +509,10 @@ export async function writeDocx(content: JSONContent): Promise<DocxExport> {
           size: { width: page.width, height: page.height },
           margin: { top: page.marginTop, right: page.marginRight, bottom: page.marginBottom, left: page.marginLeft, header: 720, footer: 720 },
         },
+        ...(headerFooter.differentFirstPage ? { titlePage: true } : {}),
       },
-      ...(page.pageNumbers ? { footers: { default: pageNumberFooter() } } : {}),
+      headers: { default: header(headerFooter.header), first: header(headerFooter.firstHeader) },
+      footers: { default: footer(headerFooter.footer), first: footer(headerFooter.firstFooter) },
       children: children.length > 0 ? children : [new Paragraph({})],
     }],
   })

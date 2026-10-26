@@ -3,8 +3,10 @@ import { getSchema, type JSONContent } from '@tiptap/core'
 import { CommentRangeEnd, CommentRangeStart, CommentReference, Document, Header, Packer, Paragraph, TextRun } from 'docx'
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 import { describe, expect, it } from 'vitest'
+import type { HeadersAndFooters } from '../header-footer'
 import { documentExtensions } from '../schema'
 import { defaultTheme, type DocumentTheme, type PageSetup } from '../theme'
+import { sameDocument } from './compare'
 import { writeDocx } from './docx-export'
 import { readDocx } from './docx-read'
 
@@ -37,13 +39,24 @@ const png = `data:image/png;base64,${btoa(String.fromCharCode(
   0, 0, 0, 40, 0, 0, 0, 20, 8, 6, 0, 0, 0, 0, 0, 0, 0,
 ))}`
 
-const page: PageSetup = { width: 16_838, height: 11_906, marginTop: 1_080, marginRight: 1_440, marginBottom: 1_080, marginLeft: 1_800, pageNumbers: true }
+const page: PageSetup = { width: 16_838, height: 11_906, marginTop: 1_080, marginRight: 1_440, marginBottom: 1_080, marginLeft: 1_800 }
 const theme: DocumentTheme = { ...defaultTheme, normal: { ...defaultTheme.normal, fontFamily: 'Georgia', fontSize: 12, lineHeight: 1.5 } }
+const small = { type: 'textStyle', attrs: { fontSize: '9pt' } }
+const headerFooter: HeadersAndFooters = {
+  header: [{ type: 'paragraph', attrs: { textAlign: 'right' }, content: [text('Quarterly report', 'bold'), text(' · draft', 'italic')] }],
+  footer: [
+    { type: 'paragraph', content: [text('Confidential', 'underline')] },
+    { type: 'paragraph', attrs: { textAlign: 'center' }, content: [text('Page ', small), { type: 'pageField', attrs: { kind: 'page' }, marks: [small] }, text(' of ', small), { type: 'pageField', attrs: { kind: 'total' }, marks: [small] }] },
+  ],
+  firstHeader: [{ type: 'paragraph', content: [text('Ana Lima', { type: 'textStyle', attrs: { fontFamily: 'Verdana', color: '#c00000' } })] }],
+  firstFooter: [],
+  differentFirstPage: true,
+}
 
 /** Everything the model holds, as Sumi would save it. */
 const document: JSONContent = {
   type: 'doc',
-  attrs: { page, theme, properties: { title: 'Quarterly report', subject: '', creator: 'Ana', keywords: 'sales', description: '' } },
+  attrs: { page, theme, headerFooter, properties: { title: 'Quarterly report', subject: '', creator: 'Ana', keywords: 'sales', description: '' } },
   content: [
     { type: 'title', attrs: { textAlign: 'center' }, content: [text('Quarterly report')] },
     { type: 'heading', attrs: { level: 1 }, content: [text('Summary')] },
@@ -125,9 +138,10 @@ describe('docx', () => {
     expect(skippedImages).toBe(0)
     expect(read.findings).toEqual([])
     expect(normalized(read.content)).toEqual(normalized(document))
+    expect(sameDocument(schema, read.content, document)).toBe(true)
   })
 
-  it('lists comments and header text as lost, with counts and what happens to them', async () => {
+  it('lists comments as lost, with counts and what happens to them, and keeps the header', async () => {
     const source = new Document({
       comments: { children: [0, 1].map(id => ({ id, author: 'Reviewer', date: new Date(0), children: [new Paragraph('Check this')] })) },
       sections: [{
@@ -137,10 +151,10 @@ describe('docx', () => {
         })),
       }],
     })
-    const { findings } = readDocx(new Uint8Array(await Packer.toArrayBuffer(source)))
+    const { content, findings } = readDocx(new Uint8Array(await Packer.toArrayBuffer(source)))
 
-    expect(findings).toContainEqual({ construct: 'Comments', severity: 'dropped', location: '2 comments', suggestedAlternative: 'Not shown, and not kept when saved.' })
-    expect(findings).toContainEqual(expect.objectContaining({ construct: 'Header and footer text', severity: 'dropped' }))
+    expect(findings).toEqual([{ construct: 'Comments', severity: 'dropped', location: '2 comments', suggestedAlternative: 'Not shown, and not kept when saved.' }])
+    expect(content.attrs?.['headerFooter']).toMatchObject({ header: [{ type: 'paragraph', content: [{ text: 'Confidential' }] }], footer: [] })
   })
 
   it('writes a file that opens when the text holds control characters', async () => {
@@ -211,9 +225,29 @@ describe('docx from Word', () => {
     const { findings } = readDocx(packageOf(body, { 'word/_rels/document.xml.rels': rels, 'word/header1.xml': header, 'word/footer1.xml': footer }))
 
     expect(findings.map(finding => finding.construct)).toEqual(expect.arrayContaining([
-      'Header and footer text', 'Multiple columns', 'Section breaks', 'Links within the document', 'Bookmarks',
+      'Fields', 'Multiple columns', 'Section breaks', 'Links within the document', 'Bookmarks',
       'Tracked changes', 'Right-to-left paragraphs', 'Other Word content',
     ]))
+  })
+
+  it('reads page number fields and a different first page from a Word header and footer', () => {
+    const styles = '<?xml version="1.0"?><w:styles NS><w:style w:type="paragraph" w:styleId="Header"><w:name w:val="header"/><w:pPr><w:spacing w:after="0"/></w:pPr></w:style></w:styles>'
+    const field = (code: string, shown: string): string => `<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> ${code} </w:instrText></w:r>`
+      + `<w:r><w:fldChar w:fldCharType="separate"/></w:r>${run(shown)}<w:r><w:fldChar w:fldCharType="end"/></w:r>`
+    const header = `<?xml version="1.0"?><w:hdr NS>${para(run('Page ') + field('PAGE \\* MERGEFORMAT', '3') + run(' of ') + '<w:fldSimple w:instr=" NUMPAGES "><w:r><w:t>9</w:t></w:r></w:fldSimple>', '<w:pStyle w:val="Header"/><w:jc w:val="right"/>')}</w:hdr>`
+    const cover = `<?xml version="1.0"?><w:ftr NS>${para(run('Cover'))}</w:ftr>`
+    const body = para(run('Text')) + '<w:sectPr><w:headerReference w:type="default" r:id="rId1"/><w:footerReference w:type="first" r:id="rId2"/><w:titlePg/></w:sectPr>'
+    const rels = relationships('<Relationship Id="rId1" Type="header" Target="header1.xml"/>', '<Relationship Id="rId2" Type="footer" Target="footer1.xml"/>')
+    const { content, findings } = readDocx(packageOf(body, { 'word/_rels/document.xml.rels': rels, 'word/header1.xml': header, 'word/footer1.xml': cover, 'word/styles.xml': styles }))
+
+    expect(findings).toEqual([])
+    expect(content.attrs?.['headerFooter']).toEqual({
+      header: [{ type: 'paragraph', attrs: { textAlign: 'right' }, content: [{ type: 'text', text: 'Page ' }, { type: 'pageField', attrs: { kind: 'page' } }, { type: 'text', text: ' of ' }, { type: 'pageField', attrs: { kind: 'total' } }] }],
+      footer: [],
+      firstHeader: [],
+      firstFooter: [{ type: 'paragraph', content: [{ type: 'text', text: 'Cover' }] }],
+      differentFirstPage: true,
+    })
   })
 
   it('unpacks only the parts it reads', () => {

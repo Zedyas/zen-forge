@@ -4,7 +4,8 @@ import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
 import { useEditorState } from '@tiptap/react'
 import { Inspector, InspectorRow, InspectorSection } from '../../ui/Inspector'
 import { Tip } from '../../ui/Tip'
-import { currentBlockStyle, setPage, setParagraphFormat, type ParagraphFormat } from './doc-commands'
+import { currentBlockStyle, editPart, setHeadersAndFooters, setPage, setParagraphFormat, type ParagraphFormat } from './doc-commands'
+import { documentHeadersAndFooters, hasPageNumber, partLabels, withPageNumber, type HeaderFooterPart } from './header-footer'
 import { countText, outline } from './text-stats'
 import { documentPage, isLandscape, lengthUnit, pageFor, paperOf, papers, type PageSetup } from './theme'
 
@@ -203,17 +204,39 @@ function PageSection({ editor }: { readonly editor: Editor }) {
       {margin('marginBottom', 'Bottom margin')}
       {margin('marginLeft', 'Left margin')}
       {margin('marginRight', 'Right margin')}
+    </InspectorSection>
+  )
+}
+
+function HeaderFooterSection({ editor, documentId }: { readonly editor: Editor; readonly documentId: string }) {
+  const headerFooter = useEditorState({ editor, selector: ({ editor: current }) => documentHeadersAndFooters(current.state.doc.attrs['headerFooter']) })
+  const parts: readonly HeaderFooterPart[] = headerFooter.differentFirstPage ? ['header', 'footer', 'firstHeader', 'firstFooter'] : ['header', 'footer']
+  return (
+    <InspectorSection title="Header and footer">
+      <div className="sumi-inspector-actions is-wrapping">
+        {parts.map(part => (
+          <button key={part} type="button" className="button" onClick={() => editPart(documentId, part)}>{partLabels[part]}</button>
+        ))}
+      </div>
       <label className="sumi-check-row">
-        <input type="checkbox" checked={page.pageNumbers} onChange={event => setPage(editor, { pageNumbers: event.currentTarget.checked })} />
+        <input
+          type="checkbox"
+          checked={hasPageNumber(headerFooter.footer)}
+          onChange={event => setHeadersAndFooters(editor, { footer: withPageNumber(headerFooter.footer, event.currentTarget.checked) })}
+        />
         Page numbers in the footer
       </label>
-      <p className="inspector-note">Used when printing and saved in Word files.</p>
+      <label className="sumi-check-row">
+        <input type="checkbox" checked={headerFooter.differentFirstPage} onChange={event => setHeadersAndFooters(editor, { differentFirstPage: event.currentTarget.checked })} />
+        Different first page
+      </label>
+      <p className="inspector-note">Double-click the top or bottom margin of the page to edit. Used when printing and saved in Word files.</p>
     </InspectorSection>
   )
 }
 
 /** Detail that does not need to be one click away: paragraph and table settings, page setup, counts and the outline. */
-export function DocInspector({ editor }: { readonly editor: Editor }) {
+export function DocInspector({ editor, documentId }: { readonly editor: Editor; readonly documentId: string }) {
   const { counts, headings } = useEditorState({
     editor,
     selector: ({ editor: current }) => ({ counts: countText(current.state.doc), headings: outline(current.state.doc) }),
@@ -224,6 +247,7 @@ export function DocInspector({ editor }: { readonly editor: Editor }) {
       <ParagraphSection editor={editor} />
       <TableSection editor={editor} />
       <PageSection editor={editor} />
+      <HeaderFooterSection editor={editor} documentId={documentId} />
 
       <InspectorSection title="Document">
         <InspectorRow label="Words"><span>{counts.words.toLocaleString()}</span></InspectorRow>

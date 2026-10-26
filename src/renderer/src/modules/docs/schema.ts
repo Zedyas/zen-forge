@@ -8,11 +8,13 @@ import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table
 import TextAlign from '@tiptap/extension-text-align'
 import { BackgroundColor, Color, FontFamily, FontSize, TextStyle } from '@tiptap/extension-text-style'
 import StarterKit from '@tiptap/starter-kit'
+import { noHeadersOrFooters } from './header-footer'
 import { defaultPage, defaultTheme, emptyProperties, singleLineHeight, toPoints } from './theme'
 
 /**
  * The root node. Its attributes are the document's page setup, theme and file properties
- * (theme.ts), and a Markdown file's front matter, kept exactly as it was.
+ * (theme.ts), its headers and footers (header-footer.ts), and a Markdown file's front matter,
+ * kept exactly as it was.
  */
 const SumiDocument = Node.create({
   name: 'doc',
@@ -23,6 +25,7 @@ const SumiDocument = Node.create({
       page: { default: defaultPage, rendered: false },
       theme: { default: defaultTheme, rendered: false },
       properties: { default: emptyProperties, rendered: false },
+      headerFooter: { default: noHeadersOrFooters, rendered: false },
       frontMatter: { default: null, rendered: false },
     }
   },
@@ -180,4 +183,64 @@ export const documentExtensions: Extensions = [
   TaskList,
   TaskItem.configure({ nested: true }),
   PageBreak,
+]
+
+/** A header or footer: paragraphs only. */
+const HeaderFooterDocument = Node.create({
+  name: 'doc',
+  topNode: true,
+  content: 'paragraph+',
+})
+
+/** The page number or the page count, as Word's PAGE and NUMPAGES fields; each page shows its own. */
+export const PageField = Node.create({
+  name: 'pageField',
+  group: 'inline',
+  inline: true,
+  atom: true,
+  selectable: true,
+  addAttributes() {
+    return {
+      kind: {
+        default: 'page',
+        parseHTML: element => element.getAttribute('data-field') === 'total' ? 'total' : 'page',
+        renderHTML: attributes => ({ 'data-field': attributes['kind'] === 'total' ? 'total' : 'page' }),
+      },
+    }
+  },
+  parseHTML() {
+    return [{ tag: 'span[data-field]' }]
+  },
+  renderHTML({ node, HTMLAttributes }) {
+    return ['span', mergeAttributes(HTMLAttributes, { class: 'sumi-field' }), node.attrs['kind'] === 'total' ? 'pages' : 'page']
+  },
+})
+
+/** What a header or footer can hold (header-footer.ts). Its small editor and the .docx reader and writer use this list. */
+export const headerFooterExtensions: Extensions = [
+  HeaderFooterDocument,
+  StarterKit.configure({
+    document: false,
+    heading: false,
+    blockquote: false,
+    bulletList: false,
+    orderedList: false,
+    listItem: false,
+    listKeymap: false,
+    codeBlock: false,
+    code: false,
+    horizontalRule: false,
+    strike: false,
+    link: false,
+    dropcursor: false,
+    gapcursor: false,
+    trailingNode: false,
+  }),
+  TextAlign.configure({ types: ['paragraph'] }),
+  TextStyle,
+  FontFamily,
+  FontSize,
+  Color,
+  BackgroundColor,
+  PageField,
 ]

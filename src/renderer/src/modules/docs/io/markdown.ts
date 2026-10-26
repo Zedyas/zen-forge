@@ -7,6 +7,7 @@
 import type { JSONContent } from '@tiptap/core'
 import { MarkdownManager } from '@tiptap/markdown'
 import type { ImportFindingInput } from '@shared/fidelity'
+import { documentHeadersAndFooters, headerFooterParts } from '../header-footer'
 import { documentExtensions } from '../schema'
 
 export interface MarkdownImport {
@@ -175,6 +176,12 @@ function forMarkdown(node: JSONContent, imageSources: ReadonlyMap<string, string
     ...(node.marks === undefined ? {} : { marks: node.marks.filter(mark => markdownMarks.has(mark.type) && (mark.type !== 'link' || safeLink(mark.attrs?.['href']))) }),
     ...(children === undefined ? {} : { content: textblock ? escapeLines(children, inTable) : children }),
   }
+}
+
+/** What saving as Markdown leaves out that is easy to miss, said in the question before saving over a file. */
+export function markdownLosses(content: JSONContent): string[] {
+  const headerFooter = documentHeadersAndFooters(content.attrs?.['headerFooter'])
+  return headerFooterParts.some(part => headerFooter[part].length > 0) ? ['the header and footer are left out'] : []
 }
 
 export function writeMarkdown(content: JSONContent, imageSources: ReadonlyMap<string, string> = new Map()): string {

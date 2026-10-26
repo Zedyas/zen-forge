@@ -1,7 +1,11 @@
-import type { JSONContent } from '@tiptap/core'
+import { getSchema, type JSONContent } from '@tiptap/core'
 import type { AttributeSpec, Schema } from '@tiptap/pm/model'
+import { documentHeadersAndFooters, headerFooterParts } from '../header-footer'
+import { headerFooterExtensions } from '../schema'
 import { toPoints } from '../theme'
 import { hexColor } from './docx-styles'
+
+let headerFooterSchema: Schema | undefined
 
 /** Attribute values that mean the same thing, written one way: left alignment is no alignment, colours in hex, sizes in points. */
 function canonicalValue(key: string, value: unknown): unknown {
@@ -14,8 +18,22 @@ function canonicalValue(key: string, value: unknown): unknown {
   return value
 }
 
+/** Headers and footers through their own schema, as the body goes through its own. */
+function canonicalHeaderFooter(value: unknown): unknown {
+  const headerFooter = documentHeadersAndFooters(value)
+  headerFooterSchema ??= getSchema(headerFooterExtensions)
+  const schema = headerFooterSchema
+  return {
+    differentFirstPage: headerFooter.differentFirstPage,
+    ...Object.fromEntries(headerFooterParts.map(part => {
+      const content = headerFooter[part]
+      return [part, content.length === 0 ? [] : canonical(schema.nodeFromJSON({ type: 'doc', content }).toJSON()).content]
+    })),
+  }
+}
+
 function canonicalAttrs(attrs: Readonly<Record<string, unknown>>): Record<string, unknown> {
-  return Object.fromEntries(Object.entries(attrs).map(([key, value]) => [key, canonicalValue(key, value)]))
+  return Object.fromEntries(Object.entries(attrs).map(([key, value]) => [key, key === 'headerFooter' ? canonicalHeaderFooter(value) : canonicalValue(key, value)]))
 }
 
 function canonical(node: JSONContent): JSONContent {

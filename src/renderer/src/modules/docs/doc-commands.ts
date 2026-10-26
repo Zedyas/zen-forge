@@ -4,6 +4,7 @@ import { create } from 'zustand'
 import type { CommandId } from '@shared/commands'
 import { fileService } from '../../services/file/IpcFileService'
 import { platformClient } from '../../services/platform/client'
+import { documentHeadersAndFooters, type HeaderFooterPart, type HeadersAndFooters } from './header-footer'
 import { imageSize, mimeTypeForExtension, toDataUrl } from './io/images'
 import { contentWidthPixels, documentPage, documentTheme, headingLevels, type BlockStyle, type PageSetup, type StyleName } from './theme'
 
@@ -114,6 +115,34 @@ export function setPage(editor: Editor, change: Partial<PageSetup>): void {
   }).run()
 }
 
+// ─── Headers and footers ────────────────────────────────────────────────
+
+/** Changes the headers and footers; typing in one runs together into undo steps as typing in the page does. */
+export function setHeadersAndFooters(editor: Editor, change: Partial<HeadersAndFooters>): void {
+  const headerFooter = { ...documentHeadersAndFooters(editor.state.doc.attrs['headerFooter']), ...change }
+  editor.chain().command(({ tr }) => {
+    tr.setDocAttribute('headerFooter', headerFooter)
+    return true
+  }).run()
+}
+
+/** The header or footer being edited, per window; a view state, like zoom. */
+export const usePartEditing = create<{ readonly editing: { readonly documentId: string; readonly part: HeaderFooterPart } | undefined }>(() => ({ editing: undefined }))
+
+export function editPart(documentId: string, part: HeaderFooterPart | undefined): void {
+  usePartEditing.setState({ editing: part === undefined ? undefined : { documentId, part } })
+}
+
+/** The open header or footer editor, which takes undo and character formatting from the menu while it is open. */
+let activePart: Editor | undefined
+
+export function setActivePart(editor: Editor): () => void {
+  activePart = editor
+  return () => {
+    if (activePart === editor) activePart = undefined
+  }
+}
+
 // ─── Menu commands ──────────────────────────────────────────────────────
 
 /** The native menu owns ⌘Z, so text fields (find, link, inspector) get their own undo back here. */
@@ -125,28 +154,31 @@ function isEditingField(): boolean {
 export function runDocCommand(command: CommandId): void | Promise<void> {
   if (active === undefined) return
   const { editor, documentId } = active
+  const text = activePart ?? editor
   switch (command) {
     case 'edit.undo':
       if (isEditingField()) document.execCommand('undo')
-      else editor.chain().focus().undo().run()
+      else text.chain().focus().undo().run()
       return
     case 'edit.redo':
       if (isEditingField()) document.execCommand('redo')
-      else editor.chain().focus().redo().run()
+      else text.chain().focus().redo().run()
       return
     case 'edit.find':
       return active.openFind()
     case 'format.bold':
-      editor.chain().focus().toggleBold().run()
+      text.chain().focus().toggleBold().run()
       return
     case 'format.italic':
-      editor.chain().focus().toggleItalic().run()
+      text.chain().focus().toggleItalic().run()
       return
     case 'format.underline':
-      editor.chain().focus().toggleUnderline().run()
+      text.chain().focus().toggleUnderline().run()
       return
     case 'format.clear':
-      return clearFormatting(editor)
+      if (activePart !== undefined) activePart.chain().focus().unsetAllMarks().run()
+      else clearFormatting(editor)
+      return
     case 'view.zoomIn':
       return setZoom(documentId, 1)
     case 'view.zoomOut':

@@ -241,10 +241,13 @@ async function overwriteRisk(editor: Editor, shown: JSONContent, format: string,
   }
   const lost = await changesOnReopen(editor, shown, format, bytes, cached.imageSources)
   if (lost === undefined) return undefined
-  return {
-    message: isMarkdown(format) ? 'Saving as Markdown would change parts of this document.' : 'Saving as a Word document would change parts of this document.',
-    signature: `${format}:${lost.join('|')}`,
+  let message = 'Saving as a Word document would change parts of this document.'
+  if (isMarkdown(format)) {
+    const { markdownLosses } = await import('./io/markdown')
+    const losses = markdownLosses(shown)
+    message = `Saving as Markdown would change parts of this document${losses.length > 0 ? `: ${losses.join(', and ')}` : ''}.`
   }
+  return { message, signature: `${format}:${lost.join('|')}` }
 }
 
 /**
@@ -316,7 +319,7 @@ export async function saveDoc(documentId: string, saveAs: boolean): Promise<bool
   await recordPreview(file.path, renderPreview(snapshot))
   toast.success(`Saved ${file.name}`)
   if (isMarkdown(format) && !isMarkdown(document.extension)) {
-    toast.info('Markdown keeps text and structure only', { description: 'Fonts, colours, underline, alignment, spacing, page setup and page breaks are saved in .docx.' })
+    toast.info('Markdown keeps text and structure only', { description: 'Fonts, colours, underline, alignment, spacing, page setup, headers, footers and page breaks are saved in .docx.' })
   }
   return true
 }

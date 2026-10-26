@@ -9,13 +9,53 @@
 
 .sumi-sheet { width: fit-content; margin: 0 auto; }
 .sumi-paper {
+  position: relative;
   display: flex; flex-direction: column;
   background: #fff;
   box-shadow: var(--shadow-page);
   cursor: text;
   color-scheme: light;
 }
-.sumi-paper > .ProseMirror { flex: 1; }
+.sumi-body { display: flex; flex: 1; flex-direction: column; }
+.sumi-body > .ProseMirror { flex: 1; }
+
+/* The header and footer sit in the top and bottom margins (HeaderFooterZone). Word puts them half
+   an inch from the edge; centring them in a one-inch margin puts them there. Their paragraphs are
+   Word's Header and Footer styles: the body font, single spacing, no space between paragraphs. */
+.sumi-part {
+  position: absolute; z-index: 1;
+  display: flex; flex-direction: column; justify-content: center;
+  color: var(--sumi-normal-color);
+  font: var(--sumi-normal-style) var(--sumi-normal-weight) var(--sumi-normal-size) / 1.15 var(--sumi-normal-font), sans-serif;
+  cursor: default;
+}
+.sumi-part p { min-height: 1.15em; margin: 0; }
+.sumi-part:hover:not([data-editing]) { outline: 1px dashed #c3c8d0; outline-offset: 2px; }
+.sumi-part[data-hint]:hover::before {
+  content: attr(data-hint);
+  align-self: center;
+  color: #9aa0a8; font: 11px var(--font-ui);
+}
+.sumi-part[data-editing] { outline: 1px solid #4a6cd4; outline-offset: 2px; cursor: text; }
+.sumi-part-content > .ProseMirror { outline: none; }
+.sumi-part-toolbar {
+  position: absolute; left: 50%; z-index: 2; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 2px;
+  padding: 3px 6px; border-radius: var(--radius);
+  background: var(--surface); box-shadow: 0 4px 16px rgb(0 0 0 / 16%), 0 0 0 0.5px rgb(0 0 0 / 18%);
+  color: var(--ink); font: 12px var(--font-ui); white-space: nowrap;
+}
+.sumi-part.is-top .sumi-part-toolbar { top: calc(100% + 8px); }
+.sumi-part.is-bottom .sumi-part-toolbar { bottom: calc(100% + 8px); }
+.sumi-part-label { padding: 0 6px; color: var(--dim); font-weight: 600; }
+
+/* A page number or page count: each page shows its own when printed and in Word. */
+.sumi-field {
+  padding: 0 3px; border-radius: 3px;
+  background: #e8edf8; color: #3d4f7c;
+  font-size: 0.85em;
+}
+.sumi-field.ProseMirror-selectednode { outline: 2px solid #4a6cd4; }
 
 .sumi-prose {
   color: var(--sumi-normal-color);
@@ -180,6 +220,7 @@
 .sumi-check-row { display: flex; align-items: center; gap: 8px; min-height: var(--control); color: var(--ink); }
 .sumi-check-row input { margin: 0; accent-color: var(--accent); }
 .sumi-inspector-actions { display: flex; gap: 6px; margin: 4px 0 8px; }
+.sumi-inspector-actions.is-wrapping { flex-wrap: wrap; }
 /* Swatches start at the column's edge, like the text above them. */
 .swatch-grid.sumi-shades { padding: 2px 0 6px; }
 

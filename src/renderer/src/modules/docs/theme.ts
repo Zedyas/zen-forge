@@ -82,8 +82,6 @@ export interface PageSetup {
   readonly marginRight: number
   readonly marginBottom: number
   readonly marginLeft: number
-  /** Page numbers centred in the footer, in print and in Word. */
-  readonly pageNumbers: boolean
 }
 
 export const papers = [
@@ -114,7 +112,6 @@ export function pageFor(paper: PaperName, landscape = false): PageSetup {
     width: landscape ? size.height : size.width,
     height: landscape ? size.width : size.height,
     marginTop: inch, marginRight: inch, marginBottom: inch, marginLeft: inch,
-    pageNumbers: false,
   }
 }
 
@@ -165,9 +162,7 @@ function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
 }
 
 function isPageSetup(value: unknown): value is PageSetup {
-  return isRecord(value)
-    && ['width', 'height', 'marginTop', 'marginRight', 'marginBottom', 'marginLeft'].every(key => typeof value[key] === 'number')
-    && typeof value['pageNumbers'] === 'boolean'
+  return isRecord(value) && ['width', 'height', 'marginTop', 'marginRight', 'marginBottom', 'marginLeft'].every(key => typeof value[key] === 'number')
 }
 
 function isBlockStyle(value: unknown): value is BlockStyle {
