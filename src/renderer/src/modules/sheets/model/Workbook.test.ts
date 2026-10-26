@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { sheetNameFrom, sheetNameProblem } from './address'
 import { blankWorkbookData, Workbook } from './Workbook'
 import type { WorkbookData } from './workbook-data'
 
@@ -87,7 +88,7 @@ describe('Workbook', () => {
     const sheetId = workbook.sheets()[0]?.id
     if (sheetId === undefined) throw new Error('Starter sheet is missing.')
 
-    workbook.setNumberFormat(sheetId, { x: 0, y: 0, width: 1, height: 1 }, 'currency')
+    workbook.setNumberFormat(sheetId, [{ x: 0, y: 0, width: 1, height: 1 }], 'currency')
     workbook.insertColumns(sheetId, 0)
     workbook.addSheet()
 
@@ -111,7 +112,7 @@ describe('Workbook', () => {
     workbook.setCellInput(sheetId, [0, 9], 2)
     workbook.setCellInput(sheetId, [0, 10], 3)
     workbook.setCellInput(sheetId, [1, 9], '=A10*2')
-    workbook.setNumberFormat(sheetId, { x: 1, y: 9, width: 1, height: 1 }, 'currency')
+    workbook.setNumberFormat(sheetId, [{ x: 1, y: 9, width: 1, height: 1 }], 'currency')
 
     workbook.fillRange(
       sheetId,
@@ -204,12 +205,43 @@ describe('Workbook', () => {
     expect(workbook.getCellValue(sheetId, [0, 3])).toBe(10)
   })
 
+  it('formats and clears every area of a selection that skips hidden rows, as one undo step', () => {
+    const workbook = regionsWorkbook()
+    const sheetId = workbook.sheets()[0]?.id ?? 0
+    workbook.hideRows(sheetId, 2)
+    const areas = [{ x: 1, y: 1, width: 1, height: 1 }, { x: 1, y: 3, width: 1, height: 1 }]
+
+    workbook.updateStyle(sheetId, areas, { bold: true })
+    workbook.clearContents(sheetId, areas)
+
+    expect(workbook.getStyle(sheetId, [1, 2]).bold).toBeUndefined()
+    expect([1, 2, 3].map(row => workbook.getCellValue(sheetId, [1, row]))).toEqual([null, 38_750, null])
+    expect(workbook.selectionStats(sheetId, areas).count).toBe(0)
+    workbook.undo()
+    expect(workbook.getCellValue(sheetId, [1, 3])).toBe(29_400)
+  })
+
+  it('renames sheets only to names Excel accepts', () => {
+    const workbook = regionsWorkbook()
+    const sheetId = workbook.sheets()[0]?.id ?? 0
+    workbook.addSheet()
+
+    expect(sheetNameProblem('Q1 [draft]', [])).toBe('A sheet name can’t contain / \\ ? * [ ] or :')
+    expect(sheetNameProblem("'Totals", [])).toBe('A sheet name can’t start or end with an apostrophe.')
+    expect(sheetNameProblem('x'.repeat(32), [])).toBe('A sheet name can be at most 31 characters.')
+    expect(workbook.renameSheet(sheetId, 'sheet2')).toBe(false)
+    expect(workbook.renameSheet(sheetId, 'a/b')).toBe(false)
+    expect(workbook.renameSheet(sheetId, 'sheet1')).toBe(true)
+    expect(workbook.sheets().map(sheet => sheet.name)).toEqual(['sheet1', 'Sheet2'])
+    expect(sheetNameFrom("Budget: 2026 [final]'")).toBe('Budget_ 2026 _final_')
+  })
+
   it('clears a range in one undo step and keeps its formatting', () => {
     const workbook = regionsWorkbook()
     const sheetId = workbook.sheets()[0]?.id ?? 0
-    workbook.setNumberFormat(sheetId, { x: 1, y: 1, width: 1, height: 1 }, 'currency')
+    workbook.setNumberFormat(sheetId, [{ x: 1, y: 1, width: 1, height: 1 }], 'currency')
 
-    workbook.clearContents(sheetId, { x: 1, y: 1, width: 2, height: 4 })
+    workbook.clearContents(sheetId, [{ x: 1, y: 1, width: 2, height: 4 }])
     expect(workbook.getCellValue(sheetId, [1, 1])).toBeNull()
     expect(workbook.getCellValue(sheetId, [1, 5])).toBe(0)
     expect(workbook.getStyle(sheetId, [1, 1]).numberFormat).toBe('currency')

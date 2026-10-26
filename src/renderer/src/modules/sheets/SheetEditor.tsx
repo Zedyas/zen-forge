@@ -11,7 +11,6 @@ import DataEditor, {
   type GridSelection,
   type DataEditorRef,
   type Item,
-  type Rectangle,
 } from '@glideapps/glide-data-grid'
 import '@glideapps/glide-data-grid/dist/index.css'
 import { Plus } from 'lucide-react'
@@ -24,9 +23,10 @@ import { Tip } from '../../ui/Tip'
 import { FindBar } from './FindBar'
 import { FormulaBar } from './FormulaBar'
 import { cellFontSize, gridTheme, headerHeight, isLightColor, rowHeight } from './grid-theme'
-import { columnName } from './model/address'
+import { mapCell, mapRange, visibleAreas } from './grid-mapping'
+import { columnName, sheetNameProblem } from './model/address'
 import { formatCellValue, formatStatistic } from './model/format'
-import type { CellRange, FindMatch, Workbook, WorkbookSheet } from './model/Workbook'
+import type { FindMatch, Workbook, WorkbookSheet } from './model/Workbook'
 import { setActiveSheet, type SheetController } from './sheet-commands'
 import { SheetContextMenu } from './SheetContextMenu'
 import { SheetInspector } from './SheetInspector'
@@ -39,21 +39,6 @@ function selectionForCell(cell: Item): GridSelection {
     current: { cell, range: { x: cell[0], y: cell[1], width: 1, height: 1 }, rangeStack: [] },
     columns: CompactSelection.empty(),
     rows: CompactSelection.empty(),
-  }
-}
-
-function mapCell([col, row]: Item, columns: readonly number[], rows: readonly number[]): Item {
-  return [columns[col] ?? 0, rows[row] ?? 0]
-}
-
-function mapRange(range: Rectangle, columns: readonly number[], rows: readonly number[]): CellRange {
-  const first = mapCell([range.x, range.y], columns, rows)
-  const last = mapCell([range.x + Math.max(1, range.width) - 1, range.y + Math.max(1, range.height) - 1], columns, rows)
-  return {
-    x: Math.min(first[0], last[0]),
-    y: Math.min(first[1], last[1]),
-    width: Math.abs(last[0] - first[0]) + 1,
-    height: Math.abs(last[1] - first[1]) + 1,
   }
 }
 
@@ -233,6 +218,11 @@ export function SheetEditor({ document, workbook }: SheetEditorProps) {
       ? { x: Math.min(...selectedColumns), y: 0, width: Math.max(...selectedColumns) - Math.min(...selectedColumns) + 1, height: Math.max(1, visibleRows.length) }
       : selection.current?.range ?? { x: 0, y: 0, width: 1, height: 1 }
   const range = mapRange(viewRange, visibleColumns, visibleRows)
+  // Cell-by-cell actions (clear, format, statistics) skip hidden rows and columns inside the selection.
+  const areas = useMemo(
+    () => visibleAreas(viewRange, visibleColumns, visibleRows),
+    [viewRange.x, viewRange.y, viewRange.width, viewRange.height, visibleColumns, visibleRows],
+  )
   const selectedCell = mapCell(selection.current?.cell ?? [0, 0], visibleColumns, visibleRows)
 
   const controller = useMemo<SheetController>(() => ({
@@ -241,14 +231,15 @@ export function SheetEditor({ document, workbook }: SheetEditorProps) {
     sheetId,
     sheetName: activeSheet.name,
     range,
+    areas,
     cell: selectedCell,
     openFind: () => setFindOpen(true),
   // Range and cell are fresh objects each render, so the memo keys on their contents.
-  }), [document.id, workbook, sheetId, activeSheet.name, range.x, range.y, range.width, range.height, selectedCell[0], selectedCell[1]])
+  }), [document.id, workbook, sheetId, activeSheet.name, range.x, range.y, range.width, range.height, areas, selectedCell[0], selectedCell[1]])
 
   useEffect(() => setActiveSheet(controller), [controller])
 
-  const stats = workbook.selectionStats(sheetId, range)
+  const stats = workbook.selectionStats(sheetId, areas)
   const activeStyle = workbook.getStyle(sheetId, selectedCell)
 
   const handleSheetDragEnd = (event: DragEndEvent): void => {
@@ -300,7 +291,7 @@ export function SheetEditor({ document, workbook }: SheetEditorProps) {
     freezeColumns: workbook.getFrozenColumnCount(sheetId),
     // Glide would clear cell by cell (one undo step each); clear the whole selection as one step instead.
     onDelete: () => {
-      workbook.clearContents(sheetId, range)
+      workbook.clearContents(sheetId, areas)
       return false
     },
     onColumnResizeEnd: (_column: GridColumn, size: number, viewColumn: number) => {
@@ -381,9 +372,13 @@ export function SheetEditor({ document, workbook }: SheetEditorProps) {
                       setSelection(selectionForCell([0, 0]))
                     }}
                     onRename={name => {
+                      const problem = sheetNameProblem(name.trim(), sheets.filter(other => other.id !== sheet.id).map(other => other.name))
+                      if (problem !== undefined) {
+                        toast.error(problem)
+                        return false
+                      }
                       const renamed = workbook.renameSheet(sheet.id, name)
-                      if (!renamed) toast.error('That sheet name is already used or not allowed.')
-                      else if (sheet.name === activeSheet.name) setActiveSheetName(name.trim())
+                      if (renamed && sheet.name === activeSheet.name) setActiveSheetName(name.trim())
                       return renamed
                     }}
                     onDelete={() => {

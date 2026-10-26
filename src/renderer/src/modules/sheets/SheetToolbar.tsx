@@ -178,8 +178,8 @@ export function SheetToolbar({ controller, findOpen }: SheetToolbarProps) {
             onClick={() => setStyle(controller, { numberFormat: format.value })}
           />
         ))}
-        <ToolButton icon={DecimalsArrowLeft} label="Fewer decimal places" onClick={() => workbook.changeDecimalPlaces(sheetId, controller.range, -1)} />
-        <ToolButton icon={DecimalsArrowRight} label="More decimal places" onClick={() => workbook.changeDecimalPlaces(sheetId, controller.range, 1)} />
+        <ToolButton icon={DecimalsArrowLeft} label="Fewer decimal places" onClick={() => workbook.changeDecimalPlaces(sheetId, controller.areas, -1)} />
+        <ToolButton icon={DecimalsArrowRight} label="More decimal places" onClick={() => workbook.changeDecimalPlaces(sheetId, controller.areas, 1)} />
         <ToolSeparator />
         <ToolButton icon={Sigma} label="AutoSum" onClick={() => autoSum(controller)} />
         <ToolButton icon={ArrowDownAZ} label="Sort A to Z by this column" onClick={() => sortByActiveColumn(controller, true)} />
@@ -188,7 +188,7 @@ export function SheetToolbar({ controller, findOpen }: SheetToolbarProps) {
         <StructureMenu controller={controller} axis="rows" />
         <StructureMenu controller={controller} axis="columns" />
         <span className="toolbar-grow" />
-        <ToolButton icon={RemoveFormatting} label="Clear formatting" command="format.clear" onClick={() => workbook.clearFormatting(sheetId, controller.range)} />
+        <ToolButton icon={RemoveFormatting} label="Clear formatting" command="format.clear" onClick={() => workbook.clearFormatting(sheetId, controller.areas)} />
         <ToolButton icon={Search} label="Find and replace" command="edit.find" pressed={findOpen} onClick={controller.openFind} />
       </Toolbar>}
 

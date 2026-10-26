@@ -1,0 +1,46 @@
+import type { Item, Rectangle } from '@glideapps/glide-data-grid'
+import type { CellRange } from './model/Workbook'
+
+/*
+ * The grid shows only visible rows and columns, so its (view) coordinates skip hidden ones. `columns`
+ * and `rows` list the workbook index of each view index.
+ */
+
+export function mapCell([col, row]: Item, columns: readonly number[], rows: readonly number[]): Item {
+  return [columns[col] ?? 0, rows[row] ?? 0]
+}
+
+/** The workbook rectangle from a view rectangle's first to last cell, including any hidden rows and columns between. */
+export function mapRange(range: Rectangle, columns: readonly number[], rows: readonly number[]): CellRange {
+  const first = mapCell([range.x, range.y], columns, rows)
+  const last = mapCell([range.x + Math.max(1, range.width) - 1, range.y + Math.max(1, range.height) - 1], columns, rows)
+  return {
+    x: Math.min(first[0], last[0]),
+    y: Math.min(first[1], last[1]),
+    width: Math.abs(last[0] - first[0]) + 1,
+    height: Math.abs(last[1] - first[1]) + 1,
+  }
+}
+
+/** Runs of consecutive workbook indexes, as [first, length], for view indexes `start` to `start + count - 1`. */
+function runs(indexes: readonly number[], start: number, count: number): readonly (readonly [number, number])[] {
+  const result: [number, number][] = []
+  for (let view = start; view < start + Math.max(1, count); view += 1) {
+    const index = indexes[view]
+    if (index === undefined) continue
+    const last = result.at(-1)
+    if (last !== undefined && last[0] + last[1] === index) last[1] += 1
+    else result.push([index, 1])
+  }
+  return result
+}
+
+/**
+ * The workbook rectangles a view rectangle covers, split around hidden rows and columns, so clearing,
+ * formatting and statistics skip what is hidden, as Excel does with filtered rows.
+ */
+export function visibleAreas(range: Rectangle, columns: readonly number[], rows: readonly number[]): readonly CellRange[] {
+  const columnRuns = runs(columns, range.x, range.width)
+  return runs(rows, range.y, range.height).flatMap(([y, height]) =>
+    columnRuns.map(([x, width]) => ({ x, y, width, height })))
+}

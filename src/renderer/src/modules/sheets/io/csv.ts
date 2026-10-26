@@ -7,6 +7,7 @@
 
 import Papa from 'papaparse'
 import type { ImportFindingInput } from '@shared/fidelity'
+import { sheetNameFrom } from '../model/address'
 import { parseCellText } from '../model/cell-parse'
 import { defaultColumnCount, defaultRowCount, type CellInput, type CellStyle, type SheetData, type WorkbookData } from '../model/workbook-data'
 
@@ -85,7 +86,8 @@ export function readDelimited(bytes: Uint8Array, sheetName: string, format: Deli
   })
 
   const sheet: SheetData = {
-    name: sheetName,
+    // A file name can hold characters a sheet name cannot, such as [ ] or :, which .xlsx would refuse.
+    name: sheetNameFrom(sheetName),
     cells,
     styles,
     layout: {

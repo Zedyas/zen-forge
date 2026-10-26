@@ -6,7 +6,7 @@ import {
   type FunctionListEntry,
   type RawCellContent,
 } from 'hyperformula'
-import { columnName, sheetRangeReference } from './address'
+import { columnName, sheetNameProblem, sheetRangeReference } from './address'
 import { parseCellText } from './cell-parse'
 import {
   defaultCellStyle,
@@ -227,30 +227,33 @@ export class Workbook {
     return this.#style(sheetId, col, row)
   }
 
-  setNumberFormat(sheetId: number, range: CellRange, format: NumberFormat): void {
-    this.updateStyle(sheetId, range, { numberFormat: format })
+  setNumberFormat(sheetId: number, areas: readonly CellRange[], format: NumberFormat): void {
+    this.updateStyle(sheetId, areas, { numberFormat: format })
   }
 
-  changeDecimalPlaces(sheetId: number, range: CellRange, difference: -1 | 1): void {
-    this.#updateStyle(sheetId, range, style => ({
+  changeDecimalPlaces(sheetId: number, areas: readonly CellRange[], difference: -1 | 1): void {
+    this.#updateStyle(sheetId, areas, style => ({
       // General shows every digit, so decimal places only mean something once the cell is a number, as in Excel.
       numberFormat: style.numberFormat === 'general' ? 'number' : style.numberFormat,
       decimalPlaces: Math.max(0, Math.min(12, style.decimalPlaces + difference)),
     }))
   }
 
-  /** Applies a style patch to every cell in the range; `undefined` values reset that property. */
-  updateStyle(sheetId: number, range: CellRange, patch: Partial<CellStyle>): void {
-    this.#updateStyle(sheetId, range, () => patch)
+  /**
+   * Applies a style patch to every cell of the areas; `undefined` values reset that property. Areas are
+   * the rectangles of one selection, which leave out hidden rows and columns.
+   */
+  updateStyle(sheetId: number, areas: readonly CellRange[], patch: Partial<CellStyle>): void {
+    this.#updateStyle(sheetId, areas, () => patch)
   }
 
-  clearFormatting(sheetId: number, range: CellRange): void {
-    this.#commit(() => this.#mapStyles(sheetId, range, () => defaultCellStyle))
+  clearFormatting(sheetId: number, areas: readonly CellRange[]): void {
+    this.#commit(() => this.#mapStyles(sheetId, areas, () => defaultCellStyle))
   }
 
   /** Applies a per-cell patch. Changing the number format drops the file's own pattern, which no longer applies. */
-  #updateStyle(sheetId: number, range: CellRange, patchFor: (style: CellStyle) => Partial<CellStyle>): void {
-    this.#commit(() => this.#mapStyles(sheetId, range, style => {
+  #updateStyle(sheetId: number, areas: readonly CellRange[], patchFor: (style: CellStyle) => Partial<CellStyle>): void {
+    this.#commit(() => this.#mapStyles(sheetId, areas, style => {
       const patch = patchFor(style)
       const formatChanged = patch.numberFormat !== undefined || patch.decimalPlaces !== undefined
       return mergeStyle(style, formatChanged ? { ...patch, formatCode: undefined } : patch)
@@ -262,16 +265,19 @@ export class Workbook {
     this.#commit(() => this.#engine.setCellContents({ sheet: sheetId, col, row }, [[input]]))
   }
 
-  /** Empties values and formulas in the range as one undo step, keeping formatting. */
-  clearContents(sheetId: number, range: CellRange): void {
+  /** Empties values and formulas in the areas as one undo step, keeping formatting. */
+  clearContents(sheetId: number, areas: readonly CellRange[]): void {
     const { width, height } = this.#engine.getSheetDimensions(sheetId)
-    const right = Math.min(range.x + range.width, width)
-    const bottom = Math.min(range.y + range.height, height)
-    if (right <= range.x || bottom <= range.y) return
-    this.#commit(() => this.#engine.setCellContents(
-      { sheet: sheetId, col: range.x, row: range.y },
-      Array.from({ length: bottom - range.y }, () => Array.from({ length: right - range.x }, () => null)),
-    ))
+    const filled = areas.flatMap(area => {
+      const right = Math.min(area.x + area.width, width)
+      const bottom = Math.min(area.y + area.height, height)
+      return right <= area.x || bottom <= area.y ? [] : [{ x: area.x, y: area.y, width: right - area.x, height: bottom - area.y }]
+    })
+    if (filled.length === 0) return
+    this.#commit(() => this.#engine.batch(() => filled.forEach(area => this.#engine.setCellContents(
+      { sheet: sheetId, col: area.x, row: area.y },
+      Array.from({ length: area.height }, () => Array.from({ length: area.width }, () => null)),
+    ))))
   }
 
   /** Pastes tabular text and applies formats inferred from Excel or Google Sheets display values. */
@@ -430,11 +436,14 @@ export class Workbook {
     })
   }
 
+  /** False when the name breaks Excel's rules (see `sheetNameProblem`) or is unchanged. */
   renameSheet(sheetId: number, name: string): boolean {
     const trimmed = name.trim()
+    const previousName = this.#sheetName(sheetId)
+    if (trimmed === previousName) return false
+    if (sheetNameProblem(trimmed, this.#sheetOrder.filter(candidate => candidate !== previousName)) !== undefined) return false
     if (!this.#engine.isItPossibleToRenameSheet(sheetId, trimmed)) return false
     this.#commit(() => {
-      const previousName = this.#sheetName(sheetId)
       this.#engine.renameSheet(sheetId, trimmed)
       this.#sheetOrder = this.#sheetOrder.map(candidate => candidate === previousName ? trimmed : candidate)
       const layout = this.#layouts.get(previousName)
@@ -583,23 +592,25 @@ export class Workbook {
     return height - start < 2 ? undefined : { x: 0, y: start, width, height: height - start }
   }
 
-  selectionStats(sheetId: number, range: CellRange): SelectionStats {
+  selectionStats(sheetId: number, areas: readonly CellRange[]): SelectionStats {
     const { width, height } = this.#engine.getSheetDimensions(sheetId)
     let count = 0
     let numericCount = 0
     let sum = 0
     let min = Number.POSITIVE_INFINITY
     let max = Number.NEGATIVE_INFINITY
-    for (let row = range.y; row < Math.min(range.y + range.height, height); row += 1) {
-      for (let col = range.x; col < Math.min(range.x + range.width, width); col += 1) {
-        const value = this.#engine.getCellValue({ sheet: sheetId, col, row })
-        if (value === null || value === '') continue
-        count += 1
-        if (typeof value !== 'number') continue
-        numericCount += 1
-        sum += value
-        min = Math.min(min, value)
-        max = Math.max(max, value)
+    for (const area of areas) {
+      for (let row = area.y; row < Math.min(area.y + area.height, height); row += 1) {
+        for (let col = area.x; col < Math.min(area.x + area.width, width); col += 1) {
+          const value = this.#engine.getCellValue({ sheet: sheetId, col, row })
+          if (value === null || value === '') continue
+          count += 1
+          if (typeof value !== 'number') continue
+          numericCount += 1
+          sum += value
+          min = Math.min(min, value)
+          max = Math.max(max, value)
+        }
       }
     }
     return { count, numericCount, sum, min, max }
@@ -726,14 +737,14 @@ export class Workbook {
     }
   }
 
-  #mapStyles(sheetId: number, range: CellRange, map: (style: CellStyle) => CellStyle): void {
+  #mapStyles(sheetId: number, areas: readonly CellRange[], map: (style: CellStyle) => CellStyle): void {
     const styles = this.#sheetStyles(this.#sheetName(sheetId))
-    this.#forEachCell(range, (col, row) => {
+    areas.forEach(area => this.#forEachCell(area, (col, row) => {
       const key = styleKey(col, row)
       const next = map(styles.get(key) ?? defaultCellStyle)
       if (isDefaultStyle(next)) styles.delete(key)
       else styles.set(key, next)
-    })
+    }))
   }
 
   #shiftMetadata(

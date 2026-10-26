@@ -9,7 +9,7 @@ interface SheetContextMenuProps {
 
 /** Right-click menu over the grid; acts on the selection the right-click left in place. */
 export function SheetContextMenu({ controller, children }: SheetContextMenuProps) {
-  const { workbook, sheetId, range } = controller
+  const { workbook, sheetId, range, areas } = controller
   const rows = `${range.height} ${range.height === 1 ? 'row' : 'rows'}`
   const columns = `${range.width} ${range.width === 1 ? 'column' : 'columns'}`
   const groups: ReadonlyArray<ReadonlyArray<readonly [string, () => void]>> = [
@@ -28,8 +28,8 @@ export function SheetContextMenu({ controller, children }: SheetContextMenuProps
       ['Sort Z to A by this column', () => sortByActiveColumn(controller, false)],
     ],
     [
-      ['Clear contents', () => workbook.clearContents(sheetId, range)],
-      ['Clear formatting', () => workbook.clearFormatting(sheetId, range)],
+      ['Clear contents', () => workbook.clearContents(sheetId, areas)],
+      ['Clear formatting', () => workbook.clearFormatting(sheetId, areas)],
     ],
   ]
   return (

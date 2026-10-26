@@ -8,7 +8,10 @@ export interface SheetController {
   readonly workbook: Workbook
   readonly sheetId: number
   readonly sheetName: string
+  /** The selection from its first to last cell, for row, column and sort actions. */
   readonly range: CellRange
+  /** The selection's visible cells as rectangles, for cell-by-cell actions such as formatting. */
+  readonly areas: readonly CellRange[]
   readonly cell: Item
   openFind(): void
 }
@@ -32,11 +35,11 @@ type ToggleKey = 'bold' | 'italic' | 'underline'
 /** Toggles by the active cell, like Excel and Numbers: bold active cell → the whole range loses bold. */
 export function toggleStyle(controller: SheetController, key: ToggleKey): void {
   const on = controller.workbook.getStyle(controller.sheetId, controller.cell)[key] === true
-  controller.workbook.updateStyle(controller.sheetId, controller.range, { [key]: on ? undefined : true })
+  controller.workbook.updateStyle(controller.sheetId, controller.areas, { [key]: on ? undefined : true })
 }
 
 export function setStyle(controller: SheetController, patch: Partial<CellStyle>): void {
-  controller.workbook.updateStyle(controller.sheetId, controller.range, patch)
+  controller.workbook.updateStyle(controller.sheetId, controller.areas, patch)
 }
 
 /**

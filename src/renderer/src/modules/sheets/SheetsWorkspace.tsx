@@ -37,7 +37,7 @@ function runSheetCommand(command: CommandId): void | Promise<void> {
     case 'format.underline':
       return toggleStyle(controller, 'underline')
     case 'format.clear':
-      return controller.workbook.clearFormatting(controller.sheetId, controller.range)
+      return controller.workbook.clearFormatting(controller.sheetId, controller.areas)
     case 'file.exportCsv':
       return exportSheetCsv(controller.documentId, controller.sheetId, controller.sheetName)
     case 'file.exportPdf':

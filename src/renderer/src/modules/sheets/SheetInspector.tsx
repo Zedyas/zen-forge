@@ -17,9 +17,9 @@ function rangeLabel(range: CellRange): string {
 
 /** Detail that does not need to be one click away: statistics, layout, and named ranges. */
 export function SheetInspector({ controller }: { readonly controller: SheetController }) {
-  const { workbook, sheetId, range, cell } = controller
+  const { workbook, sheetId, range, areas, cell } = controller
   const [rangeName, setRangeName] = useState('')
-  const stats = workbook.selectionStats(sheetId, range)
+  const stats = workbook.selectionStats(sheetId, areas)
   const style = workbook.getStyle(sheetId, cell)
   const frozenRows = workbook.getFrozenRowCount(sheetId)
   const frozenColumns = workbook.getFrozenColumnCount(sheetId)
