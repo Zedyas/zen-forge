@@ -77,6 +77,8 @@ function runCommand(command: CommandDefinition): void {
 
 function menuItems(menu: MenuId, record: WindowRecord | undefined): MenuItemConstructorOptions[] {
   const active = record?.state.active ?? 'home'
+  // Commands that share a group sit in one submenu, placed where the group's first command is.
+  const submenus = new Map<string, MenuItemConstructorOptions[]>()
   return commandDefinitions
     .filter(command => command.menu === menu && commandApplies(command, active))
     .flatMap(command => {
@@ -90,7 +92,16 @@ function menuItems(menu: MenuId, record: WindowRecord | undefined): MenuItemCons
         item.type = 'checkbox'
         item.checked = record?.view[command.toggle] ?? true
       }
-      return command.separatorBefore === true ? [{ type: 'separator' as const }, item] : [item]
+      const separator = command.separatorBefore === true ? [{ type: 'separator' as const }] : []
+      if (command.group === undefined) return [...separator, item]
+      const submenu = submenus.get(command.group)
+      if (submenu !== undefined) {
+        submenu.push(item)
+        return []
+      }
+      const first = [item]
+      submenus.set(command.group, first)
+      return [...separator, { label: command.group, submenu: first }]
     })
 }
 
@@ -111,6 +122,7 @@ function appearanceItems(): MenuItemConstructorOptions[] {
 function buildMenu(record: WindowRecord | undefined): Menu {
   const edit = menuItems('edit', record)
   const find = edit.filter(item => item.id === 'edit.find')
+  const editing = edit.filter(item => item.id !== 'edit.undo' && item.id !== 'edit.redo' && item.id !== 'edit.find' && item.type !== 'separator')
   const format = menuItems('format', record)
   const page = menuItems('page', record)
   const slide = menuItems('slide', record)
@@ -152,6 +164,7 @@ function buildMenu(record: WindowRecord | undefined): Menu {
         { role: 'copy' },
         { role: 'paste' },
         { role: 'selectAll' },
+        ...(editing.length > 0 ? [{ type: 'separator' as const }, ...editing] : []),
         ...(find.length > 0 ? [{ type: 'separator' as const }, ...find] : []),
       ],
     },

@@ -48,6 +48,7 @@ import {
 import { pastedElements } from './clipboard-schema'
 import { errorMessage } from './feedback'
 import { activeEditor } from './text-editing'
+import { replaceMatches, type FindMatch } from './slides-find'
 import { findTheme } from './themes'
 
 /* ─── Load, save, release ─── */
@@ -206,6 +207,13 @@ export function moveSlide(id: string, fromId: string, toId: string): void {
   })
 }
 
+/** Moves the current slide one place up or down the rail, as dragging it would. */
+export function moveCurrentSlide(id: string, step: 1 | -1): void {
+  const document = readySlides(id)
+  const neighbour = document?.present.slides[currentIndex(id) + step]
+  if (document !== undefined && neighbour !== undefined) moveSlide(id, document.slideId, neighbour.id)
+}
+
 export function setSlideNotes(id: string, slideId: string, notes: string): void {
   commitSlides(id, presentation => {
     const slide = presentation.slides.find(candidate => candidate.id === slideId)
@@ -308,7 +316,7 @@ export function removeElements(id: string, elementIds: readonly string[]): void 
 
 export function removeSelection(id: string): void {
   const document = readySlides(id)
-  if (document !== undefined) removeElements(id, document.selection)
+  if (document !== undefined && document.selection.length > 0) removeElements(id, document.selection)
 }
 
 /** Copies of elements with new ids, shifted when pasted where the originals sit. */
@@ -343,6 +351,36 @@ export function alignSelection(id: string, edge: AlignEdge): void {
   const elements = selectedElements(document)
   const target = elements.length > 1 ? boundsOf(elements) : { x: 0, y: 0, width: document.present.width, height: document.present.height }
   if (target !== undefined) changeElements(id, document.selection, element => alignTo(element, edge, target))
+}
+
+/* ─── Find and replace ─── */
+
+export function openFind(id: string): void {
+  finishTyping(id)
+  updateSlides(id, document => ({ find: (document.find ?? 0) + 1 }))
+}
+
+export function closeFind(id: string): void {
+  updateSlides(id, () => ({ find: undefined }))
+}
+
+/**
+ * Shows the slide a match is on and selects its object (and cell). Focus stays in the find bar, so
+ * Return steps on; for that reason it does not go through `showSlide`, which blurs the focused field.
+ */
+export function revealMatch(id: string, match: FindMatch): void {
+  activeEditor(id)?.commit()
+  updateSlides(id, () => ({
+    slideId: match.slideId,
+    selection: match.where === 'notes' ? [] : [match.elementId],
+    editingId: undefined,
+    cell: match.where === 'cell' ? { row: match.row, column: match.column } : undefined,
+  }))
+}
+
+/** Replaces matches as one undoable step. */
+export function replaceFound(id: string, matches: readonly FindMatch[], replacement: string): void {
+  commitSlides(id, presentation => replaceMatches(presentation, matches, replacement))
 }
 
 /* ─── Clipboard: elements travel as JSON in a private type, so they paste into any Zen Suzu window ─── */
@@ -478,6 +516,14 @@ export function isTextEntry(target: EventTarget | null): boolean {
   return target instanceof HTMLElement && target.matches('input, textarea, select, [contenteditable="true"]')
 }
 
+/**
+ * Whether the caret is in a text box, a table cell or the speaker notes. Object commands leave those
+ * alone: ⌘D then must not duplicate the box being typed into.
+ */
+function isTyping(id: string): boolean {
+  return readySlides(id)?.editingId !== undefined || window.document.activeElement?.matches('.slides-notes') === true
+}
+
 /** Editor commands from the menu, keyboard and toolbar that are not about text formatting (see format-actions). */
 export function runSlideCommand(id: string, command: CommandId): void | Promise<void> {
   switch (command) {
@@ -499,8 +545,20 @@ export function runSlideCommand(id: string, command: CommandId): void | Promise<
       activeEditor(id)?.commit()
       redoSlides(id)
       return
+    case 'edit.find':
+      return openFind(id)
+    case 'edit.duplicate':
+      if (!isTyping(id)) duplicateSelection(id)
+      return
+    case 'edit.delete':
+      if (!isTyping(id)) removeSelection(id)
+      return
     case 'slide.new':
       return addSlide(id, 'titleContent')
+    case 'slide.moveUp':
+      return moveCurrentSlide(id, -1)
+    case 'slide.moveDown':
+      return moveCurrentSlide(id, 1)
     case 'slide.duplicate':
       return duplicateCurrentSlide(id)
     case 'slide.delete':

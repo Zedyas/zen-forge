@@ -18,6 +18,8 @@ export interface ReadySlides {
   readonly cell?: TableCellAddress
   /** Index into `present.slides` while the slideshow plays. */
   readonly playing?: number
+  /** Set while the find bar is open; changes on every ⌘F, which focuses the find field again. */
+  readonly find?: number
 }
 
 export interface TableCellAddress {

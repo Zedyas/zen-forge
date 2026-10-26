@@ -28,6 +28,7 @@ import {
   Play,
   Plus,
   Redo2,
+  Search,
   SendToBack,
   Shapes,
   Square,
@@ -305,6 +306,8 @@ export function SlidesToolbar({ documentId, document }: ToolProps) {
             }}
           />
           <ArrangeMenu documentId={documentId} disabled={selected.length === 0} />
+          <ToolSeparator />
+          <ToolButton icon={Search} label="Find and replace" command="edit.find" pressed={document.find !== undefined} onClick={() => run('edit.find')} />
           <span className="toolbar-grow" />
           <PlayButton />
         </Toolbar>

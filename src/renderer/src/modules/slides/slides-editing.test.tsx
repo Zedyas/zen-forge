@@ -9,8 +9,8 @@ vi.mock('../../services/platform/client', () => ({ platformClient: { setFullScre
 
 import { useDocumentsStore } from '../../app/documents-store'
 import { newPresentation } from './model'
-import { finishTyping, paste, releaseSlidesDocument, startSlideshow } from './slides-actions'
-import { currentSlide, readyDocument, readySlides, setSlidesDocument } from './slides-store'
+import { finishTyping, paste, releaseSlidesDocument, runSlideCommand, startSlideshow } from './slides-actions'
+import { currentSlide, readyDocument, readySlides, setSlidesDocument, updateSlides } from './slides-store'
 import { Slideshow } from './Slideshow'
 import { TextEditor } from './TextEditor'
 
@@ -99,5 +99,32 @@ describe('pasting slide objects', () => {
     const src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg=='
     paste('paste2', clipboard([{ kind: 'image', id: 'a', x: 10, y: 10, width: 10, height: 10, rotation: 0, src }]))
     expect(lastElement('paste2')).toMatchObject({ kind: 'image', x: 10, src })
+  })
+})
+
+describe('object commands while typing', () => {
+  it('leave the selected object alone when the caret is in its text or in the notes', () => {
+    setSlidesDocument('caret', readyDocument(newPresentation()))
+    const count = (): number => currentSlide(readySlides('caret') ?? readyDocument(newPresentation()))?.elements.length ?? 0
+    const first = readySlides('caret')?.present.slides[0]?.elements[0]
+    if (first === undefined) throw new Error('The new presentation has no objects')
+    const before = count()
+    updateSlides('caret', () => ({ selection: [first.id], editingId: first.id }))
+    void runSlideCommand('caret', 'edit.duplicate')
+    void runSlideCommand('caret', 'edit.delete')
+
+    const notes = document.createElement('textarea')
+    notes.className = 'slides-notes'
+    document.body.append(notes)
+    cleanups.push(() => notes.remove())
+    notes.focus()
+    updateSlides('caret', () => ({ editingId: undefined }))
+    void runSlideCommand('caret', 'edit.duplicate')
+    void runSlideCommand('caret', 'edit.delete')
+    expect(count()).toBe(before)
+
+    notes.blur()
+    void runSlideCommand('caret', 'edit.duplicate')
+    expect(count()).toBe(before + 1)
   })
 })
