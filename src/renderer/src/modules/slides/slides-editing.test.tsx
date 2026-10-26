@@ -8,9 +8,11 @@ vi.mock('../../services/index/document-index', () => ({ recordRecent: async () =
 vi.mock('../../services/platform/client', () => ({ platformClient: { setFullScreen } }))
 
 import { useDocumentsStore } from '../../app/documents-store'
-import { newPresentation } from './model'
-import { finishTyping, paste, releaseSlidesDocument, runSlideCommand, startSlideshow } from './slides-actions'
-import { currentSlide, readyDocument, readySlides, setSlidesDocument, updateSlides } from './slides-store'
+import { editTable } from './format-actions'
+import { newPresentation, newTable, updateCell, updateSlide } from './model'
+import { SlideCanvas } from './SlideCanvas'
+import { finishTyping, paste, releaseSlidesDocument, runSlideCommand, startEditing, startSlideshow } from './slides-actions'
+import { currentSlide, readyDocument, readySlides, setSlidesDocument, updateSlides, useSlidesStore } from './slides-store'
 import { Slideshow } from './Slideshow'
 import { TextEditor } from './TextEditor'
 
@@ -126,5 +128,35 @@ describe('object commands while typing', () => {
     notes.blur()
     void runSlideCommand('caret', 'edit.duplicate')
     expect(count()).toBe(before + 1)
+  })
+})
+
+describe('changing a table while a cell is being typed into', () => {
+  function Canvas({ id }: { readonly id: string }) {
+    const document = useSlidesStore(state => state.documents[id])
+    return document?.status === 'ready' ? <SlideCanvas documentId={id} document={document} /> : null
+  }
+
+  it('writes the typed text where it was typed before a row is deleted', async () => {
+    const start = newPresentation()
+    const slideId = start.slides[0]?.id ?? ''
+    const table = ['A0', 'B0', 'A1', 'B1'].reduce((current, text, index) => updateCell(current, Math.floor(index / 2), index % 2, { text }), newTable(2, 2, start))
+    setSlidesDocument('table', readyDocument(updateSlide(start, slideId, slide => ({ ...slide, elements: [table] }))))
+    startEditing('table', table.id, { row: 0, column: 0 })
+    const root = mount()
+    await act(async () => root.render(<Canvas id="table" />))
+    const field = document.querySelector('.slides-cell-editor')
+    if (!(field instanceof HTMLTextAreaElement)) throw new Error('No cell editor')
+
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(field, 'draft')
+      field.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await act(async () => editTable('table', 'deleteRow'))
+    await act(async () => root.unmount())
+
+    const element = readySlides('table')?.present.slides[0]?.elements[0]
+    if (element?.kind !== 'table') throw new Error('The table is gone')
+    expect(element.rows.map(row => row.cells.map(cell => cell.text))).toEqual([['A1', 'B1']])
   })
 })
