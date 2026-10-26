@@ -173,13 +173,14 @@ function isMarkdown(format: string): boolean {
   return format === 'md' || format === 'markdown'
 }
 
-async function encode(editor: Editor, format: string, imageSources: ReadonlyMap<string, string>): Promise<Uint8Array> {
+/** Encodes `content`, read from the editor by the caller at the moment it records what is saved. */
+async function encode(content: JSONContent, format: string, imageSources: ReadonlyMap<string, string>): Promise<Uint8Array> {
   if (isMarkdown(format)) {
     const { writeMarkdown } = await import('./io/markdown')
-    return new TextEncoder().encode(writeMarkdown(editor.getJSON(), imageSources))
+    return new TextEncoder().encode(writeMarkdown(content, imageSources))
   }
   const { writeDocx } = await import('./io/docx-export')
-  const { bytes, skippedImages } = await writeDocx(editor.getJSON())
+  const { bytes, skippedImages } = await writeDocx(content)
   if (skippedImages > 0) {
     toast.warning(`${skippedImages} ${skippedImages === 1 ? 'image was' : 'images were'} not saved`, {
       description: 'Word files can hold PNG, JPEG, GIF and BMP images that are part of the document, not linked from elsewhere.',
@@ -200,24 +201,25 @@ function withImagePaths(node: JSONContent, sources: ReadonlyMap<string, string>)
 }
 
 /**
- * Reads `bytes` back with Sumi's own reader and compares the result with the editor's document.
+ * Reads `bytes` back with Sumi's own reader and compares the result with `shown`, the editor's
+ * document the bytes were encoded from.
  * Anything a format cannot hold, or that the writer and reader disagree on, shows up here, so a
  * save never replaces a file with less than the editor shows without asking. Resolves to the kinds
  * of thing lost (empty when only text or values differ), or undefined when nothing changes.
  */
-async function changesOnReopen(editor: Editor, format: string, bytes: Uint8Array, imageSources: ReadonlyMap<string, string>): Promise<readonly string[] | undefined> {
+async function changesOnReopen(editor: Editor, shown: JSONContent, format: string, bytes: Uint8Array, imageSources: ReadonlyMap<string, string>): Promise<readonly string[] | undefined> {
   try {
-    let shown: JSONContent = editor.getJSON()
     let reread: JSONContent
+    let expected = shown
     if (isMarkdown(format)) {
       const { readMarkdown } = await import('./io/markdown')
-      shown = withImagePaths(shown, imageSources)
+      expected = withImagePaths(shown, imageSources)
       reread = readMarkdown(new TextDecoder().decode(bytes)).content
     } else {
       const { readDocx } = await import('./io/docx-read')
       reread = readDocx(bytes).content
     }
-    return sameDocument(editor.schema, shown, reread) ? undefined : lostKinds(editor.schema, shown, reread)
+    return sameDocument(editor.schema, expected, reread) ? undefined : lostKinds(editor.schema, expected, reread)
   } catch {
     return ['unreadable']
   }
@@ -230,14 +232,14 @@ interface OverwriteRisk {
 }
 
 /** Why saving over the file would lose something, or undefined when it keeps everything. */
-async function overwriteRisk(editor: Editor, format: string, bytes: Uint8Array, cached: CachedDoc, report: ImportReport | undefined): Promise<OverwriteRisk | undefined> {
+async function overwriteRisk(editor: Editor, shown: JSONContent, format: string, bytes: Uint8Array, cached: CachedDoc, report: ImportReport | undefined): Promise<OverwriteRisk | undefined> {
   if (report !== undefined && report.severity !== 'lossless') {
     return {
       message: `Saving writes only what Sumi shows, so what the import report lists would change or be lost in ${report.sourceName}.`,
       signature: `report:${report.findings.map(finding => finding.construct).join('|')}`,
     }
   }
-  const lost = await changesOnReopen(editor, format, bytes, cached.imageSources)
+  const lost = await changesOnReopen(editor, shown, format, bytes, cached.imageSources)
   if (lost === undefined) return undefined
   return {
     message: isMarkdown(format) ? 'Saving as Markdown would change parts of this document.' : 'Saving as a Word document would change parts of this document.',
@@ -260,9 +262,13 @@ export async function saveDoc(documentId: string, saveAs: boolean): Promise<bool
   const imported = useFidelityStore.getState().reports[documentId]
   let path = saveAs ? undefined : document.path
   let bytes: Uint8Array | undefined
+  // The document as encoded, read together with the content each encode gets, so typing during the
+  // awaits below keeps the tab unsaved.
+  let snapshot = editor.state.doc
   if (path !== undefined) {
-    bytes = await encode(editor, extensionOf(path), cached.imageSources)
-    const risk = await overwriteRisk(editor, extensionOf(path), bytes, cached, imported)
+    const shown = editor.getJSON()
+    bytes = await encode(shown, extensionOf(path), cached.imageSources)
+    const risk = await overwriteRisk(editor, shown, extensionOf(path), bytes, cached, imported)
     if (risk !== undefined && risk.signature !== cached.acceptedRisk) {
       const { value } = await askConfirm({
         title: 'Save over the original?',
@@ -285,8 +291,11 @@ export async function saveDoc(documentId: string, saveAs: boolean): Promise<bool
   }
 
   const format = extensionOf(path)
-  const snapshot = editor.state.doc
-  await fileService.write(path, bytes ?? await encode(editor, format, cached.imageSources))
+  if (bytes === undefined) {
+    snapshot = editor.state.doc
+    bytes = await encode(editor.getJSON(), format, cached.imageSources)
+  }
+  await fileService.write(path, bytes)
   const file = await fileService.describe(path)
   cached.saved = snapshot
 
