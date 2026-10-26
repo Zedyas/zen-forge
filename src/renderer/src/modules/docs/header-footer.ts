@@ -22,11 +22,16 @@ export type HeaderFooterPart = 'header' | 'footer' | 'firstHeader' | 'firstFoote
 
 export const headerFooterParts: readonly HeaderFooterPart[] = ['header', 'footer', 'firstHeader', 'firstFooter']
 
-export const partLabels: Readonly<Record<HeaderFooterPart, string>> = {
+const partLabels: Readonly<Record<HeaderFooterPart, string>> = {
   header: 'Header',
   footer: 'Footer',
   firstHeader: 'First page header',
   firstFooter: 'First page footer',
+}
+
+/** A part's name; with a different first page, the ordinary header and footer are the other pages'. */
+export function partLabel(part: HeaderFooterPart, differentFirstPage: boolean): string {
+  return differentFirstPage && (part === 'header' || part === 'footer') ? `Other pages ${part}` : partLabels[part]
 }
 
 export const noHeadersOrFooters: HeadersAndFooters = { header: [], footer: [], firstHeader: [], firstFooter: [], differentFirstPage: false }

@@ -238,7 +238,6 @@
 .sumi-check-row { display: flex; align-items: center; gap: 8px; min-height: var(--control); color: var(--ink); }
 .sumi-check-row input { margin: 0; accent-color: var(--accent); }
 .sumi-inspector-actions { display: flex; gap: 6px; margin: 4px 0 8px; }
-.sumi-inspector-actions.is-wrapping { flex-wrap: wrap; }
 /* Swatches start at the column's edge, like the text above them. */
 .swatch-grid.sumi-shades { padding: 2px 0 6px; }
 

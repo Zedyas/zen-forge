@@ -5,7 +5,7 @@ import { useEditorState } from '@tiptap/react'
 import { Inspector, InspectorRow, InspectorSection } from '../../ui/Inspector'
 import { Tip } from '../../ui/Tip'
 import { currentBlockStyle, editPart, setHeadersAndFooters, setPage, setParagraphFormat, type ParagraphFormat } from './doc-commands'
-import { documentHeadersAndFooters, hasPageNumber, partLabels, withPageNumber, type HeaderFooterPart } from './header-footer'
+import { documentHeadersAndFooters, hasPageNumber, withPageNumber, type HeaderFooterPart } from './header-footer'
 import { contentsLevels, countText, deepestContentsLevel, outline } from './text-stats'
 import { documentPage, isLandscape, lengthUnit, pageFor, paperOf, papers, type PageSetup } from './theme'
 
@@ -230,21 +230,24 @@ function PageSection({ editor }: { readonly editor: Editor }) {
 
 function HeaderFooterSection({ editor, documentId }: { readonly editor: Editor; readonly documentId: string }) {
   const headerFooter = useEditorState({ editor, selector: ({ editor: current }) => documentHeadersAndFooters(current.state.doc.attrs['headerFooter']) })
-  const parts: readonly HeaderFooterPart[] = headerFooter.differentFirstPage ? ['header', 'footer', 'firstHeader', 'firstFooter'] : ['header', 'footer']
+  const edit = (part: HeaderFooterPart, label: string) => <button type="button" className="button" onClick={() => editPart(documentId, part)}>{label}</button>
   return (
     <InspectorSection title="Header and footer">
-      <div className="sumi-inspector-actions is-wrapping">
-        {parts.map(part => (
-          <button key={part} type="button" className="button" onClick={() => editPart(documentId, part)}>{partLabels[part]}</button>
-        ))}
-      </div>
+      {headerFooter.differentFirstPage
+        ? (
+          <>
+            <InspectorRow label="Header"><span className="sumi-inspector-actions">{edit('firstHeader', 'First page')}{edit('header', 'Other pages')}</span></InspectorRow>
+            <InspectorRow label="Footer"><span className="sumi-inspector-actions">{edit('firstFooter', 'First page')}{edit('footer', 'Other pages')}</span></InspectorRow>
+          </>
+        )
+        : <div className="sumi-inspector-actions">{edit('header', 'Header')}{edit('footer', 'Footer')}</div>}
       <label className="sumi-check-row">
         <input
           type="checkbox"
           checked={hasPageNumber(headerFooter.footer)}
           onChange={event => setHeadersAndFooters(editor, { footer: withPageNumber(headerFooter.footer, event.currentTarget.checked) })}
         />
-        Page numbers in the footer
+        {headerFooter.differentFirstPage ? 'Page numbers on the other pages' : 'Page numbers in the footer'}
       </label>
       <label className="sumi-check-row">
         <input type="checkbox" checked={headerFooter.differentFirstPage} onChange={event => setHeadersAndFooters(editor, { differentFirstPage: event.currentTarget.checked })} />

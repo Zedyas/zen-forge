@@ -1,12 +1,12 @@
 import { useEffect, useLayoutEffect, useRef, type CSSProperties, type MouseEvent } from 'react'
-import { getSchema, type Editor } from '@tiptap/core'
+import { getSchema, type Editor, type JSONContent } from '@tiptap/core'
 import { DOMSerializer, Node as ProseMirrorNode } from '@tiptap/pm/model'
 import { EditorContent, useEditor, useEditorState } from '@tiptap/react'
 import { AlignCenter, AlignLeft, AlignRight, Bold, Check, Files, Hash, Italic, Underline } from 'lucide-react'
 import { ToolButton, ToolSeparator } from '../../ui/Toolbar'
 import { editPart, setActivePart, setHeadersAndFooters, usePartEditing } from './doc-commands'
 import { FontMenu, SizeMenu } from './DocMenus'
-import { documentHeadersAndFooters, partLabels, trimmedPart, type HeaderFooterContent, type HeaderFooterPart } from './header-footer'
+import { documentHeadersAndFooters, partLabel, trimmedPart, type HeaderFooterContent, type HeaderFooterPart } from './header-footer'
 import { headerFooterExtensions } from './schema'
 import { toPoints, type BlockStyle } from './theme'
 
@@ -23,7 +23,7 @@ function PartView({ content }: { readonly content: HeaderFooterContent }) {
   return <div ref={view} className="sumi-part-view" />
 }
 
-function PartToolbar({ part, editor, base, onDone }: { readonly part: HeaderFooterPart; readonly editor: Editor; readonly base: BlockStyle; onDone(): void }) {
+function PartToolbar({ label, editor, base, onDone }: { readonly label: string; readonly editor: Editor; readonly base: BlockStyle; onDone(): void }) {
   const state = useEditorState({
     editor,
     selector: ({ editor: current }) => {
@@ -46,8 +46,8 @@ function PartToolbar({ part, editor, base, onDone }: { readonly part: HeaderFoot
     if (button !== null && !button.hasAttribute('aria-haspopup')) event.preventDefault()
   }
   return (
-    <div className="sumi-part-toolbar" role="toolbar" aria-label={`${partLabels[part]} tools`} onMouseDown={keepFocus}>
-      <span className="sumi-part-label">{partLabels[part]}</span>
+    <div className="sumi-part-toolbar" role="toolbar" aria-label={`${label} tools`} onMouseDown={keepFocus}>
+      <span className="sumi-part-label">{label}</span>
       <FontMenu editor={editor} current={state.fontFamily} styleFont={base.fontFamily} />
       <SizeMenu editor={editor} current={state.fontSize} styleSize={base.fontSize} />
       <ToolSeparator />
@@ -67,21 +67,27 @@ function PartToolbar({ part, editor, base, onDone }: { readonly part: HeaderFoot
   )
 }
 
-/** The small editor for one header or footer. Each change goes into the document at once, so saving never misses it. */
-function PartEditor({ editor, part, base }: { readonly editor: Editor; readonly part: HeaderFooterPart; readonly base: BlockStyle }) {
+function editorContent(content: HeaderFooterContent): JSONContent {
+  return { type: 'doc', content: content.length > 0 ? [...content] : [{ type: 'paragraph' }] }
+}
+
+/**
+ * The small editor for one header or footer. Each change goes into the document at once, so saving
+ * never misses it, and a change made elsewhere (the inspector's page numbers, undo in the page)
+ * comes into the editor, so typing does not write the old content back.
+ */
+function PartEditor({ editor, part, label, base }: { readonly editor: Editor; readonly part: HeaderFooterPart; readonly label: string; readonly base: BlockStyle }) {
+  const stored = useEditorState({ editor, selector: ({ editor: current }) => documentHeadersAndFooters(current.state.doc.attrs['headerFooter'])[part] })
   const close = (): void => {
     usePartEditing.setState({ editing: undefined })
     editor.commands.focus()
   }
   const partEditor = useEditor({
     extensions: headerFooterExtensions,
-    content: (() => {
-      const content = documentHeadersAndFooters(editor.state.doc.attrs['headerFooter'])[part]
-      return { type: 'doc', content: content.length > 0 ? [...content] : [{ type: 'paragraph' }] }
-    })(),
+    content: editorContent(stored),
     autofocus: 'end',
     editorProps: {
-      attributes: { class: 'sumi-part-editor', spellcheck: 'true', 'aria-label': partLabels[part] },
+      attributes: { class: 'sumi-part-editor', spellcheck: 'true', 'aria-label': label },
       handleKeyDown: (_view, event) => {
         if (event.key !== 'Escape') return false
         close()
@@ -92,6 +98,10 @@ function PartEditor({ editor, part, base }: { readonly editor: Editor; readonly 
   }, [part])
 
   useEffect(() => setActivePart(partEditor), [partEditor])
+  useEffect(() => {
+    const content = editorContent(stored)
+    if (!partEditor.state.doc.eq(partEditor.schema.nodeFromJSON(content))) partEditor.commands.setContent(content, { emitUpdate: false })
+  }, [partEditor, stored])
   // Clicking into the page ends editing, as in Word.
   useEffect(() => {
     const end = (): void => usePartEditing.setState({ editing: undefined })
@@ -103,17 +113,16 @@ function PartEditor({ editor, part, base }: { readonly editor: Editor; readonly 
 
   return (
     <>
-      <PartToolbar part={part} editor={partEditor} base={base} onDone={close} />
+      <PartToolbar label={label} editor={partEditor} base={base} onDone={close} />
       <EditorContent editor={partEditor} className="sumi-part-content" />
     </>
   )
 }
 
-const hints: Readonly<Record<'top' | 'bottom', string>> = { top: 'Double-click to add a header', bottom: 'Double-click to add a footer' }
-
 /**
  * The header or footer in the page's top or bottom margin. The page on screen is one long sheet,
- * so its top shows the first page's header and its bottom the footer most pages have.
+ * the first page, so it shows the first page's header and footer while the first page has its
+ * own; the other pages' ones open here from the inspector.
  */
 export function HeaderFooterZone({ editor, documentId, edge, base, style }: {
   readonly editor: Editor
@@ -125,19 +134,22 @@ export function HeaderFooterZone({ editor, documentId, edge, base, style }: {
 }) {
   const headerFooter = useEditorState({ editor, selector: ({ editor: current }) => documentHeadersAndFooters(current.state.doc.attrs['headerFooter']) })
   const editing = usePartEditing(state => state.editing)
-  const parts: readonly HeaderFooterPart[] = edge === 'top' ? ['header', 'firstHeader'] : ['footer', 'firstFooter']
-  const editingHere = editing !== undefined && editing.documentId === documentId && parts.includes(editing.part) ? editing.part : undefined
-  const shown: HeaderFooterPart = edge === 'top' && headerFooter.differentFirstPage ? 'firstHeader' : parts[0] ?? 'header'
+  const [other, first]: readonly [HeaderFooterPart, HeaderFooterPart] = edge === 'top' ? ['header', 'firstHeader'] : ['footer', 'firstFooter']
+  const editingHere = editing !== undefined && editing.documentId === documentId && (editing.part === other || editing.part === first) ? editing.part : undefined
+  const shown = headerFooter.differentFirstPage ? first : other
   const content = headerFooter[shown]
+  const label = (part: HeaderFooterPart): string => partLabel(part, headerFooter.differentFirstPage)
   return (
     <div
       className={`sumi-part is-${edge}`}
       style={style}
       data-editing={editingHere === undefined ? undefined : ''}
-      data-hint={content.length === 0 && editingHere === undefined ? hints[edge] : undefined}
+      data-hint={content.length === 0 && editingHere === undefined ? `Double-click to add a ${label(shown).toLowerCase()}` : undefined}
       onDoubleClick={editingHere === undefined ? () => editPart(documentId, shown) : undefined}
     >
-      {editingHere === undefined ? <PartView content={content} /> : <PartEditor key={editingHere} editor={editor} part={editingHere} base={base} />}
+      {editingHere === undefined
+        ? <PartView content={content} />
+        : <PartEditor key={editingHere} editor={editor} part={editingHere} label={label(editingHere)} base={base} />}
     </div>
   )
 }
