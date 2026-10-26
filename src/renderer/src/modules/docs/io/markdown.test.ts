@@ -85,6 +85,22 @@ describe('markdown', () => {
     expect(markdownLosses(content)).toEqual(['the header and footer are left out', 'the table of contents becomes a list of links that no longer updates'])
   })
 
+  it('links a table of contents to the anchors GitHub gives every heading, the title too', () => {
+    const heading = (level: number, text: string) => ({ type: 'heading', attrs: { level }, content: [{ type: 'text', text }] })
+    const contents = { type: 'tableOfContents', attrs: { levels: 3 } }
+    const title = { type: 'title', content: [{ type: 'text', text: 'Plan' }] }
+
+    expect(writeMarkdown({ type: 'doc', content: [title, contents, heading(1, 'Plan'), heading(2, 'Plan'), heading(2, 'Plan-1')] }))
+      .toMatch(/^# Plan\n\n- \[Plan\]\(#plan-1\)\n\n? {2}- \[Plan\]\(#plan-2\)\n {2}- \[Plan-1\]\(#plan-1-1\)\n/)
+  })
+
+  it('nests each table of contents entry under the last heading above its level', () => {
+    const heading = (level: number, text: string) => ({ type: 'heading', attrs: { level }, content: [{ type: 'text', text }] })
+    const content = { type: 'doc', content: [{ type: 'tableOfContents', attrs: { levels: 3 } }, heading(2, 'A'), heading(2, 'B'), heading(1, 'C'), heading(3, 'D'), heading(2, 'E')] }
+
+    expect(writeMarkdown(content)).toMatch(/^- \[A\]\(#a\)\n- \[B\]\(#b\)\n- \[C\]\(#c\)\n\n? {2}- \[D\]\(#d\)\n {2}- \[E\]\(#e\)\n\n## A/)
+  })
+
   it('keeps front matter exactly, and drops links that are not web, mail or relative', () => {
     const source = '---\ntitle: Trip\ntags: [a, b]\n---\n\n[click](javascript:alert(1)) and [notes](notes.md)\n'
     const opened = readMarkdown(source).content

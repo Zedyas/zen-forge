@@ -197,20 +197,27 @@ interface Heading {
 }
 
 /**
- * The document's headings with the anchors GitHub and most Markdown viewers give them: lowercase,
- * punctuation removed, spaces as hyphens, and -1, -2 after a repeat.
+ * The document's headings with the anchors GitHub gives them (github-slugger): lowercase,
+ * punctuation removed, spaces as hyphens, and -1, -2 after a repeat, skipping any anchor already
+ * taken. The title is written as a heading too, so it takes an anchor; it is level 0, which no
+ * table of contents lists.
  */
 function headings(content: JSONContent): Heading[] {
   const found: Heading[] = []
-  const used = new Map<string, number>()
+  const repeats = new Map<string, number>()
   const visit = (node: JSONContent): void => {
-    if (node.type === 'heading') {
+    if (node.type === 'heading' || node.type === 'title') {
       const text = (node.content ?? []).map(child => child.text ?? '').join('').trim()
       const level: unknown = node.attrs?.['level']
-      const base = text.toLowerCase().replace(/[^\p{L}\p{N}\s_-]/gu, '').replace(/\s/g, '-')
-      const count = used.get(base) ?? 0
-      used.set(base, count + 1)
-      if (text !== '') found.push({ level: typeof level === 'number' ? level : 1, text, slug: count === 0 ? base : `${base}-${count}` })
+      const base = text.toLowerCase().replace(/[^\p{L}\p{M}\p{N}\s_-]/gu, '').replace(/\s/g, '-')
+      let slug = base
+      while (repeats.has(slug)) {
+        const count = (repeats.get(base) ?? 0) + 1
+        repeats.set(base, count)
+        slug = `${base}-${count}`
+      }
+      repeats.set(slug, 0)
+      if (text !== '') found.push({ level: node.type === 'title' ? 0 : typeof level === 'number' ? level : 1, text, slug })
     }
     node.content?.forEach(visit)
   }
@@ -218,22 +225,35 @@ function headings(content: JSONContent): Heading[] {
   return found
 }
 
-/** A table of contents as a bulleted list of links to the headings; deeper headings nest under the one before them. */
-function contentsList(entries: readonly Heading[]): JSONContent[] {
-  const top = Math.min(...entries.map(entry => entry.level))
-  const items: JSONContent[] = []
-  let start = 0
-  while (start < entries.length) {
-    const entry = entries[start]
-    let end = start + 1
-    while ((entries[end]?.level ?? top) > top) end += 1
-    if (entry !== undefined) {
+interface ContentsItem {
+  readonly entry: Heading
+  readonly children: ContentsItem[]
+}
+
+function bulletList(items: readonly ContentsItem[]): JSONContent[] {
+  if (items.length === 0) return []
+  return [{
+    type: 'bulletList',
+    content: items.map(({ entry, children }) => {
       const link = { type: 'text', text: entry.text, marks: [{ type: 'link', attrs: { href: `#${entry.slug}` } }] }
-      items.push({ type: 'listItem', content: [{ type: 'paragraph', content: [link] }, ...contentsList(entries.slice(start + 1, end))] })
-    }
-    start = end
+      return { type: 'listItem', content: [{ type: 'paragraph', content: [link] }, ...bulletList(children)] }
+    }),
+  }]
+}
+
+/** A table of contents as a bulleted list of links to the headings; each heading nests under the last one above its level. */
+function contentsList(entries: readonly Heading[]): JSONContent[] {
+  const top: ContentsItem[] = []
+  const open: ContentsItem[] = []
+  for (const entry of entries) {
+    while ((open.at(-1)?.entry.level ?? 0) >= entry.level) open.pop()
+    const item: ContentsItem = { entry, children: [] }
+    const parent = open.at(-1)
+    if (parent === undefined) top.push(item)
+    else parent.children.push(item)
+    open.push(item)
   }
-  return items.length === 0 ? [] : [{ type: 'bulletList', content: items }]
+  return bulletList(top)
 }
 
 /** The document with each table of contents written out as a list of links; it no longer updates. */
@@ -242,7 +262,7 @@ function withContentsLists(node: JSONContent, entries: readonly Heading[]): JSON
   return {
     ...node,
     content: node.content.flatMap(child => child.type === 'tableOfContents'
-      ? contentsList(entries.filter(entry => entry.level <= contentsLevels(child.attrs?.['levels'])))
+      ? contentsList(entries.filter(entry => entry.level >= 1 && entry.level <= contentsLevels(child.attrs?.['levels'])))
       : [withContentsLists(child, entries)]),
   }
 }
