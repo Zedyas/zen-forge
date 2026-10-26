@@ -51,6 +51,8 @@ If another app changes a file while it is open in Zen Suzu, saving asks first: o
 
 - Text, shapes, pictures and tables, with layouts and colour themes
 - Speaker notes, and a full-screen slideshow (⌥⌘P)
+- Find and replace across text boxes, tables and speaker notes (⌘F)
+- Every insert, arrange, align and table action is in the Slide menu and the command palette
 - Print, and export as PDF
 - If a PowerPoint file has something Slides can't keep, such as charts or animations, Slides tells you when it opens and offers to save a copy.
 
@@ -103,6 +105,7 @@ Every command is also in the menu bar and in the command palette (⌘K). Hover a
 |---|---|
 | ⌘N | New spreadsheet |
 | ⌘O | Open |
+| File > Open Recent | The last 10 files you opened or saved, also in the command palette |
 | ⌘S / ⇧⌘S | Save / Save As |
 | ⌘P | Print |
 | ⌘Z / ⇧⌘Z | Undo / Redo |
@@ -138,6 +141,7 @@ Every command is also in the menu bar and in the command palette (⌘K). Hover a
 | ⌥⌘P | Play the slideshow; → and ← move, Escape stops |
 | ⌘B / ⌘I / ⌘U | Bold / Italic / Underline |
 | ⌘C / ⌘V / ⌘D | Copy / Paste / Duplicate the selected objects |
+| ⌘F | Find and replace |
 | Arrow keys | Nudge the selection by 1 pt, or 10 pt with Shift |
 
 ## Development
