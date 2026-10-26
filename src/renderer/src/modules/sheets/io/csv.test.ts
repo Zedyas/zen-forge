@@ -19,8 +19,8 @@ describe('csv', () => {
     const sheet = data.sheets[0]
 
     expect(sheet?.cells).toEqual([
-      ['Name', 'Amount', 'Note'],
-      ['José', 1234.5, 'line one,\nline two'],
+      ["'Name", "'Amount", "'Note"],
+      ["'José", 1234.5, "'line one,\nline two"],
     ])
     expect(sheet?.styles).toEqual([[1, 1, { numberFormat: 'currency', decimalPlaces: 2 }]])
     expect(findings.map(finding => finding.construct)).toEqual(['Non-Unicode text encoding'])
@@ -31,7 +31,7 @@ describe('csv', () => {
 
     const cells = readDelimited(bytes, 'Imported', 'csv').data.sheets[0]?.cells
 
-    expect(cells?.[1]).toEqual(['A1', "'02134", "'4111111111111111", 1234.5, '1,5'])
+    expect(cells?.[1]).toEqual(["'A1", "'02134", "'4111111111111111", 1234.5, "'1,5"])
   })
 
   it('writes underlying values: full precision, ISO dates and formula results', () => {
@@ -79,9 +79,9 @@ describe('tsv', () => {
 
     const { data, findings } = readDelimited(bytes, 'Imported', 'tsv')
     expect(data.sheets[0]?.cells).toEqual([
-      ['Item', 'Note', 'Cost'],
-      ['Desk, oak', 'left\tright', 120],
-      ['Lamp', 'say "hi"\non two lines', 35.5],
+      ["'Item", "'Note", "'Cost"],
+      ["'Desk, oak", "'left\tright", 120],
+      ["'Lamp", "'say \"hi\"\non two lines", 35.5],
     ])
     expect(findings).toEqual([])
   })

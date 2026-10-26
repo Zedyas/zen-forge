@@ -21,9 +21,9 @@ describe('parseCellText', () => {
     ['-007', "'-007"],
     ['1234567890123456', "'1234567890123456"],
     ['4111 1111 1111 1111', "'4111 1111 1111 1111"],
-    ['1,5', '1,5'],
-    ['12,34', '12,34'],
-    ['$1,5', '$1,5'],
+    ['1,5', "'1,5"],
+    ['12,34', "'12,34"],
+    ['$1,5', "'$1,5"],
     ['12E3', "'12E3"],
   ])('keeps %s as text', (text, input) => {
     expect(parseCellText(text).input).toBe(input)
@@ -31,13 +31,14 @@ describe('parseCellText', () => {
 })
 
 describe('textCellInput', () => {
-  it('marks only text the engine would read as a value, which then shows without the mark', () => {
+  it('keeps every text as text, and shows the mark only where typing the text alone would read as a value', () => {
     const workbook = new Workbook()
     const sheetId = workbook.sheets()[0]?.id ?? 0
-    const texts = ['00123', '=x', 'TRUE', '#N/A', '10:30', 'plain words', "'quoted"]
+    const texts = ['00123', '=x', 'TRUE', '#N/A', '10:30', '$-12', 'plain words', "'quoted"]
     texts.forEach((text, row) => workbook.setCellInput(sheetId, [0, row], textCellInput(text)))
 
     expect(texts.map((_, row) => workbook.getCellValue(sheetId, [0, row]))).toEqual(texts)
-    expect(textCellInput('plain words')).toBe('plain words')
+    expect(texts.map((_, row) => workbook.getCellInput(sheetId, [0, row])))
+      .toEqual(["'00123", "'=x", "'TRUE", "'#N/A", "'10:30", "'$-12", 'plain words', "''quoted"])
   })
 })

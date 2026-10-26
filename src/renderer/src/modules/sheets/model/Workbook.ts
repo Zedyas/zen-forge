@@ -7,7 +7,7 @@ import {
   type RawCellContent,
 } from 'hyperformula'
 import { columnName, sheetNameProblem, sheetRangeReference } from './address'
-import { parseCellText } from './cell-parse'
+import { parseCellText, shownInput } from './cell-parse'
 import { fillSeries } from './fill-series'
 import { formatCellValue, isDateStyle } from './format'
 import { shiftFormula } from './references'
@@ -139,6 +139,13 @@ function serializedInput(value: RawCellContent): CellInput {
   return value
 }
 
+/** A raw input as the formula bar shows it and Find searches it, without the mark that keeps every text cell text. */
+function shownCellInput(serialized: RawCellContent): string {
+  if (serialized instanceof Date) return serialized.toISOString()
+  if (typeof serialized === 'string') return shownInput(serialized)
+  return serialized === null || serialized === undefined ? '' : String(serialized)
+}
+
 function plainValue(value: CellValue): string | number | boolean | null {
   if (value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value
   return value.toString()
@@ -206,9 +213,7 @@ export class Workbook {
   }
 
   getCellInput(sheetId: number, [col, row]: Item): string {
-    const serialized = this.#engine.getCellSerialized({ sheet: sheetId, col, row })
-    if (serialized instanceof Date) return serialized.toISOString()
-    return serialized === null || serialized === undefined ? '' : String(serialized)
+    return shownCellInput(this.#engine.getCellSerialized({ sheet: sheetId, col, row }))
   }
 
   getCellValue(sheetId: number, [col, row]: Item): string | number | boolean | null {
@@ -331,7 +336,8 @@ export class Workbook {
 
   /** With `fit`, a row too short for the new text of a wrapped or larger-font cell grows to show it. */
   setCellInput(sheetId: number, [col, row]: Item, input: CellInput, fit?: CellMeasure): void {
-    if (this.getCellInput(sheetId, [col, row]) === String(input ?? '')) return
+    const current = this.#engine.getCellSerialized({ sheet: sheetId, col, row })
+    if (current === input || shownCellInput(current) === String(input ?? '')) return
     this.#commit(() => {
       this.#engine.setCellContents({ sheet: sheetId, col, row }, [[input]])
       const style = this.#style(sheetId, col, row)
@@ -666,7 +672,7 @@ export class Workbook {
     const needle = caseSensitive ? query : query.toLocaleLowerCase()
     return this.sheets().flatMap(sheet => this.#engine.getSheetSerialized(sheet.id).flatMap((row, rowIndex) =>
       row.flatMap((value, colIndex) => {
-        const input = value === null || value === undefined ? '' : String(value)
+        const input = shownCellInput(value)
         const candidate = caseSensitive ? input : input.toLocaleLowerCase()
         return candidate.includes(needle)
           ? [{ sheetId: sheet.id, sheetName: sheet.name, cell: [colIndex, rowIndex] as Item, input }]

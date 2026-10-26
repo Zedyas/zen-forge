@@ -35,9 +35,9 @@ describe('SheetJS formats', () => {
     const { sheet, constructs } = await read('biff8', 'xls')
 
     expect(sheet?.cells.slice(0, 3)).toEqual([
-      ['Item', 'Cost', 'Paid', 'Due'],
-      ['Rent', 2150.5, true, dueDate],
-      ['Food', 612.5, false],
+      ["'Item", "'Cost", "'Paid", "'Due"],
+      ["'Rent", 2150.5, true, dueDate],
+      ["'Food", 612.5, false],
     ])
     // SheetJS writes xls formulas as their values only.
     expect(sheet?.values?.[3]?.[1]).toBe(2763)
@@ -51,7 +51,7 @@ describe('SheetJS formats', () => {
   it('reads an OpenDocument spreadsheet', async () => {
     const { sheet, constructs } = await read('ods', 'ods')
 
-    expect(sheet?.cells[1]).toEqual(['Rent', 2150.5, true, dueDate])
+    expect(sheet?.cells[1]).toEqual(["'Rent", 2150.5, true, dueDate])
     expect(sheet?.cells[3]?.[1]).toBe('=SUM(B2:B3)')
     expect(sheet?.values?.[3]?.[1]).toBe(2763)
     expect(sheet?.styles).toContainEqual([3, 1, expect.objectContaining({ numberFormat: 'date' })])
@@ -67,7 +67,7 @@ describe('SheetJS formats', () => {
   it('reads a Numbers document, moving its dates to the 1900 system', async () => {
     const { sheet, constructs } = await read('numbers', 'numbers')
 
-    expect(sheet?.cells[1]).toEqual(['Rent', 2150.5, true, dueDate])
+    expect(sheet?.cells[1]).toEqual(["'Rent", 2150.5, true, dueDate])
     // Numbers formulas arrive as their last calculated values.
     expect(sheet?.cells[3]?.[1]).toBe(2763)
     expect(sheet?.styles).toContainEqual([3, 1, expect.objectContaining({ numberFormat: 'date' })])

@@ -6,17 +6,26 @@ function decimalPlaces(value: string): number {
 }
 
 /**
- * Text the engine would read as something else: a number, date, time, percentage, boolean, error or
+ * Text that typing would turn into something else: a number, date, time, percentage, boolean, error or
  * formula. Deliberately broad; a false positive only costs an apostrophe in the formula bar.
  */
-const readsAsValue = /^\s*(?:[-+]?[$€£¥]?\s*[\d.]+(?:e[-+]?\d+)?%?|[\d\s/:.-]+(?:\s*[ap]m)?|true|false|#(?:null!|div\/0!|value!|ref!|name\?|num!|n\/a|cycle!|error!|spill!|lic!))\s*$/i
+const readsAsValue = /^\s*(?:[-+]?[$€£¥]?\s*[-+]?[\d.]+(?:e[-+]?\d+)?\s*[%$€£¥]?|[\d\s/:.-]+(?:\s*[ap]m)?|true|false|#(?:null!|div\/0!|value!|ref!|name\?|num!|n\/a|cycle!|error!|spill!|lic!))\s*$/i
 
 /**
- * The raw input that keeps `text` as text. An apostrophe marks it, as in Excel and Google Sheets: the
- * cell's value is the text without it, and the formula bar shows it. Plain words need no marker.
+ * The raw input that keeps `text` as text, whatever the engine's parser would make of it. An apostrophe
+ * marks it, as in Excel and Google Sheets; the cell's value is the text without it.
  */
 export function textCellInput(text: string): string {
-  return text.startsWith('=') || text.startsWith("'") || readsAsValue.test(text) ? `'${text}` : text
+  return `'${text}`
+}
+
+/**
+ * A raw input as the formula bar shows it and Find searches it: a text cell keeps its apostrophe only
+ * where typing the text alone would read as something else, so plain words show as they are.
+ */
+export function shownInput(input: string): string {
+  const text = input.slice(1)
+  return input.startsWith("'") && !text.startsWith('=') && !text.startsWith("'") && !readsAsValue.test(text) ? text : input
 }
 
 /** Digits, with any commas grouping by thousands (1,234 or 12,345,678); 1,5 is not a number. */

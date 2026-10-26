@@ -20,8 +20,8 @@ describe('fillSeries', () => {
     ['long months wrap', seeds('November'), [1, 2], ['December', 'January']],
     ['months step by the seed step', seeds('Jan', 'Mar'), [2], ['May']],
     ['weekdays continue', seeds('mon', 'tue'), [2], ['wed']],
-    ['numbered text counts on, keeping zeros', seeds('Item 09'), [1], ['Item 10']],
-    ['quarters wrap after Q4', seeds('Q3', 'Q4'), [2], ['Q1']],
+    ['numbered text counts on, keeping zeros', seeds('Item 09'), [1], ["'Item 10"]],
+    ['quarters wrap after Q4', seeds('Q3', 'Q4'), [2], ["'Q1"]],
     ['other text repeats as a pattern', seeds('a', 'b'), [2, 3, -1], ['a', 'b', 'b']],
   ])('%s', (_, from, positions, expected) => {
     expect(inputs(from, positions)).toEqual(expected)
