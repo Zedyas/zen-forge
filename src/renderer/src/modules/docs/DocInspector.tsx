@@ -4,7 +4,7 @@ import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
 import { useEditorState } from '@tiptap/react'
 import { Inspector, InspectorRow, InspectorSection } from '../../ui/Inspector'
 import { Tip } from '../../ui/Tip'
-import { currentBlockStyle, editPart, setHeadersAndFooters, setPage, setParagraphFormat, type ParagraphFormat } from './doc-commands'
+import { currentBlockStyle, editPart, setHeadersAndFooters, setPage, setParagraphFormat, usePartEditing, type ParagraphFormat } from './doc-commands'
 import { documentHeadersAndFooters, hasPageNumber, withPageNumber, type HeaderFooterPart } from './header-footer'
 import { contentsLevels, countText, deepestContentsLevel, outline } from './text-stats'
 import { documentPage, isLandscape, lengthUnit, pageFor, paperOf, papers, type PageSetup } from './theme'
@@ -230,17 +230,27 @@ function PageSection({ editor }: { readonly editor: Editor }) {
 
 function HeaderFooterSection({ editor, documentId }: { readonly editor: Editor; readonly documentId: string }) {
   const headerFooter = useEditorState({ editor, selector: ({ editor: current }) => documentHeadersAndFooters(current.state.doc.attrs['headerFooter']) })
-  const edit = (part: HeaderFooterPart, label: string) => <button type="button" className="button" onClick={() => editPart(documentId, part)}>{label}</button>
+  const editing = usePartEditing(state => state.editing)
+  // With a different first page, each part is a choice of the first page's or the other pages'; the open one shows pressed.
+  const choice = (label: string, first: HeaderFooterPart, other: HeaderFooterPart) => (
+    <InspectorRow label={label}>
+      <span className="segmented">
+        {([[first, 'First page'], [other, 'Other pages']] as const).map(([part, name]) => (
+          <button key={part} type="button" aria-pressed={editing?.documentId === documentId && editing.part === part} onClick={() => editPart(documentId, part)}>{name}</button>
+        ))}
+      </span>
+    </InspectorRow>
+  )
   return (
     <InspectorSection title="Header and footer">
       {headerFooter.differentFirstPage
-        ? (
-          <>
-            <InspectorRow label="Header"><span className="sumi-inspector-actions">{edit('firstHeader', 'First page')}{edit('header', 'Other pages')}</span></InspectorRow>
-            <InspectorRow label="Footer"><span className="sumi-inspector-actions">{edit('firstFooter', 'First page')}{edit('footer', 'Other pages')}</span></InspectorRow>
-          </>
-        )
-        : <div className="sumi-inspector-actions">{edit('header', 'Header')}{edit('footer', 'Footer')}</div>}
+        ? <>{choice('Header', 'firstHeader', 'header')}{choice('Footer', 'firstFooter', 'footer')}</>
+        : (
+          <div className="sumi-inspector-actions">
+            <button type="button" className="button" onClick={() => editPart(documentId, 'header')}>Header</button>
+            <button type="button" className="button" onClick={() => editPart(documentId, 'footer')}>Footer</button>
+          </div>
+        )}
       <label className="sumi-check-row">
         <input
           type="checkbox"
