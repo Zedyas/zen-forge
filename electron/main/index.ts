@@ -2,7 +2,8 @@ import { app, BrowserWindow, dialog, Menu, nativeTheme, type IpcMainInvokeEvent,
 import { basename, extname, join } from 'node:path'
 import { applicationForExtension, findApplication, suiteName } from '../../src/shared/applications'
 import { commandApplies, commandDefinitions, type CommandDefinition, type MenuId } from '../../src/shared/commands'
-import type { Appearance, FileReference, ViewState, WindowSession, WindowState } from '../../src/shared/shell'
+import { recentMenuItems } from '../../src/shared/recents'
+import type { Appearance, FileReference, RecentsRequest, ViewState, WindowSession, WindowState } from '../../src/shared/shell'
 import { attachSpellingMenu, registerLinkIpc } from './document-editing'
 import { registerFileIpc } from './file-ipc'
 import { NodeFileService } from './node-file-service'
@@ -26,6 +27,8 @@ const records: WindowRecord[] = []
 const fileService = new NodeFileService()
 /** Files handed over by Finder before the app finished launching. */
 const pendingOpenPaths: string[] = []
+/** The recent files, newest first, as the windows last reported them; the Open Recent menu lists them. */
+let recentPaths: readonly string[] = []
 let lastFocused: WindowRecord | undefined
 let quitting = false
 
@@ -105,6 +108,37 @@ function menuItems(menu: MenuId, record: WindowRecord | undefined): MenuItemCons
     })
 }
 
+function sendRecentsRequest(request: RecentsRequest): void {
+  send(targetWindow(), 'shell:recents-request', request)
+}
+
+/** File > Open Recent. Choosing a file asks a window to open it; that window owns the list and reports a file that is gone. */
+function openRecentItem(): MenuItemConstructorOptions {
+  const items = recentMenuItems(recentPaths)
+  return {
+    label: 'Open Recent',
+    enabled: items.length > 0,
+    submenu: [
+      ...items.map(item => ({
+        label: item.label,
+        toolTip: item.path,
+        click: () => sendRecentsRequest({ action: 'open', path: item.path }),
+      })),
+      { type: 'separator' },
+      {
+        label: 'Clear Menu',
+        enabled: items.length > 0,
+        click: () => {
+          recentPaths = []
+          app.clearRecentDocuments()
+          refreshMenu()
+          sendRecentsRequest({ action: 'clear' })
+        },
+      },
+    ],
+  }
+}
+
 function appearanceItems(): MenuItemConstructorOptions[] {
   const options: ReadonlyArray<readonly [Appearance, string]> = [['system', 'Use System Setting'], ['light', 'Light'], ['dark', 'Dark']]
   return options.map(([appearance, label]) => ({
@@ -123,6 +157,8 @@ function buildMenu(record: WindowRecord | undefined): Menu {
   const edit = menuItems('edit', record)
   const find = edit.filter(item => item.id === 'edit.find')
   const editing = edit.filter(item => item.id !== 'edit.undo' && item.id !== 'edit.redo' && item.id !== 'edit.find' && item.type !== 'separator')
+  const file = menuItems('file', record)
+  const afterOpen = file.findIndex(item => item.id === 'file.open') + 1
   const format = menuItems('format', record)
   const page = menuItems('page', record)
   const slide = menuItems('slide', record)
@@ -153,7 +189,7 @@ function buildMenu(record: WindowRecord | undefined): Menu {
     },
     {
       label: 'File',
-      submenu: [...menuItems('file', record), { role: 'close', label: 'Close Window', accelerator: 'Shift+CmdOrCtrl+W' }],
+      submenu: [...file.slice(0, afterOpen), openRecentItem(), ...file.slice(afterOpen), { role: 'close', label: 'Close Window', accelerator: 'Shift+CmdOrCtrl+W' }],
     },
     {
       label: 'Edit',
@@ -333,6 +369,12 @@ handle('shell:set-view-state', (event, view: ViewState) => {
   const record = senderRecord(event)
   if (record === undefined) return
   record.view = view
+  refreshMenu()
+})
+handle('shell:set-recents', (_event, paths: readonly string[]) => {
+  // Every window reports on every change, and a new preview changes nothing the menu shows.
+  if (paths.length === recentPaths.length && paths.every((path, index) => path === recentPaths[index])) return
+  recentPaths = paths
   refreshMenu()
 })
 // Through IPC rather than the HTML Fullscreen API: that needs a click or key press in the page, and

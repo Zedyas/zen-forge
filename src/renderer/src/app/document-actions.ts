@@ -2,7 +2,7 @@ import { toast } from 'sonner'
 import { applicationForExtension, applications, findApplication, isWritableExtension, type EditorApplicationId } from '@shared/applications'
 import type { FileReference, SaveFileOptions } from '@shared/shell'
 import { fileService } from '../services/file/IpcFileService'
-import { recordRecent } from '../services/index/document-index'
+import { forgetRecent, recordRecent } from '../services/index/document-index'
 import { platformClient } from '../services/platform/client'
 import { askConfirm } from '../ui/ConfirmDialog'
 import { editorFor } from './editors'
@@ -29,6 +29,15 @@ export async function openFiles(files: readonly FileReference[]): Promise<void> 
     useDocumentsStore.getState().openFile(file)
     await recordRecent(file)
   }
+}
+
+/** Opens a file from the recents list. One that is gone is dropped from the list, and the error says why it did not open. */
+export async function openRecent(path: string): Promise<void> {
+  const file = await fileService.describe(path).catch(async (error: unknown) => {
+    await forgetRecent(path)
+    throw error
+  })
+  await openFiles([file])
 }
 
 /** Shows the open dialog, limited to one application's file types when `kind` is given. */

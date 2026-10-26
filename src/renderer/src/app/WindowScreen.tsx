@@ -7,7 +7,7 @@ import { toast } from 'sonner'
 import { suiteName } from '@shared/applications'
 import type { CommandId } from '@shared/commands'
 import { fileService } from '../services/file/IpcFileService'
-import { recordRecent } from '../services/index/document-index'
+import { clearRecents, listRecents, recordRecent, watchRecents } from '../services/index/document-index'
 import { platformClient } from '../services/platform/client'
 import { AppIcon } from '../ui/AppIcon'
 import { DocumentTab } from '../ui/DocumentTab'
@@ -20,7 +20,7 @@ import { combinePdfs, createPdfFromImages } from '../modules/pdf/workflows'
 import { SheetsWorkspace } from '../modules/sheets/SheetsWorkspace'
 import { SlidesWorkspace } from '../modules/slides/SlidesWorkspace'
 import { executeCommand } from './commands'
-import { openDroppedFiles, resolveWindowClose } from './document-actions'
+import { openDroppedFiles, openRecent, resolveWindowClose } from './document-actions'
 import { activeDocument, homeTabId, useDocumentsStore } from './documents-store'
 import { HomeScreen } from './HomeScreen'
 import { useViewStore } from './view-store'
@@ -92,6 +92,20 @@ function useWindowSession(): void {
     const { toolbar, inspector } = useViewStore.getState()
     void platformClient.setViewState({ toolbar, inspector })
   }, [])
+}
+
+/** Keeps File > Open Recent on the recents list, and carries out what that menu asks for. */
+function useRecentsMenu(): void {
+  useEffect(() => {
+    const report = (): void => void listRecents().then(files => platformClient.setRecents(files.map(file => file.path)))
+    report()
+    return watchRecents(report)
+  }, [])
+
+  useEffect(() => platformClient.onRecentsRequest(request => {
+    if (request.action === 'clear') void clearRecents()
+    else void openRecent(request.path).catch(reportFailure('Could not open the file'))
+  }), [])
 }
 
 function HomeTab({ active }: { readonly active: boolean }) {
@@ -182,6 +196,7 @@ export function WindowScreen() {
   const [dragging, setDragging] = useState(false)
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
   useWindowSession()
+  useRecentsMenu()
 
   const active = documents.find(document => document.id === activeId)
 
