@@ -270,9 +270,17 @@ export function insertPageBreak(editor: Editor): void {
   editor.chain().focus().insertContent({ type: 'pageBreak' }).run()
 }
 
-/** Inserts a table of contents of Heading 1 to 3 at the caret, as Word's default one. */
+/**
+ * Inserts a table of contents of Heading 1 to 3 at the caret, as Word's default one; in a list,
+ * quotation or table it goes after that block, as it can only be at the top level (schema.ts).
+ */
 export function insertTableOfContents(editor: Editor): void {
-  editor.chain().focus().insertContent({ type: 'tableOfContents', attrs: { levels: 3 } }).run()
+  const contents = { type: 'tableOfContents', attrs: { levels: 3 } }
+  const { $from } = editor.state.selection
+  const chain = editor.chain().focus()
+  if ($from.depth > 1) chain.insertContentAt($from.after(1), contents)
+  else chain.insertContent(contents)
+  chain.run()
 }
 
 /** Word's shortcuts for strikethrough and page break, ahead of TipTap's own (⌘↩ is a line break there). */

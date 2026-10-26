@@ -20,7 +20,8 @@ import { defaultPage, defaultTheme, emptyProperties, singleLineHeight, toPoints 
 const SumiDocument = Node.create({
   name: 'doc',
   topNode: true,
-  content: 'block+',
+  // A table of contents only at the top level: inside a list or quotation, Word's field would end the list or quotation.
+  content: '(block | tableOfContents)+',
   addAttributes() {
     return {
       page: { default: defaultPage, rendered: false },
@@ -73,7 +74,6 @@ export const PageBreak = Node.create({
  */
 export const TableOfContents = Node.create({
   name: 'tableOfContents',
-  group: 'block',
   atom: true,
   selectable: true,
   addAttributes() {
