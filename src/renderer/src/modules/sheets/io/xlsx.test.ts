@@ -166,6 +166,28 @@ describe('xlsx', () => {
     expect(opened.data.sheets[0]?.styles).toContainEqual([3, 4, { ...defaultCellStyle, note: 'Fill in by Friday.' }])
   })
 
+  it('keeps links on numbers, booleans, formulas and empty cells without changing their values', async () => {
+    const sheet = workbook.sheets[1]
+    if (sheet === undefined) throw new Error('Fixture sheet is missing.')
+    const targets = ['https://example.com/n', 'https://example.com/b', 'https://example.com/f?a=1&b=2', 'https://example.com/e', 'https://example.com/t']
+    const linked = {
+      ...sheet,
+      cells: [[123, true, '=1+1', null, "'text"]],
+      values: [[123, true, 2, null, 'text']],
+      styles: targets.map((link, column) => [column, 0, { ...defaultCellStyle, link }] as const),
+    }
+
+    const saved = await writeXlsx({ sheets: [linked], namedRanges: [] })
+    const opened = await readXlsx(saved)
+    expect(opened.data.sheets[0]?.cells).toEqual(linked.cells)
+    expect(opened.data.sheets[0]?.styles).toEqual(expect.arrayContaining(linked.styles))
+    expect(opened.findings).toEqual([])
+    // Other apps read the same links: ExcelJS, which Excel's own format rules shaped, finds every one.
+    const other = new ExcelJS.Workbook()
+    await (other.xlsx as unknown as { load(data: Uint8Array): Promise<unknown> }).load(saved)
+    expect(['A1', 'B1', 'C1', 'E1'].map(address => (other.worksheets[0]?.getCell(address).value as ExcelJS.CellHyperlinkValue).hyperlink)).toEqual(targets.filter((_, column) => column !== 3))
+  })
+
   it('keeps the file number format, such as euros, through open and save', async () => {
     const source = new ExcelJS.Workbook()
     const sheet = source.addWorksheet('Costs')

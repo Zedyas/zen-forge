@@ -25,7 +25,7 @@ import {
 import { aggregateFindings, type FindingEvent } from './findings'
 import { numberFormatPattern, numberFormatStyle } from './number-format'
 import { assertZipFitsInMemory } from '../../../services/zip'
-import { customHeightRows, packageFindings, readWorkbookPackage, type DefaultFont } from './package-parts'
+import { customHeightRows, packageFindings, readWorkbookPackage, takeHyperlinks, withHyperlinks, type DefaultFont } from './package-parts'
 
 export interface XlsxImport {
   readonly data: WorkbookData
@@ -318,9 +318,14 @@ function readCellStyle(cell: ExcelJS.Cell, context: CellContext): CellStyle {
   const note: string | ExcelJS.Comment | undefined = cell.note
   const noteText = typeof note === 'string' ? note : note?.texts?.map(run => run.text).join('')
   if (noteText !== undefined && noteText !== '') style = { ...style, note: noteText }
-  if (isHyperlink(cell.value) && cell.value.hyperlink !== '') style = { ...style, link: cell.value.hyperlink }
 
   return style
+}
+
+/** `B2` as a zero-based column and row; undefined for anything else. */
+function readAddress(address: string): readonly [number, number] | undefined {
+  const match = address.match(/^\$?([A-Z]+)\$?(\d+)$/i)
+  return match === null ? undefined : [columnIndex(match[1] ?? ''), Number(match[2]) - 1]
 }
 
 /** `B2:D4` as a range; undefined for anything else. */
@@ -470,8 +475,9 @@ function materialize(grid: ReadonlyMap<number, ReadonlyMap<number, ImportedCell>
 
 export async function readXlsx(bytes: Uint8Array): Promise<XlsxImport> {
   assertZipFitsInMemory(bytes)
+  const { bytes: unlinked, links } = takeHyperlinks(bytes)
   const workbook = new ExcelJS.Workbook()
-  await (workbook.xlsx as unknown as ByteXlsx).load(bytes)
+  await (workbook.xlsx as unknown as ByteXlsx).load(unlinked)
 
   const { parts, defaultFont } = readWorkbookPackage(bytes)
   const events: FindingEvent[] = [...packageFindings(parts)]
@@ -483,6 +489,8 @@ export async function readXlsx(bytes: Uint8Array): Promise<XlsxImport> {
     const context: CellContext = { sheetName: sheet.name, defaultFont, events }
     const grid = new Map<number, Map<number, ImportedCell>>()
     const styles: [number, number, CellStyle][] = []
+    // A link can sit on a cell the file has no element for; those are added after the cells.
+    const unread = new Map(links.get(sheet.name))
 
     sheet.eachRow({ includeEmpty: true }, (row, rowNumber) => {
       row.eachCell({ includeEmpty: true }, (cell, columnNumber) => {
@@ -493,9 +501,15 @@ export async function readXlsx(bytes: Uint8Array): Promise<XlsxImport> {
           grid.set(rowNumber - 1, line)
         }
 
-        const style = readCellStyle(cell, context)
+        const link = unread.get(cell.address)
+        unread.delete(cell.address)
+        const style = { ...readCellStyle(cell, context), ...(link === undefined ? {} : { link }) }
         if (!isDefaultStyle(style)) styles.push([columnNumber - 1, rowNumber - 1, style])
       })
+    })
+    unread.forEach((link, address) => {
+      const cell = readAddress(address)
+      if (cell !== undefined) styles.push([cell[0], cell[1], { ...defaultCellStyle, link }])
     })
 
     readSheetConstructs(sheet, events)
@@ -558,13 +572,16 @@ function writeCellValue(
   }
 
   // The apostrophe only tells the engine the input is text; the file stores the text itself.
-  const value = typeof input === 'string' && input.startsWith("'") ? input.slice(1) : input
-  // ExcelJS links text only, so a link on a number keeps the number and loses the link.
-  cell.value = style?.link !== undefined && typeof value === 'string' ? { text: value, hyperlink: style.link } : value
+  cell.value = typeof input === 'string' && input.startsWith("'") ? input.slice(1) : input
 }
 
+/** Links are written into the package after ExcelJS, which can link only text cells (see `withHyperlinks`). */
 export async function writeXlsx(data: WorkbookData): Promise<Uint8Array> {
   const workbook = new ExcelJS.Workbook()
+  const links = new Map(data.sheets.map(sheet => [
+    sheet.name,
+    new Map(sheet.styles.flatMap(([column, row, style]) => style.link === undefined ? [] : [[cellName([column, row]), style.link] as const])),
+  ]))
 
   for (const sheet of data.sheets) {
     const target = workbook.addWorksheet(sheet.name)
@@ -608,5 +625,5 @@ export async function writeXlsx(data: WorkbookData): Promise<Uint8Array> {
     workbook.definedNames.add(sheetRangeReference(namedRange.sheetName, namedRange.range), namedRange.name)
   }
 
-  return new Uint8Array(await (workbook.xlsx as unknown as ByteXlsx).writeBuffer())
+  return withHyperlinks(new Uint8Array(await (workbook.xlsx as unknown as ByteXlsx).writeBuffer()), links)
 }
