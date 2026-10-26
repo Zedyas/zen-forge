@@ -8,6 +8,8 @@ Simplified office suite for macOS because I hate using Numbers and needed functi
 
 One window with tabs. Home is the first tab, and spreadsheets, PDFs, documents and presentations open as tabs beside it. Right-click a tab to move it to its own window, or press ⇧⌘N for a new one.
 
+If another app changes a file while it is open in Zen Suzu, saving asks first: overwrite the other app's changes, or save a copy.
+
 ![Tabs: open a spreadsheet and a PDF from Home; a second spreadsheet joins the spreadsheet group](docs/media/tabs.gif)
 
 ## Applications
@@ -26,7 +28,7 @@ One window with tabs. Home is the first tab, and spreadsheets, PDFs, documents a
 - Excel formulas and formatting
 - Sort, AutoSum, and find and replace
 - Print, and export as PDF
-- Opens and saves Excel, CSV and TSV files, and opens Numbers, OpenDocument and older Excel files (saved as `.xlsx`). If a file has something Ledger can't keep, such as macros, Ledger tells you when it opens and saves a copy instead of overwriting the original.
+- Opens and saves Excel, CSV and TSV files, and opens Numbers, OpenDocument and older Excel files (saved as `.xlsx`). If a file has something Ledger can't keep exactly, such as macros or merged cells, Ledger tells you when it opens and asks before saving over the original, offering to save a copy.
 
 ### Hanko
 
