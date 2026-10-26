@@ -24,7 +24,7 @@ import {
 import { aggregateFindings, type FindingEvent } from './findings'
 import { numberFormatPattern, numberFormatStyle } from './number-format'
 import { assertZipFitsInMemory } from '../../../services/zip'
-import { packageFindings, readWorkbookPackage, type DefaultFont } from './package-parts'
+import { customHeightRows, packageFindings, readWorkbookPackage, type DefaultFont } from './package-parts'
 
 export interface XlsxImport {
   readonly data: WorkbookData
@@ -318,7 +318,8 @@ function readCellStyle(cell: ExcelJS.Cell, context: CellContext): CellStyle {
   return style
 }
 
-function readLayout(sheet: ExcelJS.Worksheet, events: FindingEvent[]): SheetData['layout'] {
+/** `customRows` lists the rows whose height the file marks as set on purpose. */
+function readLayout(sheet: ExcelJS.Worksheet, events: FindingEvent[], customRows: () => ReadonlySet<number> | undefined): SheetData['layout'] {
   const columnWidths: [number, number][] = []
   const rowHeights: [number, number][] = []
   const hiddenColumns: number[] = []
@@ -330,11 +331,13 @@ function readLayout(sheet: ExcelJS.Worksheet, events: FindingEvent[]): SheetData
     if (column.hidden === true) hiddenColumns.push(index)
   })
 
-  // Excel writes a height on many rows that are simply at the sheet's default; those keep Ledger's default.
+  // Excel writes a height on many rows that are simply at the sheet's default; those keep Ledger's
+  // default, unless the height was chosen (a row set to 20 px saves as Excel's default 15 pt).
   const defaultHeight = sheet.properties.defaultRowHeight ?? 15
   sheet.eachRow({ includeEmpty: true }, (row, rowNumber) => {
     if (row.hidden === true) hiddenRows.push(rowNumber - 1)
-    if (typeof row.height === 'number' && row.height !== defaultHeight) rowHeights.push([rowNumber - 1, rowHeightPixels(row.height)])
+    if (typeof row.height !== 'number') return
+    if (row.height !== defaultHeight || customRows()?.has(rowNumber - 1) === true) rowHeights.push([rowNumber - 1, rowHeightPixels(row.height)])
   })
 
   const view = (sheet.views ?? [])[0]
@@ -464,6 +467,8 @@ export async function readXlsx(bytes: Uint8Array): Promise<XlsxImport> {
   const { parts, defaultFont } = readWorkbookPackage(bytes)
   const events: FindingEvent[] = [...packageFindings(parts)]
   const sheets: SheetData[] = []
+  // Read from the raw package only when a row is at the default height.
+  let customRows: ReadonlyMap<string, ReadonlySet<number>> | undefined
 
   for (const sheet of workbook.worksheets) {
     const context: CellContext = { sheetName: sheet.name, defaultFont, events }
@@ -486,7 +491,8 @@ export async function readXlsx(bytes: Uint8Array): Promise<XlsxImport> {
 
     readSheetConstructs(sheet, events)
     const { cells, values } = materialize(grid)
-    sheets.push({ name: sheet.name, cells, values, styles, layout: readLayout(sheet, events) })
+    const layout = readLayout(sheet, events, () => (customRows ??= customHeightRows(bytes)).get(sheet.name))
+    sheets.push({ name: sheet.name, cells, values, styles, layout })
   }
 
   events.push(...unsupportedFunctionEvents(sheets))

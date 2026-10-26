@@ -143,6 +143,19 @@ describe('xlsx', () => {
     expect(saved.data.sheets[0]?.values?.map(row => row[0])).toEqual(texts)
   })
 
+  it('keeps a row height set to Excel’s default height, and leaves rows the file did not size at Ledger’s', async () => {
+    const sheet = workbook.sheets[1]
+    if (sheet === undefined) throw new Error('Fixture sheet is missing.')
+    const saved = await writeXlsx({ sheets: [{ ...sheet, layout: { ...sheet.layout, rowHeights: [[0, 20]] } }], namedRanges: [] })
+    expect((await readXlsx(saved)).data.sheets[0]?.layout.rowHeights).toEqual([[0, 20]])
+
+    // Excel writes `ht` on rows it sized itself, without `customHeight`.
+    const entries = unzipSync(saved)
+    const xml = new TextDecoder().decode(entries['xl/worksheets/sheet1.xml'])
+    entries['xl/worksheets/sheet1.xml'] = new TextEncoder().encode(xml.replace(' customHeight="1"', ''))
+    expect((await readXlsx(zipSync(entries))).data.sheets[0]?.layout.rowHeights).toEqual([])
+  })
+
   it('keeps the file number format, such as euros, through open and save', async () => {
     const source = new ExcelJS.Workbook()
     const sheet = source.addWorksheet('Costs')

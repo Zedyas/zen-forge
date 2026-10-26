@@ -98,6 +98,45 @@ export function readWorkbookPackage(bytes: Uint8Array): WorkbookPackage {
   return { parts, defaultFont: styles === undefined ? {} : parseDefaultFont(strFromU8(styles)) }
 }
 
+function attribute(tag: string, name: string): string | undefined {
+  return tag.match(new RegExp(`\\s${name}="([^"]*)"`))?.[1]
+}
+
+const entities: Readonly<Record<string, string>> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }
+
+function unescapeXml(text: string): string {
+  return text.replace(/&(?:#x([\da-f]+)|#(\d+)|(\w+));/gi, (match, hex?: string, decimal?: string, name?: string) =>
+    hex !== undefined ? String.fromCodePoint(parseInt(hex, 16))
+      : decimal !== undefined ? String.fromCodePoint(Number(decimal))
+        : entities[name ?? ''] ?? match)
+}
+
+/**
+ * Zero-based rows whose height the file sets on purpose (`customHeight`), by sheet name. ExcelJS reads
+ * a row's height but not this mark, which tells a chosen height from one Excel sized by itself.
+ */
+export function customHeightRows(bytes: Uint8Array): ReadonlyMap<string, ReadonlySet<number>> {
+  const files = unzipSync(bytes, {
+    filter: file => file.name === 'xl/workbook.xml' || file.name === 'xl/_rels/workbook.xml.rels' || /^xl\/worksheets\/[^/]+\.xml$/.test(file.name),
+  })
+  const workbook = files['xl/workbook.xml']
+  const relationships = files['xl/_rels/workbook.xml.rels']
+  if (workbook === undefined || relationships === undefined) return new Map()
+  const targets = new Map([...strFromU8(relationships).matchAll(/<Relationship\b[^>]*>/g)]
+    .map(([tag]) => [attribute(tag, 'Id'), attribute(tag, 'Target')]))
+  const result = new Map<string, ReadonlySet<number>>()
+  for (const [tag] of strFromU8(workbook).matchAll(/<sheet\b[^>]*>/g)) {
+    const name = attribute(tag, 'name')
+    const target = targets.get(attribute(tag, 'r:id'))
+    const xml = target === undefined ? undefined : files[target.startsWith('/') ? target.slice(1) : `xl/${target}`]
+    if (name === undefined || xml === undefined) continue
+    const rows = [...strFromU8(xml).matchAll(/<row\b[^>]*>/g)]
+      .flatMap(([row]) => /\scustomHeight="(?:1|true)"/.test(row) ? [Number(attribute(row, 'r')) - 1] : [])
+    result.set(unescapeXml(name), new Set(rows))
+  }
+  return result
+}
+
 export function packageFindings(parts: readonly string[]): readonly FindingEvent[] {
   const events: FindingEvent[] = []
 
