@@ -34,6 +34,20 @@ describe('findMatches', () => {
     expect(findMatches(presentation, 'review\nTotal', true)).toEqual([])
   })
 
+  it('gives each occurrence in one text its own offsets', () => {
+    const start = newPresentation()
+    const table = updateCell(newTable(1, 1, start), 0, 0, { text: 'ab ab ab' })
+    const presentation = updateSlide(start, start.slides[0]?.id ?? '', slide => ({
+      ...slide,
+      elements: [textBox('box', [paragraphOf('go go'), paragraphOf('go')]), table],
+      notes: 'ab ab',
+    }))
+    const spans = findMatches(presentation, 'ab', true).map(match => `${match.where}:${match.start}-${match.end}`)
+    expect(spans).toEqual(['cell:0-2', 'cell:3-5', 'cell:6-8', 'notes:0-2', 'notes:3-5'])
+    const text = findMatches(presentation, 'go', true).map(match => match.where === 'text' ? `${match.paragraph}:${match.start}-${match.end}` : '')
+    expect(text).toEqual(['0:0-2', '0:3-5', '1:0-2'])
+  })
+
   it('treats the query as plain text', () => {
     expect(occurrences('a.c abc', 'a.c', false)).toBe(1)
   })

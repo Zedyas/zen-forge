@@ -102,6 +102,8 @@
 
 /* ─── Speaker notes ─── */
 
+::highlight(find-match) { background-color: #ffd54a; color: #1a1a1a; }
+
 .slides-notes {
   flex: none; height: 92px;
   padding: 10px 16px;
