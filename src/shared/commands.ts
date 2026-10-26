@@ -23,6 +23,9 @@ export const commandIds = [
   // Ledger
   'format.strikethrough',
   'format.wrapText',
+  'format.merge',
+  'format.mergeAcross',
+  'format.unmerge',
   'view.toolbar',
   'view.inspector',
   'view.zoomIn',
@@ -137,6 +140,9 @@ export const commandDefinitions: readonly CommandDefinition[] = [
   // Ledger
   { id: 'format.strikethrough', label: 'Strikethrough', menu: 'format', accelerator: 'Shift+CmdOrCtrl+X', scope: ['sheets'], target: 'renderer' },
   { id: 'format.wrapText', label: 'Wrap Text', menu: 'format', scope: ['sheets'], target: 'renderer', separatorBefore: true },
+  { id: 'format.merge', label: 'Merge Cells', menu: 'format', scope: ['sheets'], target: 'renderer', separatorBefore: true },
+  { id: 'format.mergeAcross', label: 'Merge Across', menu: 'format', scope: ['sheets'], target: 'renderer' },
+  { id: 'format.unmerge', label: 'Unmerge Cells', menu: 'format', scope: ['sheets'], target: 'renderer' },
   { id: 'view.toolbar', label: 'Toolbar', menu: 'view', accelerator: 'Alt+CmdOrCtrl+T', scope: 'editors', target: 'renderer', toggle: 'toolbar' },
   { id: 'view.inspector', label: 'Inspector', menu: 'view', accelerator: 'Alt+CmdOrCtrl+I', scope: 'editors', target: 'renderer', toggle: 'inspector' },
   { id: 'view.zoomIn', label: 'Zoom In', menu: 'view', accelerator: 'CmdOrCtrl+=', scope: ['pdf', 'docs'], target: 'renderer', separatorBefore: true },

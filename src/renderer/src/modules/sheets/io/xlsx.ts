@@ -8,7 +8,7 @@
 import * as ExcelJS from 'exceljs'
 import { HyperFormula } from 'hyperformula'
 import type { ImportFindingInput } from '@shared/fidelity'
-import { columnIndex, sheetRangeReference } from '../model/address'
+import { cellName, columnIndex, sheetRangeReference } from '../model/address'
 import { textCellInput } from '../model/cell-parse'
 import {
   defaultCellStyle,
@@ -16,6 +16,7 @@ import {
   defaultRowCount,
   isDefaultStyle,
   type CellInput,
+  type CellRange,
   type CellStyle,
   type NamedRange,
   type SheetData,
@@ -318,6 +319,14 @@ function readCellStyle(cell: ExcelJS.Cell, context: CellContext): CellStyle {
   return style
 }
 
+/** `B2:D4` as a range; undefined for anything else. */
+function readMerge(reference: string): CellRange | undefined {
+  const match = reference.match(/^\$?([A-Z]+)\$?(\d+):\$?([A-Z]+)\$?(\d+)$/i)
+  if (match === null) return undefined
+  const [x, y, endX, endY] = [columnIndex(match[1] ?? ''), Number(match[2]) - 1, columnIndex(match[3] ?? ''), Number(match[4]) - 1]
+  return endX < x || endY < y ? undefined : { x, y, width: endX - x + 1, height: endY - y + 1 }
+}
+
 /** `customRows` lists the rows whose height the file marks as set on purpose. */
 function readLayout(sheet: ExcelJS.Worksheet, events: FindingEvent[], customRows: () => ReadonlySet<number> | undefined): SheetData['layout'] {
   const columnWidths: [number, number][] = []
@@ -355,17 +364,13 @@ function readLayout(sheet: ExcelJS.Worksheet, events: FindingEvent[], customRows
     hiddenColumns,
     freezeRows: frozen?.ySplit ?? 0,
     freezeColumns: frozen?.xSplit ?? 0,
+    merges: (sheet.model.merges ?? []).flatMap(reference => readMerge(reference) ?? []),
   }
 }
 
 function readSheetConstructs(sheet: ExcelJS.Worksheet, events: FindingEvent[]): void {
   const detail = sheet.model as ExcelJS.WorksheetModel & WorksheetDetail
   const location = sheet.name
-
-  const merges = detail.merges?.length ?? 0
-  if (merges > 0) {
-    events.push({ construct: 'Merged cells', severity: 'degraded', location, count: merges, unit: 'ranges' })
-  }
 
   const rules = detail.conditionalFormattings?.length ?? 0
   if (rules > 0) {
@@ -580,6 +585,10 @@ export async function writeXlsx(data: WorkbookData): Promise<Uint8Array> {
     })
     layout.hiddenRows.forEach(row => {
       target.getRow(row + 1).hidden = true
+    })
+    // After the values: ExcelJS empties a block's other cells as it merges them.
+    layout.merges.forEach(merge => {
+      target.mergeCells(`${cellName([merge.x, merge.y])}:${cellName([merge.x + merge.width - 1, merge.y + merge.height - 1])}`)
     })
     if (layout.freezeRows > 0 || layout.freezeColumns > 0) {
       target.views = [{ state: 'frozen', xSplit: layout.freezeColumns, ySplit: layout.freezeRows }]

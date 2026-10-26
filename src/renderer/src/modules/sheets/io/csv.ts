@@ -99,6 +99,7 @@ export function readDelimited(bytes: Uint8Array, sheetName: string, format: Deli
       hiddenColumns: [],
       freezeRows: 0,
       freezeColumns: 0,
+      merges: [],
     },
   }
 

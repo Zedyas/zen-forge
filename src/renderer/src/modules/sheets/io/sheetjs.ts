@@ -168,16 +168,13 @@ function readLayout(sheet: WorkSheet, usedRows: number, usedColumns: number): Sh
     hiddenColumns,
     freezeRows: 0,
     freezeColumns: 0,
+    merges: (sheet['!merges'] ?? []).map(({ s: start, e: end }) => ({ x: start.c, y: start.r, width: end.c - start.c + 1, height: end.r - start.r + 1 })),
   }
 }
 
 function readSheetConstructs(sheet: WorkSheet, context: SheetContext): void {
   const { events, sheetName: location } = context
 
-  const merges = sheet['!merges']?.length ?? 0
-  if (merges > 0) {
-    events.push({ construct: 'Merged cells', severity: 'degraded', location, count: merges, unit: 'ranges' })
-  }
   if (sheet['!autofilter'] !== undefined) events.push({ construct: 'Auto filters', severity: 'dropped', location })
   // An xls Protect record is read as-is, so an unprotected sheet can carry `false` here.
   if (sheet['!protect']) events.push({ construct: 'Sheet protection', severity: 'dropped', location })

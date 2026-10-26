@@ -24,6 +24,8 @@ import {
   Search,
   Sigma,
   Strikethrough,
+  TableCellsMerge,
+  TableCellsSplit,
   Underline,
   Undo2,
   WrapText,
@@ -36,6 +38,7 @@ import {
   fillColors,
   fontFamilies,
   fontSizes,
+  mergeSelection,
   setStyle,
   sortByActiveColumn,
   textColors,
@@ -226,6 +229,9 @@ export function SheetToolbar({ controller, findOpen }: SheetToolbarProps) {
           />
         ))}
         <ToolButton icon={WrapText} label="Wrap text" command="format.wrapText" pressed={style.wrap === true} onClick={() => toggleStyle(controller, 'wrap')} />
+        {workbook.mergeAt(sheetId, cell) === undefined
+          ? <ToolButton icon={TableCellsMerge} label="Merge cells" command="format.merge" onClick={() => void mergeSelection(controller, false)} />
+          : <ToolButton icon={TableCellsSplit} label="Unmerge cells" command="format.unmerge" onClick={() => workbook.unmergeCells(sheetId, controller.range)} />}
         <ToolSeparator />
         {numberFormats.map(format => (
           <ToolButton

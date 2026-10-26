@@ -289,6 +289,34 @@ describe('Workbook', () => {
     expect([3, 4].map(row => workbook.getRowHeight(sheetId, row))).toEqual([26, 40])
   })
 
+  it('merges keeping only the top-left value, and keeps merges consistent through inserts, deletes and sorts', () => {
+    const workbook = regionsWorkbook()
+    const sheetId = workbook.sheets()[0]?.id ?? 0
+    const block = { x: 0, y: 1, width: 2, height: 2 }
+
+    expect(workbook.mergeDiscards(sheetId, block, false)).toBe(3)
+    expect(workbook.mergeDiscards(sheetId, block, true)).toBe(2)
+    workbook.mergeCells(sheetId, block, false)
+    expect(workbook.getCellValue(sheetId, [0, 1])).toBe('North')
+    expect([[1, 1], [0, 2], [1, 2]].map(([col = 0, row = 0]) => workbook.getCellValue(sheetId, [col, row]))).toEqual([null, null, null])
+    expect(workbook.mergeAt(sheetId, [1, 2])).toEqual(block)
+
+    workbook.insertRows(sheetId, 2)
+    expect(workbook.merges(sheetId)).toEqual([{ x: 0, y: 1, width: 2, height: 3 }])
+    workbook.deleteRows(sheetId, 0, 2)
+    expect(workbook.merges(sheetId)).toEqual([{ x: 0, y: 0, width: 2, height: 2 }])
+    expect(workbook.sortRows(sheetId, { x: 0, y: 0, width: 4, height: 5 }, 1, true)).toBe('merged')
+
+    workbook.unmergeCells(sheetId, { x: 1, y: 1, width: 1, height: 1 })
+    expect(workbook.merges(sheetId)).toEqual([])
+    workbook.undo()
+    workbook.undo()
+    workbook.undo()
+    workbook.undo()
+    expect(workbook.merges(sheetId)).toEqual([])
+    expect(workbook.getCellValue(sheetId, [1, 1])).toBe(42_100)
+  })
+
   it('clears a range in one undo step and keeps its formatting', () => {
     const workbook = regionsWorkbook()
     const sheetId = workbook.sheets()[0]?.id ?? 0

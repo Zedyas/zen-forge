@@ -5,6 +5,8 @@ import { readSheetJs } from './sheetjs'
 
 /** 2024-01-15 as a 1900-system serial, the only date system the workbook model uses. */
 const dueDate = 45_306
+/** A5:B5, merged in every fixture. */
+const spanned = { x: 0, y: 4, width: 2, height: 1 }
 
 /** Written with SheetJS itself, so each test reads what the format's own writer produces. */
 function fixture(bookType: XLSX.BookType): Uint8Array {
@@ -45,7 +47,8 @@ describe('SheetJS formats', () => {
     // Nor does it write hidden rows to xls; a hidden column exercises the same layout path.
     expect(sheet?.layout.hiddenColumns).toEqual([3])
     expect(sheet?.layout.columnWidths).toContainEqual([0, expect.any(Number)])
-    expect(constructs).toEqual(expect.arrayContaining(['Merged cells', 'Cell formatting']))
+    expect(sheet?.layout.merges).toEqual([spanned])
+    expect(constructs).toEqual(expect.arrayContaining(['Cell formatting']))
   })
 
   it('reads an OpenDocument spreadsheet', async () => {
@@ -57,8 +60,8 @@ describe('SheetJS formats', () => {
     expect(sheet?.styles).toContainEqual([3, 1, expect.objectContaining({ numberFormat: 'date' })])
     // The ods reader ignores hidden rows and columns, so the report has to say so.
     expect(sheet?.layout.hiddenColumns).toEqual([])
+    expect(sheet?.layout.merges).toEqual([spanned])
     expect(constructs).toEqual(expect.arrayContaining([
-      'Merged cells',
       'Cell formatting',
       'Column widths, hidden rows and columns, and frozen panes',
     ]))
@@ -71,8 +74,8 @@ describe('SheetJS formats', () => {
     // Numbers formulas arrive as their last calculated values.
     expect(sheet?.cells[3]?.[1]).toBe(2763)
     expect(sheet?.styles).toContainEqual([3, 1, expect.objectContaining({ numberFormat: 'date' })])
+    expect(sheet?.layout.merges).toEqual([spanned])
     expect(constructs).toEqual(expect.arrayContaining([
-      'Merged cells',
       'Formulas',
       'Column widths, hidden rows and columns, and frozen panes',
     ]))

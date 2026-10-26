@@ -8,6 +8,7 @@ import DataEditor, {
   type EditableGridCell,
   type GridCell,
   type GridColumn,
+  type GridKeyEventArgs,
   type GridSelection,
   type DataEditorRef,
   type Highlight,
@@ -27,7 +28,7 @@ import { FindBar } from './FindBar'
 import { FormulaBar } from './FormulaBar'
 import { drawCellText, drawsOwnText, fontStack, fontStyle, measureCellHeight } from './cell-text'
 import { gridTheme, headerHeight, isLightColor } from './grid-theme'
-import { fillLines, mapCell, mapRange, viewRange as viewRangeOf, visibleAreas } from './grid-mapping'
+import { coverBlocks, fillLines, mapCell, mapRange, snapCell, viewRange as viewRangeOf, visibleAreas } from './grid-mapping'
 import { columnName, sheetNameProblem } from './model/address'
 import { formatCellValue, formatStatistic } from './model/format'
 import type { FindMatch, Workbook, WorkbookSheet } from './model/Workbook'
@@ -160,8 +161,23 @@ export function SheetEditor({ document, workbook }: SheetEditorProps) {
     width: workbook.getColumnWidth(sheetId, modelColumn),
   })), [sheetId, revision, visibleColumns, workbook])
 
+  // Merged blocks, each with where it shows in the grid (view coordinates across both grids).
+  const merges = useMemo(() => workbook.merges(sheetId).flatMap(model => {
+    const view = viewRangeOf(model, visibleColumns, visibleRows)
+    return view === undefined ? [] : [{ model, view }]
+  }), [sheetId, revision, visibleColumns, visibleRows, workbook])
+  const mergeOf = useCallback((cell: Item) => {
+    const model = workbook.mergeAt(sheetId, cell)
+    return model === undefined ? undefined : merges.find(merge => merge.model === model)
+  }, [merges, sheetId, workbook])
+
+  /**
+   * Every cell of a merged block shows the block's top-left cell. Each row of the block is one span
+   * across its columns; `spanBelow` (patched into Glide) leaves out the grid line between its rows.
+   */
   const getCell = useCallback((viewCell: Item, rows: readonly number[]): GridCell => {
-    const cell = mapCell(viewCell, visibleColumns, rows)
+    const merge = mergeOf(mapCell(viewCell, visibleColumns, rows))
+    const cell: Item = merge === undefined ? mapCell(viewCell, visibleColumns, rows) : [merge.model.x, merge.model.y]
     const value = workbook.getCellValue(sheetId, cell)
     const style = workbook.getStyle(sheetId, cell)
     const displayed = formatCellValue(value, style)
@@ -175,6 +191,10 @@ export function SheetEditor({ document, workbook }: SheetEditorProps) {
       contentAlign: style.align ?? (typeof value === 'number' ? 'right' : 'left'),
       // The cell editor then wraps too, and takes Return for a new line with ⌥.
       allowWrapping: style.wrap === true,
+      ...(merge === undefined ? {} : {
+        span: [merge.view.x, merge.view.x + merge.view.width - 1] as const,
+        spanBelow: (rows[viewCell[1] + 1] ?? Number.POSITIVE_INFINITY) < merge.model.y + merge.model.height,
+      }),
       themeOverride: {
         baseFontStyle: fontStyle(style),
         ...(style.fontFamily === undefined || theme.fontFamily === undefined ? {} : { fontFamily: fontStack(style.fontFamily, theme.fontFamily) }),
@@ -182,20 +202,41 @@ export function SheetEditor({ document, workbook }: SheetEditorProps) {
         ...(style.fillColor === undefined ? {} : { bgCell: style.fillColor }),
       },
     }
-  }, [sheetId, revision, theme, visibleColumns, workbook])
+  }, [mergeOf, sheetId, revision, theme, visibleColumns, workbook])
 
   const editCell = useCallback((viewCell: Item, value: EditableGridCell, rows: readonly number[]) => {
-    const cell = mapCell(viewCell, visibleColumns, rows)
+    const merge = mergeOf(mapCell(viewCell, visibleColumns, rows))
+    const cell: Item = merge === undefined ? mapCell(viewCell, visibleColumns, rows) : [merge.model.x, merge.model.y]
     if (value.kind === GridCellKind.Text) workbook.setCellInput(sheetId, cell, value.data, measureCellHeight)
     if (value.kind === GridCellKind.Number) workbook.setCellInput(sheetId, cell, value.data ?? null, measureCellHeight)
-  }, [sheetId, visibleColumns, workbook])
+  }, [mergeOf, sheetId, visibleColumns, workbook])
 
-  /** Glide draws plain text; wrapped, underlined and struck-through text Ledger draws itself (cell-text.ts). */
+  /**
+   * Glide draws plain text. Wrapped, underlined and struck-through text Ledger draws itself (cell-text.ts),
+   * and so is a merged block's, laid out across the whole block while each row draws its own slice.
+   */
   const drawCell = useCallback((args: Parameters<DrawCellCallback>[0], drawContent: () => void, rows: readonly number[]) => {
-    const style = workbook.getStyle(sheetId, mapCell([args.col, args.row], visibleColumns, rows))
-    if (args.cell.kind === GridCellKind.Text && drawsOwnText(style)) drawCellText(args, args.cell.displayData, style)
-    else drawContent()
-  }, [sheetId, revision, visibleColumns, workbook])
+    const merge = mergeOf(mapCell([args.col, args.row], visibleColumns, rows))
+    const style = workbook.getStyle(sheetId, merge === undefined ? mapCell([args.col, args.row], visibleColumns, rows) : [merge.model.x, merge.model.y])
+    if (args.cell.kind !== GridCellKind.Text || (merge === undefined && !drawsOwnText(style))) {
+      drawContent()
+      return
+    }
+    let { y: top, height } = args.rect
+    if (merge !== undefined) {
+      const inBlock = (index: number): boolean => {
+        const row = rows[index]
+        return row !== undefined && row >= merge.model.y && row < merge.model.y + merge.model.height
+      }
+      for (let index = args.row - 1; inBlock(index); index -= 1) {
+        const above = workbook.getRowHeight(sheetId, rows[index] ?? 0)
+        top -= above
+        height += above
+      }
+      for (let index = args.row + 1; inBlock(index); index += 1) height += workbook.getRowHeight(sheetId, rows[index] ?? 0)
+    }
+    drawCellText(args, args.cell.displayData, style, { ...args.rect, y: top, height })
+  }, [mergeOf, sheetId, revision, visibleColumns, workbook])
   const drawScrollingCell = useCallback<DrawCellCallback>((args, draw) => drawCell(args, draw, scrollingRows), [drawCell, scrollingRows])
   const drawFrozenCell = useCallback<DrawCellCallback>((args, draw) => drawCell(args, draw, frozenRows), [drawCell, frozenRows])
   const scrollingRowHeight = useCallback((row: number) => workbook.getRowHeight(sheetId, scrollingRows[row] ?? 0), [sheetId, revision, scrollingRows, workbook])
@@ -210,6 +251,19 @@ export function SheetEditor({ document, workbook }: SheetEditorProps) {
   const scrollingRowNumber = useCallback((row: number) => (scrollingRows[row] ?? 0) + 1, [scrollingRows])
   const frozenRowNumber = useCallback((row: number) => (frozenRows[row] ?? 0) + 1, [frozenRows])
   const markerWidth = rowMarkerWidth((visibleRows.at(-1) ?? 0) + 1)
+
+  /** Set by an arrow, Tab or Return key, so the selection change it causes steps out of a merged block. */
+  const stepped = useRef(false)
+  const snapToMerges = (next: GridSelection): GridSelection => {
+    const current = next.current
+    const blocks = merges.map(merge => merge.view)
+    if (current === undefined || blocks.length === 0) return next
+    const cell = snapCell(current.cell, selection.current?.cell, stepped.current, blocks)
+    stepped.current = false
+    const single = current.range.width === 1 && current.range.height === 1
+    const range = coverBlocks(single ? { x: cell[0], y: cell[1], width: 1, height: 1 } : current.range, blocks)
+    return { ...next, current: { ...current, cell, range } }
+  }
 
   const selectedRows = selection.rows.toArray()
   const selectedColumns = selection.columns.toArray()
@@ -320,6 +374,9 @@ export function SheetEditor({ document, workbook }: SheetEditorProps) {
     width: '100%',
     height: '100%',
     theme,
+    onKeyDown: (event: GridKeyEventArgs) => {
+      stepped.current = !event.shiftKey && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab', 'Enter'].includes(event.key)
+    },
     // Copy, cut and paste are Ledger's own (see clipboard.ts), so they keep formulas and styles.
     keybindings: { copy: false, cut: false, paste: false },
     freezeColumns: workbook.getFrozenColumnCount(sheetId),
@@ -353,7 +410,7 @@ export function SheetEditor({ document, workbook }: SheetEditorProps) {
                 rowHeight={frozenRowHeight}
                 onCellEdited={editFrozenCell}
                 gridSelection={selectionForRows(selection, 0, frozenRowCount)}
-                onGridSelectionChange={next => setSelection(selectionFromRows(next, 0))}
+                onGridSelectionChange={next => setSelection(snapToMerges(selectionFromRows(next, 0)))}
                 highlightRegions={cutOutline(0, frozenRowCount)}
                 onFillPattern={event => {
                   event.preventDefault()
@@ -375,7 +432,7 @@ export function SheetEditor({ document, workbook }: SheetEditorProps) {
               rowHeight={scrollingRowHeight}
               onCellEdited={editScrollingCell}
               gridSelection={selectionForRows(selection, frozenRowCount, scrollingRows.length)}
-              onGridSelectionChange={next => setSelection(selectionFromRows(next, frozenRowCount))}
+              onGridSelectionChange={next => setSelection(snapToMerges(selectionFromRows(next, frozenRowCount)))}
               highlightRegions={cutOutline(frozenRowCount, scrollingRows.length)}
               onFillPattern={event => {
                 event.preventDefault()

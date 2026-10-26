@@ -40,7 +40,6 @@ const consequences: Readonly<Record<string, string>> = {
   'Unmapped number formats': 'Shown in a simpler format here. The original format is saved unchanged unless you change the cell\'s number format.',
   'Cell borders': 'Not shown, and not kept when saved.',
   'Split panes': 'Shown without the split.',
-  'Merged cells': 'Shown as separate cells, and saved unmerged. Their values are kept.',
   'Conditional formatting': 'Not shown, and not kept when saved.',
   'Data validation': 'Rules and dropdown lists are not checked here, and not kept when saved.',
   'Tables': 'The data is kept; the table\'s name, style and filter buttons are not.',

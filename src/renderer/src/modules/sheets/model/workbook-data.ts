@@ -71,6 +71,8 @@ export interface SheetLayoutData {
   readonly hiddenColumns: readonly number[]
   readonly freezeRows: number
   readonly freezeColumns: number
+  /** Merged blocks; each shows its top-left cell across the whole block. */
+  readonly merges: readonly CellRange[]
 }
 
 export interface SheetData {

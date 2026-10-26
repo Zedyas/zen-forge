@@ -50,6 +50,7 @@ const workbook: WorkbookData = {
         hiddenColumns: [],
         freezeRows: 1,
         freezeColumns: 1,
+        merges: [{ x: 4, y: 0, width: 2, height: 2 }, { x: 0, y: 5, width: 3, height: 1 }],
       },
     },
     {
@@ -66,6 +67,7 @@ const workbook: WorkbookData = {
         hiddenColumns: [],
         freezeRows: 0,
         freezeColumns: 0,
+        merges: [],
       },
     },
   ],
@@ -80,7 +82,7 @@ describe('xlsx', () => {
     expect(imported.data).toEqual(workbook)
   })
 
-  it('reports macros, pivot tables, charts and merges as aggregated findings', async () => {
+  it('reports macros, pivot tables and charts as aggregated findings, and keeps merged cells', async () => {
     const source = new ExcelJS.Workbook()
     const sheet = source.addWorksheet('Sheet1')
     sheet.getCell('A1').value = 'merged'
@@ -93,18 +95,14 @@ describe('xlsx', () => {
     entries['xl/pivotTables/pivotTable1.xml'] = new TextEncoder().encode('<pivotTableDefinition/>')
     entries['xl/charts/chart1.xml'] = new TextEncoder().encode('<chartSpace/>')
 
-    const { findings } = await readXlsx(zipSync(entries))
+    const { data, findings } = await readXlsx(zipSync(entries))
     const byConstruct = new Map(findings.map(finding => [finding.construct, finding]))
 
     expect(byConstruct.get('Macros (VBA)')?.severity).toBe('dropped')
     expect(byConstruct.get('Pivot tables')?.severity).toBe('dropped')
     expect(byConstruct.get('Charts')?.severity).toBe('dropped')
-    expect(byConstruct.get('Merged cells')).toEqual({
-      construct: 'Merged cells',
-      severity: 'degraded',
-      location: 'Sheet1 (2 ranges)',
-      suggestedAlternative: 'Shown as separate cells, and saved unmerged. Their values are kept.',
-    })
+    expect(data.sheets[0]?.layout.merges).toEqual([{ x: 0, y: 0, width: 2, height: 2 }, { x: 3, y: 0, width: 2, height: 1 }])
+    expect(byConstruct.has('Merged cells')).toBe(false)
     expect(findings.length).toBe(byConstruct.size)
     // Every note in the import report says what happens to that part of the file.
     expect(findings.filter(finding => finding.suggestedAlternative === undefined)).toEqual([])

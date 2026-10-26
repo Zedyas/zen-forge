@@ -86,3 +86,52 @@ export function fillLines(
     lines: across.map(line => ({ seeds: seeds.map(along => cell(line, along)), targets: targets.map(along => cell(line, along)) })),
   }
 }
+
+function holds(block: Rectangle, [col, row]: Item): boolean {
+  return col >= block.x && col < block.x + block.width && row >= block.y && row < block.y + block.height
+}
+
+/** The range grown until it covers every merged block it touches (view rectangles), as Excel selects. */
+export function coverBlocks(range: Rectangle, blocks: readonly Rectangle[]): Rectangle {
+  let result = range
+  let grown = true
+  while (grown) {
+    grown = false
+    for (const block of blocks) {
+      const touches = block.x < result.x + result.width && result.x < block.x + block.width
+        && block.y < result.y + result.height && result.y < block.y + block.height
+      if (!touches) continue
+      const x = Math.min(result.x, block.x)
+      const y = Math.min(result.y, block.y)
+      const covered = {
+        x,
+        y,
+        width: Math.max(result.x + result.width, block.x + block.width) - x,
+        height: Math.max(result.y + result.height, block.y + block.height) - y,
+      }
+      if (covered.width !== result.width || covered.height !== result.height) {
+        result = covered
+        grown = true
+      }
+    }
+  }
+  return result
+}
+
+/**
+ * Where the active cell goes when it lands in a merged block: the block's first cell. A keyboard step
+ * from inside the block (`stepped`) leaves it in the step's direction instead, so arrows never get stuck.
+ */
+export function snapCell(cell: Item, previous: Item | undefined, stepped: boolean, blocks: readonly Rectangle[]): Item {
+  const block = blocks.find(candidate => holds(candidate, cell))
+  if (block === undefined) return cell
+  if (stepped && previous !== undefined && holds(block, previous)) {
+    const [col, row] = cell
+    const beyond: Item = row > previous[1] ? [col, block.y + block.height]
+      : row < previous[1] ? [col, block.y - 1]
+        : col > previous[0] ? [block.x + block.width, row]
+          : col < previous[0] ? [block.x - 1, row] : [block.x, block.y]
+    if (beyond[0] >= 0 && beyond[1] >= 0) return snapCell(beyond, undefined, false, blocks)
+  }
+  return [block.x, block.y]
+}

@@ -70,6 +70,7 @@ interface SheetLayout {
   readonly hiddenColumns: Set<number>
   freezeRows: number
   freezeColumns: number
+  merges: readonly CellRange[]
 }
 
 interface MutableCellRange {
@@ -98,6 +99,7 @@ const blankLayout: SheetLayoutData = {
   hiddenColumns: [],
   freezeRows: 0,
   freezeColumns: 0,
+  merges: [],
 }
 
 /**
@@ -119,6 +121,7 @@ function layoutFromData(layout: SheetLayoutData): SheetLayout {
     hiddenColumns: new Set(layout.hiddenColumns),
     freezeRows: layout.freezeRows,
     freezeColumns: layout.freezeColumns,
+    merges: layout.merges.map(cloneRange),
   }
 }
 
@@ -178,6 +181,45 @@ function namedRangeFormula(namedRange: NamedRange): string {
 
 function cloneRange(range: CellRange): MutableCellRange {
   return { x: range.x, y: range.y, width: range.width, height: range.height }
+}
+
+function intersects(left: CellRange, right: CellRange): boolean {
+  return left.x < right.x + right.width && right.x < left.x + left.width
+    && left.y < right.y + right.height && right.y < left.y + left.height
+}
+
+function containsRange(outer: CellRange, inner: CellRange): boolean {
+  return inner.x >= outer.x && inner.y >= outer.y
+    && inner.x + inner.width <= outer.x + outer.width && inner.y + inner.height <= outer.y + outer.height
+}
+
+function containsCell(range: CellRange, [col, row]: Item): boolean {
+  return col >= range.x && col < range.x + range.width && row >= range.y && row < range.y + range.height
+}
+
+/**
+ * A range after rows or columns are inserted (`removedCount` 0, `offset` the count) or deleted
+ * (`offset` = -`removedCount`) at `index`: it moves, grows when the insert falls inside it, shrinks
+ * when part of it is deleted, and is gone (undefined) when all of it is.
+ */
+function shiftRange(range: CellRange, axis: 'row' | 'column', index: number, offset: number, removedCount: number): CellRange | undefined {
+  const start = axis === 'row' ? range.y : range.x
+  const size = axis === 'row' ? range.height : range.width
+  let nextStart = start
+  let nextSize = size
+  if (removedCount === 0) {
+    if (index <= start) nextStart += offset
+    else if (index < start + size) nextSize += offset
+  } else {
+    const removedEnd = index + removedCount
+    const overlap = Math.max(0, Math.min(start + size, removedEnd) - Math.max(start, index))
+    if (overlap === size) return undefined
+    nextStart = start >= removedEnd ? start - removedCount : Math.min(start, index)
+    nextSize = size - overlap
+  }
+  return axis === 'row'
+    ? { x: range.x, y: nextStart, width: range.width, height: nextSize }
+    : { x: nextStart, y: range.y, width: nextSize, height: range.height }
 }
 
 /** HyperFormula-backed workbook with one history for data, layout, formats, and sheets. */
@@ -419,12 +461,21 @@ export class Workbook {
         if (style === undefined) to.delete(key)
         else to.set(key, style)
       })
+      // Blocks inside the moved cells go with them; blocks they land on are unmerged.
+      const fromLayout = this.#layout(fromSheetId)
+      const toLayout = this.#layout(toSheetId)
+      const target = { x: col, y: row, width: range.width, height: range.height }
+      const carried = fromLayout.merges.filter(merge => containsRange(range, merge))
+      fromLayout.merges = fromLayout.merges.filter(merge => !carried.includes(merge))
+      toLayout.merges = [
+        ...toLayout.merges.filter(merge => !intersects(merge, target)),
+        ...carried.map(merge => ({ ...merge, x: merge.x + col - range.x, y: merge.y + row - range.y })),
+      ]
       // The engine moves a name whose whole range was cut; its saved definition moves the same way.
       const fromName = this.#sheetName(fromSheetId)
       this.#namedRanges.forEach((namedRange, key) => {
         const { x, y, width, height } = namedRange.range
-        const inside = x >= range.x && y >= range.y && x + width <= range.x + range.width && y + height <= range.y + range.height
-        if (namedRange.sheetName !== fromName || !inside) return
+        if (namedRange.sheetName !== fromName || !containsRange(range, namedRange.range)) return
         const moved = { x: x + col - range.x, y: y + row - range.y, width, height }
         this.#namedRanges.set(key, { ...namedRange, sheetName: this.#sheetName(toSheetId), range: moved })
       })
@@ -490,6 +541,58 @@ export class Workbook {
         else styles.set(styleKey(col, row), style)
       }))
     })
+  }
+
+  merges(sheetId: number): readonly CellRange[] {
+    return this.#layout(sheetId).merges
+  }
+
+  /** The merged block holding the cell, if any. */
+  mergeAt(sheetId: number, cell: Item): CellRange | undefined {
+    return this.#layout(sheetId).merges.find(merge => containsCell(merge, cell))
+  }
+
+  /** The blocks a merge of `range` makes: the whole range, or with `across`, one per row. One-cell blocks are left out. */
+  #mergeBlocks(range: CellRange, across: boolean): readonly CellRange[] {
+    const blocks = across
+      ? Array.from({ length: range.height }, (_, offset) => ({ x: range.x, y: range.y + offset, width: range.width, height: 1 }))
+      : [cloneRange(range)]
+    return blocks.filter(block => block.width * block.height > 1)
+  }
+
+  /** How many values a merge would discard: Excel keeps only each block's top-left value. */
+  mergeDiscards(sheetId: number, range: CellRange, across: boolean): number {
+    return this.#mergeBlocks(range, across).reduce((total, block) => {
+      let count = 0
+      this.#forEachCell(block, (col, row) => {
+        const value = this.#engine.getCellValue({ sheet: sheetId, col, row })
+        if ((col !== block.x || row !== block.y) && value !== null && value !== '') count += 1
+      })
+      return total + count
+    }, 0)
+  }
+
+  /**
+   * Merges the range, or with `across` each of its rows, as one undo step. Blocks it overlaps are
+   * replaced, and every value but each block's top-left is discarded, as in Excel.
+   */
+  mergeCells(sheetId: number, range: CellRange, across: boolean): void {
+    const blocks = this.#mergeBlocks(range, across)
+    if (blocks.length === 0) return
+    this.#commit(() => {
+      const layout = this.#layout(sheetId)
+      const { width, height } = this.#engine.getSheetDimensions(sheetId)
+      this.#engine.batch(() => blocks.forEach(block => this.#forEachCell(block, (col, row) => {
+        if ((col !== block.x || row !== block.y) && col < width && row < height) this.#engine.setCellContents({ sheet: sheetId, col, row }, [[null]])
+      })))
+      layout.merges = [...layout.merges.filter(merge => !intersects(merge, range)), ...blocks]
+    })
+  }
+
+  unmergeCells(sheetId: number, range: CellRange): void {
+    const layout = this.#layout(sheetId)
+    if (!layout.merges.some(merge => intersects(merge, range))) return
+    this.#commit(() => { layout.merges = layout.merges.filter(merge => !intersects(merge, range)) })
   }
 
   setColumnWidth(sheetId: number, column: number, width: number): void {
@@ -727,15 +830,17 @@ export class Workbook {
    * Reorders whole rows of the range by one column's values. Moving whole rows through the engine
    * keeps every formula's references pointing at the same data, including relative ones.
    */
-  sortRows(sheetId: number, range: CellRange, byColumn: number, ascending: boolean): void {
+  sortRows(sheetId: number, range: CellRange, byColumn: number, ascending: boolean): 'sorted' | 'merged' {
     const height = this.#engine.getSheetDimensions(sheetId).height
     const start = range.y
     const end = Math.min(range.y + range.height, height)
-    if (end - start < 2) return
+    if (end - start < 2) return 'sorted'
+    // Whole rows move, so a merged block in any of them would be torn apart; Excel refuses too.
+    if (this.#layout(sheetId).merges.some(merge => merge.y < end && start < merge.y + merge.height)) return 'merged'
     const rows = Array.from({ length: end - start }, (_, index) => start + index)
     const values = new Map(rows.map(row => [row, this.#engine.getCellValue({ sheet: sheetId, col: byColumn, row })]))
     const sorted = [...rows].sort((left, right) => compareForSort(values.get(left) ?? null, values.get(right) ?? null, ascending))
-    if (sorted.every((row, index) => row === rows[index])) return
+    if (sorted.every((row, index) => row === rows[index])) return 'sorted'
     // newOrder[current row] = row's new position.
     const newOrder = Array.from({ length: height }, (_, index) => index)
     sorted.forEach((row, index) => { newOrder[row] = start + index })
@@ -750,6 +855,7 @@ export class Workbook {
       })
       this.#styles.set(name, moved)
     })
+    return 'sorted'
   }
 
   /** The block of rows below a header that a single-cell sort should reorder. */
@@ -971,35 +1077,16 @@ export class Workbook {
       shiftedWidths.forEach((width, coordinate) => layout.columnWidths.set(coordinate, width))
     }
 
+    layout.merges = layout.merges.flatMap(merge => {
+      const shifted = shiftRange(merge, axis, index, offset, removedCount)
+      return shifted === undefined || shifted.width * shifted.height < 2 ? [] : [shifted]
+    })
+
     this.#namedRanges.forEach((namedRange, key) => {
       if (namedRange.sheetName !== sheetName) return
-      const range = cloneRange(namedRange.range)
-      const start = axis === 'row' ? range.y : range.x
-      const size = axis === 'row' ? range.height : range.width
-      if (removedCount === 0) {
-        if (index <= start) {
-          if (axis === 'row') range.y += offset
-          else range.x += offset
-        } else if (index < start + size) {
-          if (axis === 'row') range.height += offset
-          else range.width += offset
-        }
-      } else {
-        const end = start + size
-        const removedEnd = index + removedCount
-        if (start >= index && end <= removedEnd) {
-          removedRangeKeys.push(key)
-          return
-        }
-        const overlap = Math.max(0, Math.min(end, removedEnd) - Math.max(start, index))
-        if (removedEnd <= start) {
-          if (axis === 'row') range.y += offset
-          else range.x += offset
-        }
-        if (axis === 'row') range.height = Math.max(1, range.height - overlap)
-        else range.width = Math.max(1, range.width - overlap)
-      }
-      this.#namedRanges.set(key, { ...namedRange, range })
+      const range = shiftRange(namedRange.range, axis, index, offset, removedCount)
+      if (range === undefined) removedRangeKeys.push(key)
+      else this.#namedRanges.set(key, { ...namedRange, range })
     })
     // A range whose every cell was deleted no longer names anything.
     removedRangeKeys.forEach(key => {
@@ -1031,6 +1118,7 @@ export class Workbook {
             hiddenColumns: [...layout.hiddenColumns],
             freezeRows: layout.freezeRows,
             freezeColumns: layout.freezeColumns,
+            merges: layout.merges.map(cloneRange),
           },
         }
       }),

@@ -1,4 +1,4 @@
-import { getMiddleCenterBias, GridCellKind, type DrawCellCallback } from '@glideapps/glide-data-grid'
+import { getMiddleCenterBias, GridCellKind, type DrawCellCallback, type Rectangle } from '@glideapps/glide-data-grid'
 import { cellFontSize } from './grid-theme'
 import type { CellStyle } from './model/Workbook'
 import { defaultFontSize, defaultRowHeight } from './model/workbook-data'
@@ -58,16 +58,21 @@ export function drawsOwnText(style: CellStyle): boolean {
   return style.wrap === true || style.underline === true || style.strike === true
 }
 
-/** Draws a wrapped, underlined or struck-through cell's text, clipped to the cell. */
-export function drawCellText(args: Parameters<DrawCellCallback>[0], text: string, style: CellStyle): void {
-  const { ctx, rect, theme, cell } = args
+/**
+ * Draws a cell's text clipped to the cell. `block` is where the text is laid out, which for one row
+ * of a merged block is the whole block, so each row draws its slice of the same text.
+ */
+export function drawCellText(args: Parameters<DrawCellCallback>[0], text: string, style: CellStyle, block: Rectangle = args.rect): void {
+  const { ctx, theme, cell } = args
+  const rect = block
+  const clip = args.rect
   if (text === '') return
   const font = `${theme.baseFontStyle} ${theme.fontFamily}`
   const size = fontPixels(style)
   const lineHeight = size * lineSpacing
   ctx.save()
   ctx.beginPath()
-  ctx.rect(rect.x, rect.y, rect.width, rect.height)
+  ctx.rect(clip.x, clip.y, clip.width, clip.height)
   ctx.clip()
   ctx.font = font
   ctx.fillStyle = theme.textDark
@@ -83,7 +88,7 @@ export function drawCellText(args: Parameters<DrawCellCallback>[0], text: string
   let middle = (blockHeight + verticalPadding * 2 > rect.height ? rect.y + verticalPadding : rect.y + (rect.height - blockHeight) / 2) + lineHeight / 2
   const x = align === 'right' ? rect.x + rect.width - horizontalPadding : align === 'center' ? rect.x + rect.width / 2 : rect.x + horizontalPadding
   for (const line of lines) {
-    if (middle - lineHeight / 2 > rect.y + rect.height) break
+    if (middle - lineHeight / 2 > clip.y + clip.height) break
     ctx.fillText(line, x, middle + bias)
     const width = Math.min(ctx.measureText(line).width, inner)
     const start = align === 'right' ? x - width : align === 'center' ? x - width / 2 : x

@@ -1,6 +1,6 @@
 import { ContextMenu } from '@base-ui/react/context-menu'
 import type { ReactNode } from 'react'
-import { sortByActiveColumn, type SheetController } from './sheet-commands'
+import { mergeSelection, sortByActiveColumn, type SheetController } from './sheet-commands'
 
 interface SheetContextMenuProps {
   readonly controller: SheetController
@@ -26,6 +26,11 @@ export function SheetContextMenu({ controller, children }: SheetContextMenuProps
     [
       ['Sort A to Z by this column', () => sortByActiveColumn(controller, true)],
       ['Sort Z to A by this column', () => sortByActiveColumn(controller, false)],
+    ],
+    [
+      ['Merge cells', () => void mergeSelection(controller, false)],
+      ['Merge across', () => void mergeSelection(controller, true)],
+      ['Unmerge cells', () => workbook.unmergeCells(sheetId, range)],
     ],
     [
       ['Clear contents', () => workbook.clearContents(sheetId, areas)],

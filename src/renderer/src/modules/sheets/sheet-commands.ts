@@ -1,5 +1,6 @@
 import type { Item } from '@glideapps/glide-data-grid'
 import { toast } from 'sonner'
+import { askConfirm } from '../../ui/ConfirmDialog'
 import { measureCellHeight } from './cell-text'
 import type { CellRange, CellStyle, Workbook } from './model/Workbook'
 
@@ -64,7 +65,28 @@ export function sortByActiveColumn(controller: SheetController, ascending: boole
     toast.info('Nothing to sort', { description: 'Select at least two rows, or add data below the header.' })
     return
   }
-  workbook.sortRows(sheetId, target, cell[0], ascending)
+  if (workbook.sortRows(sheetId, target, cell[0], ascending) === 'merged') {
+    toast.info('Merged cells can’t be sorted', { description: 'Unmerge the cells in these rows, then sort.' })
+  }
+}
+
+/** Merges the selection, or each of its rows with `across`; asks first when values would be discarded. */
+export async function mergeSelection(controller: SheetController, across: boolean): Promise<void> {
+  const { workbook, sheetId, range } = controller
+  if (range.width * range.height < 2) {
+    toast.info('Select more than one cell to merge')
+    return
+  }
+  const discarded = workbook.mergeDiscards(sheetId, range, across)
+  if (discarded > 0) {
+    const { value } = await askConfirm({
+      title: 'Merge cells?',
+      message: `Merging keeps only the upper-left value${across ? ' of each row' : ''} and discards the other ${discarded === 1 ? 'value' : `${discarded} values`}.`,
+      actions: [{ label: 'Merge', value: 'merge', primary: true }],
+    })
+    if (value !== 'merge') return
+  }
+  workbook.mergeCells(sheetId, range, across)
 }
 
 export function autoSum(controller: SheetController): void {
