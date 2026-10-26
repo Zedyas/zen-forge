@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { mkdtemp, mkdir, readdir, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, readdir, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { NodeFileService } from './node-file-service'
+import { NodeFileService, replaceFileSync } from './node-file-service'
 
 describe('NodeFileService contract', () => {
   const service = new NodeFileService()
@@ -58,5 +58,14 @@ describe('NodeFileService contract', () => {
     await expect(service.readFile(path)).rejects.toThrow('Unsupported file type: .txt')
     await expect(service.writeFile(path, Uint8Array.of(0))).rejects.toThrow('Unsupported file type: .txt')
     expect(await readdir(temporaryDirectory)).toEqual([])
+  })
+
+  it('replaces a settings file with complete JSON and no temporary file', async () => {
+    const path = join(temporaryDirectory, 'session.json')
+    replaceFileSync(path, JSON.stringify([{ paths: ['/old.pdf'] }]))
+    replaceFileSync(path, JSON.stringify([{ paths: ['/new.pdf'] }]))
+
+    expect(JSON.parse(await readFile(path, 'utf8'))).toEqual([{ paths: ['/new.pdf'] }])
+    expect(await readdir(temporaryDirectory)).toEqual(['session.json'])
   })
 })

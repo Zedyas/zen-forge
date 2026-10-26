@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { closeSync, fsyncSync, openSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, extname } from 'node:path'
 import { isReadableExtension, isWritableExtension } from '../../src/shared/applications'
@@ -11,6 +12,28 @@ function extensionOf(path: string): string {
 function requireExtension(path: string, allowed: (extension: string) => boolean): void {
   const extension = extensionOf(path)
   if (!allowed(extension)) throw new Error(`Unsupported file type: .${extension || 'unknown'}`)
+}
+
+/**
+ * Replaces a small file (settings, session) through a temporary file beside it, flushed to disk
+ * before the rename, so a crash mid-write leaves either the old file or the new one, never half of
+ * one. Synchronous, so writes land in the order they are made and a quit cannot cut one short.
+ */
+export function replaceFileSync(path: string, contents: string): void {
+  const temporary = `${path}.tmp`
+  try {
+    const descriptor = openSync(temporary, 'w')
+    try {
+      writeFileSync(descriptor, contents)
+      fsyncSync(descriptor)
+    } finally {
+      closeSync(descriptor)
+    }
+    renameSync(temporary, path)
+  } catch (error) {
+    rmSync(temporary, { force: true })
+    throw error
+  }
 }
 
 /** Main-process filesystem adapter used behind the FileService IPC contract. */
