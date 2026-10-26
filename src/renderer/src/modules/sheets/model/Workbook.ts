@@ -413,6 +413,15 @@ export class Workbook {
         if (style === undefined) to.delete(key)
         else to.set(key, style)
       })
+      // The engine moves a name whose whole range was cut; its saved definition moves the same way.
+      const fromName = this.#sheetName(fromSheetId)
+      this.#namedRanges.forEach((namedRange, key) => {
+        const { x, y, width, height } = namedRange.range
+        const inside = x >= range.x && y >= range.y && x + width <= range.x + range.width && y + height <= range.y + range.height
+        if (namedRange.sheetName !== fromName || !inside) return
+        const moved = { x: x + col - range.x, y: y + row - range.y, width, height }
+        this.#namedRanges.set(key, { ...namedRange, sheetName: this.#sheetName(toSheetId), range: moved })
+      })
     })
     return true
   }

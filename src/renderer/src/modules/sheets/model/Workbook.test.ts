@@ -156,6 +156,22 @@ describe('Workbook', () => {
     expect(workbook.getCellValue(sheetId, [5, 0])).toBe(144_111)
   })
 
+  it('moves a named range with its cut cells, through undo, redo and a reopen', () => {
+    const workbook = new Workbook()
+    const sheetId = workbook.sheets()[0]?.id ?? 0
+    workbook.setCellInput(sheetId, [0, 0], 7)
+    workbook.addNamedRange('Foo', sheetId, { x: 0, y: 0, width: 1, height: 1 })
+    workbook.setCellInput(sheetId, [1, 0], '=Foo')
+
+    workbook.moveCells(sheetId, { x: 0, y: 0, width: 1, height: 1 }, sheetId, [0, 4])
+    expect(workbook.namedRanges()[0]?.range).toEqual({ x: 0, y: 4, width: 1, height: 1 })
+    expect(new Workbook(workbook.toData()).getCellValue(sheetId, [1, 0])).toBe(7)
+    workbook.undo()
+    expect(workbook.namedRanges()[0]?.range).toEqual({ x: 0, y: 0, width: 1, height: 1 })
+    workbook.redo()
+    expect(workbook.getCellValue(sheetId, [1, 0])).toBe(7)
+  })
+
   it('is clean again after undoing back to the saved state, and stays dirty once that state is unreachable', () => {
     const workbook = regionsWorkbook()
     const sheetId = workbook.sheets()[0]?.id ?? 0
