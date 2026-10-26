@@ -9,6 +9,10 @@ Book the [train](https://example.com/trains) early.
 - Tickets
   - Return leg
 
+#### Day trips
+
+###### Optional
+
 | Day | City |
 | --- | --- |
 | 1 | Kyoto |
@@ -22,7 +26,9 @@ describe('markdown', () => {
 
     expect(opened.findings).toEqual([])
     expect(readMarkdown(saved).content).toEqual(opened.content)
-    expect(opened.content.content?.map(node => node.type)).toEqual(['heading', 'paragraph', 'bulletList', 'table'])
+    expect(opened.content.content?.map(node => [node.type, node.attrs?.['level']])).toEqual([
+      ['heading', 1], ['paragraph', undefined], ['bulletList', undefined], ['heading', 4], ['heading', 6], ['table', undefined],
+    ])
     expect(saved).toContain('[train](https://example.com/trains)')
     expect(saved).toContain('| 2 ')
   })

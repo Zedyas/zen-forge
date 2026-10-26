@@ -35,18 +35,14 @@ function safeLink(href: unknown): boolean {
 
 /**
  * Fits parsed Markdown to the schema: TipTap's Markdown reader treats an image alone on a line as
- * a block, but Sumi's images are inline; headings deeper than 3 become Heading 3; unsafe links
- * lose their link.
+ * a block, but Sumi's images are inline; unsafe links lose their link.
  */
 function normalize(node: JSONContent): JSONContent {
-  const level: unknown = node.attrs?.['level']
-  const attrs = node.type === 'heading' && typeof level === 'number' && level > 3 ? { ...node.attrs, level: 3 } : node.attrs
   const marks = node.marks?.filter(mark => mark.type !== 'link' || safeLink(mark.attrs?.['href']))
   const content = node.content?.map(child =>
     blockContainers.has(node.type ?? '') && child.type === 'image' ? { type: 'paragraph', content: [child] } : normalize(child))
   return {
     ...node,
-    ...(attrs === undefined ? {} : { attrs }),
     ...(marks === undefined ? {} : { marks }),
     ...(content === undefined ? {} : { content }),
   }
@@ -59,14 +55,11 @@ function places(count: number): string {
 /** What Markdown can say that a Sumi document cannot, with what opening and saving does to it. */
 function markdownFindings(text: string): ImportFindingInput[] {
   let html = 0
-  let deepHeadings = 0
   markdown().instance.walkTokens(markdown().instance.lexer(text), (token: MarkdownToken) => {
     if (token.type === 'html') html += 1
-    if (token.type === 'heading' && token.depth > 3) deepHeadings += 1
   })
   const findings: ImportFindingInput[] = []
   if (html > 0) findings.push({ construct: 'HTML', location: places(html), suggestedAlternative: 'Shown as the text it contains, and saved as plain Markdown without the HTML.' })
-  if (deepHeadings > 0) findings.push({ construct: 'Headings below level 3', location: places(deepHeadings), suggestedAlternative: 'Shown as level 3 headings, and saved that way.' })
   if (/^\[\^[^\]]+\]:/m.test(text)) findings.push({ construct: 'Footnotes', suggestedAlternative: 'Shown as plain text, and saved that way.' })
   return findings
 }

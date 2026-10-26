@@ -1,7 +1,7 @@
 /**
  * Writes a Sumi document (TipTap JSON) as .docx with the `docx` library, in the form the reader
  * (docx-read.ts) reads back:
- * - the theme as Word's styles (Normal, Title, Heading 1–3, Quote), so Word's navigation pane,
+ * - the theme as Word's styles (Normal, Title, Heading 1–6, Quote), so Word's navigation pane,
  *   style gallery and list tools work;
  * - formatting on the text as direct formatting (fonts, sizes, colours, highlights, spacing,
  *   indents, alignment), and the file properties;
@@ -260,7 +260,7 @@ function paragraph(node: JSONContent, context: ExportContext, options: IParagrap
   return new Paragraph({ ...paragraphOptions(node), ...options, children: runs(node.content ?? [], context) })
 }
 
-const headingLevels = [HeadingLevel.HEADING_1, HeadingLevel.HEADING_2, HeadingLevel.HEADING_3] as const
+const headingLevels = [HeadingLevel.HEADING_1, HeadingLevel.HEADING_2, HeadingLevel.HEADING_3, HeadingLevel.HEADING_4, HeadingLevel.HEADING_5, HeadingLevel.HEADING_6] as const
 
 type Numbering = NonNullable<IParagraphOptions['numbering']>
 
@@ -366,7 +366,7 @@ function blocks(nodes: readonly JSONContent[], context: ExportContext, style?: D
       case 'title':
         return [paragraph(node, context, { heading: HeadingLevel.TITLE })]
       case 'heading':
-        return [paragraph(node, context, { heading: headingLevels[Math.min(3, Math.max(1, numberAttr(node, 'level') ?? 1)) - 1] })]
+        return [paragraph(node, context, { heading: headingLevels[Math.min(6, Math.max(1, numberAttr(node, 'level') ?? 1)) - 1] })]
       case 'bulletList':
       case 'orderedList':
         return listBlocks(node, context, 0, style === 'Quote' ? style : undefined)
@@ -456,6 +456,9 @@ export async function writeDocx(content: JSONContent): Promise<DocxExport> {
         heading1: styleProperties(theme.heading1, true),
         heading2: styleProperties(theme.heading2, true),
         heading3: styleProperties(theme.heading3, true),
+        heading4: styleProperties(theme.heading4, true),
+        heading5: styleProperties(theme.heading5, true),
+        heading6: styleProperties(theme.heading6, true),
         hyperlink: { run: { color: '1155CC', underline: { type: UnderlineType.SINGLE } } },
         listParagraph: { paragraph: { contextualSpacing: true } },
       },

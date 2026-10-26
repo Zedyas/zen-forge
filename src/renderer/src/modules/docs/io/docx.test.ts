@@ -49,6 +49,9 @@ const document: JSONContent = {
     { type: 'heading', attrs: { level: 1 }, content: [text('Summary')] },
     { type: 'heading', attrs: { level: 2 }, content: [text('Regions')] },
     { type: 'heading', attrs: { level: 3 }, content: [text('North')] },
+    { type: 'heading', attrs: { level: 4 }, content: [text('Coast')] },
+    { type: 'heading', attrs: { level: 5 }, content: [text('Harbour')] },
+    { type: 'heading', attrs: { level: 6 }, content: [text('Pier')] },
     {
       type: 'paragraph',
       attrs: { textAlign: 'justify', spaceBefore: 6, spaceAfter: 12, lineHeight: 2, indentLeft: 36, indentFirstLine: -18 },

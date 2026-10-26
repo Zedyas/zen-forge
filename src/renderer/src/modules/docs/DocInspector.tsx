@@ -232,7 +232,7 @@ export function DocInspector({ editor }: { readonly editor: Editor }) {
 
       <InspectorSection title="Outline">
         {headings.length === 0
-          ? <p className="inspector-note">Headings appear here. Choose Title or Heading 1 to 3 from the style menu.</p>
+          ? <p className="inspector-note">Headings appear here. Choose Title or Heading 1 to 6 from the style menu.</p>
           : (
             <ul className="inspector-list sumi-outline">
               {headings.map(heading => (

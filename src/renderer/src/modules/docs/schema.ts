@@ -150,7 +150,7 @@ export const documentExtensions: Extensions = [
   StarterKit.configure({
     document: false,
     codeBlock: false,
-    heading: { levels: [1, 2, 3] },
+    heading: { levels: [1, 2, 3, 4, 5, 6] },
     // Clicks place the caret; ⌘-click opens a link (see DocEditor).
     link: { openOnClick: false, defaultProtocol: 'https' },
     // It appends a paragraph on the first transaction, which would mark an untouched document as edited.

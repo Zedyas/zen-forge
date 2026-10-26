@@ -1,5 +1,5 @@
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
-import { documentPage, documentTheme, type BlockStyle } from './theme'
+import { documentPage, documentTheme, headingStyle, type BlockStyle } from './theme'
 
 const width = 220
 
@@ -52,10 +52,8 @@ export function renderPreview(doc: ProseMirrorNode): string {
       return false
     }
     const name = node.type.name
-    if (name === 'heading') {
-      const level: unknown = node.attrs['level']
-      drawText(node.textContent, level === 2 ? theme.heading2 : level === 3 ? theme.heading3 : theme.heading1)
-    } else if (name === 'title') drawText(node.textContent, theme.title)
+    if (name === 'heading') drawText(node.textContent, theme[headingStyle(node.attrs['level'])])
+    else if (name === 'title') drawText(node.textContent, theme.title)
     else if (name === 'paragraph') drawText(node.textContent, theme.normal)
     else if (name === 'tableRow') {
       const cells: string[] = []

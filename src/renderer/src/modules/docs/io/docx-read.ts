@@ -1,7 +1,7 @@
 /**
  * Reads .docx into a Sumi document. The package is size-checked, only the parts this reader uses
  * are unzipped (fflate), and their XML is parsed with DOMParser, then mapped to TipTap JSON:
- * - styles.xml becomes the document's theme (Normal, Title, Heading 1–3, Quote);
+ * - styles.xml becomes the document's theme (Normal, Title, Heading 1–6, Quote);
  * - formatting set on the text itself (direct formatting) becomes marks and paragraph attributes,
  *   as does the formatting of any other paragraph style;
  * - numbering.xml says which paragraphs are bulleted, numbered or checklist items, and at what level;
@@ -19,6 +19,7 @@ import {
   contentWidthPixels,
   defaultPage,
   defaultTheme,
+  headingStyle,
   singleLineHeight,
   type BlockStyle,
   type DocumentProperties,
@@ -428,6 +429,9 @@ const kindsByStyleName: Readonly<Record<string, BlockKind>> = {
   'heading 1': 'heading1',
   'heading 2': 'heading2',
   'heading 3': 'heading3',
+  'heading 4': 'heading4',
+  'heading 5': 'heading5',
+  'heading 6': 'heading6',
   quote: 'quote',
   'intense quote': 'quote',
   [docxStyleNames.Code.toLowerCase()]: 'code',
@@ -439,7 +443,7 @@ const kindsByStyleName: Readonly<Record<string, BlockKind>> = {
   'no spacing': 'normal',
 }
 
-const deeperHeading = /^heading [4-9]$/
+const deeperHeading = /^heading [7-9]$/
 
 /** Elements inside a paragraph, a run or the body that are handled, or that carry nothing Sumi could show. */
 const knownElements = new Set([
@@ -723,10 +727,10 @@ function inlineContent(paragraph: Element, styleRun: RunProps, context: Context)
 function blockKind(name: string, resolved: ParagraphProps, context: Context): { readonly kind: BlockKind; readonly otherStyle: boolean } {
   const kind = kindsByStyleName[name]
   if (kind !== undefined) return { kind, otherStyle: false }
-  const level = deeperHeading.test(name) ? 3 : resolved.outlineLevel
+  const level = deeperHeading.test(name) ? 6 : resolved.outlineLevel
   if (level !== undefined && level < 9) {
-    if (level >= 3) context.findings.add('Headings below level 3', 'degraded', { alternative: 'Shown as Heading 3, and saved that way.' })
-    return { kind: (['heading1', 'heading2', 'heading3'] as const)[Math.min(level, 2)] ?? 'heading3', otherStyle: level >= 3 }
+    if (level >= 6) context.findings.add('Headings below level 6', 'degraded', { alternative: 'Shown as Heading 6, and saved that way.' })
+    return { kind: headingStyle(level + 1), otherStyle: level >= 6 }
   }
   context.findings.add('Other paragraph styles', 'degraded', {
     name: name.replace(/\b\w/g, letter => letter.toUpperCase()),
@@ -828,7 +832,7 @@ function paragraphItems(paragraph: Element, context: Context): Item[] {
     context.findings.add('Paragraph borders and shading', 'degraded', { alternative: 'Shown without them, and saved that way.' })
   }
   if (resolved.rightToLeft === true) context.findings.add('Right-to-left paragraphs', 'degraded', { alternative: 'Shown left to right, and saved that way.' })
-  const themeStyle: StyleName = kind === 'title' || kind === 'heading1' || kind === 'heading2' || kind === 'heading3' || kind === 'quote' ? kind : 'normal'
+  const themeStyle: StyleName = kind === 'code' || kind === 'rule' || kind === 'checklist' || kind === 'continue' || kind === 'cell' ? 'normal' : kind
   const base = context.theme[themeStyle]
   const extra = otherStyle ? styleDifference(style, base) : { paragraph: {}, run: {} }
   const segments = inlineContent(paragraph, { ...extra.run, hidden: style.run.hidden }, context)
@@ -881,6 +885,9 @@ function paragraphItems(paragraph: Element, context: Context): Item[] {
       case 'heading1':
       case 'heading2':
       case 'heading3':
+      case 'heading4':
+      case 'heading5':
+      case 'heading6':
         items.push({ kind: 'block', node: node('heading', content, { level: Number(kind.slice(-1)) }), place })
         return
       case 'code':
@@ -1112,6 +1119,9 @@ const themeStyleNames: Readonly<Record<Exclude<StyleName, 'normal'>, readonly st
   heading1: ['heading 1'],
   heading2: ['heading 2'],
   heading3: ['heading 3'],
+  heading4: ['heading 4'],
+  heading5: ['heading 5'],
+  heading6: ['heading 6'],
   quote: ['quote', 'intense quote'],
 }
 
@@ -1124,7 +1134,17 @@ function readTheme(styles: StyleSheet): DocumentTheme {
     const fallback = { ...defaultTheme[name], fontFamily: normal.fontFamily }
     return id === undefined ? fallback : blockStyle(styles.paragraph(id), fallback)
   }
-  return { normal, title: style('title'), heading1: style('heading1'), heading2: style('heading2'), heading3: style('heading3'), quote: style('quote') }
+  return {
+    normal,
+    title: style('title'),
+    heading1: style('heading1'),
+    heading2: style('heading2'),
+    heading3: style('heading3'),
+    heading4: style('heading4'),
+    heading5: style('heading5'),
+    heading6: style('heading6'),
+    quote: style('quote'),
+  }
 }
 
 /** Whether a header or footer shows anything besides a page number, and whether it has one. */

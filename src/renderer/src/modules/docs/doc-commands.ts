@@ -5,7 +5,7 @@ import type { CommandId } from '@shared/commands'
 import { fileService } from '../../services/file/IpcFileService'
 import { platformClient } from '../../services/platform/client'
 import { imageSize, mimeTypeForExtension, toDataUrl } from './io/images'
-import { contentWidthPixels, documentPage, documentTheme, type BlockStyle, type PageSetup, type StyleName } from './theme'
+import { contentWidthPixels, documentPage, documentTheme, headingLevels, type BlockStyle, type PageSetup, type StyleName } from './theme'
 
 /** The mounted document that menu commands act on. */
 export interface DocController {
@@ -46,7 +46,7 @@ function setZoom(documentId: string, step: 1 | -1 | 0): void {
 /** The theme style of the block the caret is in: Title, a heading, Quote inside a quotation, else Normal. */
 export function currentStyle(editor: Editor): StyleName {
   if (editor.isActive('title')) return 'title'
-  for (const level of [1, 2, 3] as const) if (editor.isActive('heading', { level })) return `heading${level}`
+  for (const level of headingLevels) if (editor.isActive('heading', { level })) return `heading${level}`
   return editor.isActive('blockquote') ? 'quote' : 'normal'
 }
 
@@ -65,7 +65,7 @@ export function setBlockStyle(editor: Editor, style: StyleName): void {
   if (editor.isActive('blockquote')) chain.unsetBlockquote()
   if (style === 'normal') chain.setParagraph()
   else if (style === 'title') chain.setNode('title')
-  else chain.setHeading({ level: style === 'heading1' ? 1 : style === 'heading2' ? 2 : 3 })
+  else chain.setHeading({ level: headingLevels.find(level => style === `heading${level}`) ?? 1 })
   chain.run()
 }
 

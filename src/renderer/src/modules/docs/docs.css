@@ -35,7 +35,7 @@
 
 .sumi-prose p { margin: var(--sumi-normal-before) 0 var(--sumi-normal-after); }
 
-.sumi-prose p[data-style="title"], .sumi-prose h1, .sumi-prose h2, .sumi-prose h3 { break-after: avoid; }
+.sumi-prose p[data-style="title"], .sumi-prose :is(h1, h2, h3, h4, h5, h6) { break-after: avoid; }
 .sumi-prose p[data-style="title"] {
   margin: var(--sumi-title-before) 0 var(--sumi-title-after);
   color: var(--sumi-title-color);
@@ -55,6 +55,21 @@
   margin: var(--sumi-heading3-before) 0 var(--sumi-heading3-after);
   color: var(--sumi-heading3-color);
   font: var(--sumi-heading3-style) var(--sumi-heading3-weight) var(--sumi-heading3-size) / var(--sumi-heading3-line) var(--sumi-heading3-font), sans-serif;
+}
+.sumi-prose h4 {
+  margin: var(--sumi-heading4-before) 0 var(--sumi-heading4-after);
+  color: var(--sumi-heading4-color);
+  font: var(--sumi-heading4-style) var(--sumi-heading4-weight) var(--sumi-heading4-size) / var(--sumi-heading4-line) var(--sumi-heading4-font), sans-serif;
+}
+.sumi-prose h5 {
+  margin: var(--sumi-heading5-before) 0 var(--sumi-heading5-after);
+  color: var(--sumi-heading5-color);
+  font: var(--sumi-heading5-style) var(--sumi-heading5-weight) var(--sumi-heading5-size) / var(--sumi-heading5-line) var(--sumi-heading5-font), sans-serif;
+}
+.sumi-prose h6 {
+  margin: var(--sumi-heading6-before) 0 var(--sumi-heading6-after);
+  color: var(--sumi-heading6-color);
+  font: var(--sumi-heading6-style) var(--sumi-heading6-weight) var(--sumi-heading6-size) / var(--sumi-heading6-line) var(--sumi-heading6-font), sans-serif;
 }
 .sumi-prose > :first-child { margin-top: 0; }
 
@@ -172,8 +187,11 @@
 .sumi-outline li[data-level="0"] .button { font-weight: 600; }
 .sumi-outline li[data-level="2"] { padding-left: 12px; }
 .sumi-outline li[data-level="3"] { padding-left: 24px; }
+.sumi-outline li[data-level="4"] { padding-left: 36px; }
+.sumi-outline li[data-level="5"] { padding-left: 48px; }
+.sumi-outline li[data-level="6"] { padding-left: 60px; }
 
 /* ─── Printout (print.ts), mounted only while printing ─── */
 
 /* An empty paragraph is a blank line in Word; on screen the editor holds it open, in print this does. */
-.sumi-print :is(p, h1, h2, h3):empty::after { content: "\a0"; }
+.sumi-print :is(p, h1, h2, h3, h4, h5, h6):empty::after { content: "\a0"; }
