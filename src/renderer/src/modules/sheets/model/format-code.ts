@@ -305,11 +305,24 @@ function datePart(part: string, date: Date, twelveHour: boolean, minuteContext: 
   return part === part.toLowerCase() ? (pm ? 'p' : 'a') : (pm ? 'P' : 'A')
 }
 
+/**
+ * Excel rounds a date to the smallest unit its code shows: a fraction of a second (`ss.00`), a second
+ * when it shows a time, and for a date alone only float noise, so 23:59:59.9 is still that day. The
+ * date comes from the rounded value, so it rolls forward only once the time reaches midnight.
+ */
 function formatDate(serial: number, section: Section): string | undefined {
-  // Excel rounds to the second it shows.
-  const date = new Date(serialEpoch + Math.round(serial * dayMilliseconds / 1000) * 1000)
-  if (Number.isNaN(date.valueOf()) || serial < 0) return undefined
   const { tokens } = section
+  const secondsPoint = tokens.findIndex((token, at) => {
+    const before = tokens[at - 1]
+    return token.kind === 'point' && before?.kind === 'date' && before.part.startsWith('s')
+  })
+  let decimals = 0
+  while (secondsPoint >= 0 && decimals < 3 && tokens[secondsPoint + 1 + decimals]?.kind === 'digit') decimals += 1
+  const showsTime = tokens.some(token => token.kind === 'date' && /^[hsa]/i.test(token.part))
+  const unit = decimals > 0 ? 1000 / 10 ** decimals : showsTime ? 1000 : 1
+  const date = new Date(serialEpoch + Math.round(serial * dayMilliseconds / unit) * unit)
+  if (Number.isNaN(date.valueOf()) || serial < 0) return undefined
+  const fraction = String(date.getUTCMilliseconds()).padStart(3, '0')
   const twelveHour = tokens.some(token => token.kind === 'date' && /^a/i.test(token.part))
   const timeParts = tokens.flatMap((token, at) => token.kind === 'date' ? [{ part: token.part, at }] : [])
   let text = ''
@@ -317,7 +330,7 @@ function formatDate(serial: number, section: Section): string | undefined {
     if (token.kind === 'literal') text += token.text
     else if (token.kind === 'point') text += '.'
     else if (token.kind === 'comma') text += ','
-    else if (token.kind === 'digit') text += '0'
+    else if (token.kind === 'digit') text += at > secondsPoint && at <= secondsPoint + decimals ? fraction[at - secondsPoint - 1] : '0'
     else if (token.kind === 'date') {
       // `m` is minutes right after hours or right before seconds, as in Excel.
       const order = timeParts.findIndex(part => part.at === at)

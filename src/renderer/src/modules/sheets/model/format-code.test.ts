@@ -38,6 +38,11 @@ describe('formatWithCode', () => {
     ['0.00', 1.005, '1.01'],
     ['0.0', -0.05, '-0.1'],
     ['[Red]General', -0.1, '-0.1'],
+    // A date alone is that day until the time reaches midnight; a time rounds to the unit it shows.
+    ['d mmm yyyy', 46_088.999_999, '7 Mar 2026'],
+    ['d mmm yyyy hh:mm:ss', 46_088.999_999, '8 Mar 2026 00:00:00'],
+    ['hh:mm:ss.00', 0.5 + 1.25 / 86_400, '12:00:01.25'],
+    ['hh:mm:ss', 0.5 + 1.25 / 86_400, '12:00:01'],
   ])('shows %s on %s as %s', (code, value, text) => {
     expect(formatWithCode(value, code)?.text).toBe(text)
   })
