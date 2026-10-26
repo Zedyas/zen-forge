@@ -178,6 +178,21 @@ function fillInteger(digits: string, placeholders: readonly ('0' | '#' | '?')[])
   return filled
 }
 
+/**
+ * `magnitude` (not negative) rounded half up to `places` decimals as Excel rounds: on its 15 significant
+ * digits, not its binary value, so 2.675 (2.67499… in binary) shows as 2.68.
+ */
+function roundedDigits(magnitude: number, places: number): { readonly integer: string; readonly fraction: string } {
+  const [mantissa = '0', exponent = '0'] = magnitude.toExponential(14).split('e')
+  // The 15 digits are an integer scaled by 10^(exponent - 14); scale them to `places` decimals instead.
+  const shift = Number(exponent) - 14 + places
+  const digits = BigInt(mantissa.replace('.', ''))
+  const divisor = 10n ** BigInt(Math.max(0, -shift))
+  const scaled = shift >= 0 ? digits * 10n ** BigInt(shift) : (digits + divisor / 2n) / divisor
+  const text = scaled.toString().padStart(places + 1, '0')
+  return { integer: text.slice(0, text.length - places), fraction: text.slice(text.length - places) }
+}
+
 function formatNumber(value: number, section: Section, signed: boolean): string {
   const { tokens } = section
   const { decimal, group } = separators()
@@ -204,13 +219,14 @@ function formatNumber(value: number, section: Section, signed: boolean): string 
   if (exponentAt >= 0 && magnitude !== 0) {
     exponent = Math.floor(Math.log10(magnitude)) - (Math.max(1, integerPlaceholders.length) - 1)
     magnitude /= 10 ** exponent
-    if (Number(magnitude.toFixed(fractionPlaceholders.length)) >= 10 ** Math.max(1, integerPlaceholders.length)) {
+    if (Number(roundedDigits(magnitude, fractionPlaceholders.length).integer) >= 10 ** Math.max(1, integerPlaceholders.length)) {
       exponent += 1
       magnitude /= 10
     }
   }
-  const [integerDigits = '0', fractionDigits = ''] = magnitude.toFixed(fractionPlaceholders.length).split('.')
-  const negative = signed && value < 0 && /[1-9]/.test(integerDigits + fractionDigits)
+  const { integer: integerDigits, fraction: fractionDigits } = roundedDigits(magnitude, fractionPlaceholders.length)
+  // The sign is the value's own, as in Excel, whatever the shown digits round to.
+  const negative = signed && value < 0
 
   const integerParts = fillInteger(integerDigits, integerPlaceholders)
   if (grouping) {

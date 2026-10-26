@@ -33,6 +33,11 @@ describe('formatWithCode', () => {
     ['dddd', dateTime, 'Saturday'],
     ['h:mm AM/PM', dateTime, '2:05 PM'],
     ['h:mm am/pm', 0.25, '6:00 am'],
+    // Excel rounds on the value's 15 significant digits, half away from zero: 2.675 is 2.67499… in binary.
+    ['0.00', 2.675, '2.68'],
+    ['0.00', 1.005, '1.01'],
+    ['0.0', -0.05, '-0.1'],
+    ['[Red]General', -0.1, '-0.1'],
   ])('shows %s on %s as %s', (code, value, text) => {
     expect(formatWithCode(value, code)?.text).toBe(text)
   })
