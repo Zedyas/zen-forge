@@ -3,7 +3,6 @@ import type { CommandId } from '@shared/commands'
 import { executeCommand } from '../../app/commands'
 import type { OpenDocument } from '../../app/documents-store'
 import type { EditorHandler } from '../../app/editors'
-import { ConfirmHost } from '../../ui/ConfirmDialog'
 import { recordPreview } from '../../services/index/document-index'
 import { WindowEmpty } from '../../ui/WindowEmpty'
 import { renderPreview } from './preview'
@@ -82,10 +81,5 @@ function LoadedDocument({ document }: { readonly document: OpenDocument }) {
 
 /** Ledger: the spreadsheet tab's content below the title bar. */
 export function SheetsWorkspace({ document }: { readonly document: OpenDocument }) {
-  return (
-    <>
-      <LoadedDocument key={document.id} document={document} />
-      <ConfirmHost />
-    </>
-  )
+  return <LoadedDocument key={document.id} document={document} />
 }
