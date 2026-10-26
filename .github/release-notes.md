@@ -2,19 +2,38 @@ Zen Suzu is a simplified office suite for macOS: spreadsheets (Ledger), PDF edit
 
 ## What's new
 
-- **Zendo is now Zen Suzu.** Only the name changes in this version.
+**Saving is safer**
+- If another app changes a file while it is open, saving asks before replacing those changes.
+- Ledger and Sumi ask before saving over a file whenever the save would change or lose something, every time a new loss appears.
+- Save As won't replace a file that is open in another tab or window.
+- Saving keeps the file's permissions and works through aliases (symlinks). Settings and open tabs are written so a crash can't leave them half-written.
 
-## Updating from Zendo
+**Ledger**
+- Copy, cut and paste keep formulas and styles, and relative references move with the paste.
+- The fill handle continues series: 1, 2, 3 · Jan, Feb · Monday, Tuesday · dates · Item 1, Item 2.
+- Wrap text, row heights, font family and size, strikethrough (⇧⌘X).
+- Merge cells, custom number formats, cell notes and links (⌘-click opens a web link). All are kept in `.xlsx` files.
+- Text such as IDs and ZIP codes (`00123`) stays text, CSV files save full values and ISO dates, and `YYYY-MM-DD` dates no longer show a day early in the Americas.
+- Clearing, formatting and summing a selection skips hidden rows, and sheet names follow Excel's rules.
 
-1. In Zendo, click **Download** on Home, or download the `.dmg` below.
-2. Quit Zendo, then drag **Zen Suzu** into **Applications**. It goes beside Zendo instead of replacing it.
-3. Open Zen Suzu. The first time, it copies your settings, open tabs, recent files and saved signatures from Zendo.
-4. Move **Zendo** from Applications to the Bin. Its data stays in `~/Library/Application Support/Zendo`, which you can delete once Zen Suzu shows your files.
-5. If Zendo was the default app for a file type, set Zen Suzu instead: select the file in Finder, press ⌘I, choose Zen Suzu under **Open with**, then click **Change All…**.
+**Sumi**
+- Headers and footers with page numbers, and a different first page.
+- Headings 1 to 6, and a table of contents that keeps up with them and becomes a real table of contents in Word.
+
+**Slides**
+- Find and replace across text boxes, tables and speaker notes (⌘F).
+- Every insert, arrange, align and table action is in the Slide menu and the command palette.
+
+**Hanko**
+- PDFs with permission restrictions (no password needed to open) are edited as plain copies, so saving no longer damages them.
+- Photos turned into a PDF come out upright and fit the paper.
+
+**Everywhere**
+- File > Open Recent lists the last 10 files, also in the command palette.
 
 ## Install
 
-1. Download `Zen-Suzu-0.2.1-arm64.dmg` below. It runs on Macs with Apple silicon (M1 or newer). `Zendo-0.2.1-arm64.dmg` is the same file under the old name, for Zendo's updater.
+1. Download `Zen-Suzu-0.3.0-arm64.dmg` below. It runs on Macs with Apple silicon (M1 or newer).
 2. Open it and drag **Zen Suzu** into **Applications**.
 3. Open Zen Suzu. macOS says it can't verify the app, because previews aren't notarized by Apple yet. Click **Done**.
 4. Open **System Settings → Privacy & Security**, scroll down, click **Open Anyway** next to Zen Suzu, and confirm.

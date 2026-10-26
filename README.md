@@ -62,11 +62,12 @@ If another app changes a file while it is open in Zen Suzu, saving asks first: o
 
 In order, with the next item first:
 
-1. Templates for documents and presentations
-2. More Ledger tools: borders, filters, conditional formatting, dropdown lists and charts
-3. iPhone photos (`.heic`) in PDF from images
-4. Notarized builds, so Zen Suzu opens without the Open Anyway step and installs its own updates
-5. Windows support: the same app, adjusted to run and fit on Windows
+1. Autosave and crash recovery: unsaved documents come back after a crash
+2. Templates for documents and presentations
+3. More Ledger tools: borders, filters, conditional formatting, dropdown lists and charts
+4. iPhone photos (`.heic`) in PDF from images
+5. Notarized builds, so Zen Suzu opens without the Open Anyway step and installs its own updates
+6. Windows support: the same app, adjusted to run and fit on Windows
 
 Not planned: `.xlsb` and other macro-enabled formats, and Apple Pages or Keynote files.
 
