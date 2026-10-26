@@ -8,6 +8,7 @@ import { fileService } from '../../services/file/IpcFileService'
 import { useFidelityStore } from '../../services/fidelity/fidelity-store'
 import { recordPreview, recordRecent } from '../../services/index/document-index'
 import { openPrintDialog, printToPdf } from '../../services/print/print'
+import { askConfirm } from '../../ui/ConfirmDialog'
 import { isDelimitedFormat, isSheetJsFormat, readDelimited, readSheetJs, readXlsx, writeDelimited, writeXlsx } from './io'
 import { formatCellValue } from './model/format'
 import { Workbook } from './model/Workbook'
@@ -120,9 +121,9 @@ async function encode(workbook: Workbook, format: string): Promise<Uint8Array> {
 
 /**
  * Saves a workbook tab. In-place saves go straight to disk; a dialog opens for Save As, for untitled
- * documents, for formats this app cannot write (.xlsm, .xls, .ods, .numbers), for multi-sheet workbooks
- * kept as delimited text (.csv, .tsv), and when the import report says a save would drop content, so
- * the original is never silently overwritten.
+ * documents, for formats this app cannot write (.xlsm, .xls, .ods, .numbers), and for multi-sheet
+ * workbooks kept as delimited text (.csv, .tsv). A workbook whose import report lists anything the
+ * save would change or remove asks first: Overwrite, or Save a copy, which keeps the original intact.
  */
 export async function saveWorkbook(documentId: string, saveAs: boolean): Promise<boolean> {
   const document = useDocumentsStore.getState().documents.find(candidate => candidate.id === documentId)
@@ -130,15 +131,27 @@ export async function saveWorkbook(documentId: string, saveAs: boolean): Promise
   if (document === undefined || workbook === undefined) return false
 
   const report = useFidelityStore.getState().reports[documentId]
-  const losesContent = report?.severity === 'dropped'
   const multiSheet = workbook.sheets().length > 1
   const multiSheetText = isDelimitedFormat(document.extension) && multiSheet
-  const needsDialog = saveAs || document.path === undefined || !isWritableExtension(document.extension) || losesContent || multiSheetText
+  const inPlace = !saveAs && document.path !== undefined && isWritableExtension(document.extension) && !multiSheetText
+  let saveCopy = false
+  // Every finding is something Ledger did not keep, so writing over the file loses it.
+  if (inPlace && report !== undefined && report.findings.length > 0) {
+    const { value } = await askConfirm({
+      title: 'Save over the original?',
+      message: report.severity === 'dropped'
+        ? 'This workbook contains content that saving removes (listed in the import report). Saving a copy keeps the original file intact.'
+        : 'Some of this workbook is saved differently from the original (listed in the import report). Saving a copy keeps the original file as it was.',
+      actions: [{ label: 'Overwrite', value: 'overwrite' }, { label: 'Save a copy', value: 'copy', primary: true }],
+    })
+    if (value === 'cancel') return false
+    saveCopy = value === 'copy'
+  }
   let path = document.path
-  if (needsDialog) {
+  if (!inPlace || saveCopy) {
     const format = isDelimitedFormat(document.extension) && !multiSheetText ? document.extension : 'xlsx'
     // The copy needs a new name only when it would otherwise replace the original.
-    const suffix = losesContent && !saveAs && format === document.extension ? ' (edited)' : ''
+    const suffix = saveCopy && format === document.extension ? ' (edited)' : ''
     path = await chooseDocumentPath(documentId, {
       defaultName: `${document.name}${suffix}.${format}`,
       // Delimited text holds one sheet; a multi-sheet workbook is only offered .xlsx (Export Sheet as CSV covers one sheet).
@@ -160,11 +173,12 @@ export async function saveWorkbook(documentId: string, saveAs: boolean): Promise
     cache.delete(documentId)
     cached.documentId = newId
     cache.set(newId, cached)
-    const previousReport = useFidelityStore.getState().reports[documentId]
-    useFidelityStore.getState().forget(documentId)
-    // A file this app just wrote has nothing unrepresented in it.
-    if (previousReport !== undefined) useFidelityStore.getState().publish(newId, createImportReport(file.name, []))
     emit()
+  }
+  // A file this app just wrote has nothing unrepresented in it, so later saves need no question.
+  if (report !== undefined) {
+    useFidelityStore.getState().forget(documentId)
+    useFidelityStore.getState().publish(newId, createImportReport(file.name, []))
   }
   await recordRecent(file)
   const first = workbook.sheets()[0]
