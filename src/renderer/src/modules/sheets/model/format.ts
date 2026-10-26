@@ -12,6 +12,11 @@ function currencyCode(formatCode: string | undefined): string {
   return 'USD'
 }
 
+/** Whether the style shows numbers as dates, so they fill and export as dates. */
+export function isDateStyle(style: CellStyle): boolean {
+  return style.numberFormat === 'date'
+}
+
 /** Formats a computed value the way the grid shows it and a CSV export writes it. */
 export function formatCellValue(value: string | number | boolean | null, style: CellStyle): string {
   if (value === null) return ''
@@ -56,7 +61,7 @@ function isoDate(serial: number): string {
 export function delimitedValue(value: string | number | boolean | null, style: CellStyle): string {
   if (value === null) return ''
   if (typeof value === 'boolean') return value ? 'TRUE' : 'FALSE'
-  if (typeof value === 'number' && style.numberFormat === 'date') return isoDate(value)
+  if (typeof value === 'number' && isDateStyle(style)) return isoDate(value)
   return String(value)
 }
 

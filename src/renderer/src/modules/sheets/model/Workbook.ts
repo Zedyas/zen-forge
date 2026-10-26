@@ -8,6 +8,8 @@ import {
 } from 'hyperformula'
 import { columnName, sheetNameProblem, sheetRangeReference } from './address'
 import { parseCellText } from './cell-parse'
+import { fillSeries } from './fill-series'
+import { isDateStyle } from './format'
 import { shiftFormula } from './references'
 import {
   defaultCellStyle,
@@ -48,6 +50,14 @@ export interface FindMatch {
   readonly sheetName: string
   readonly cell: Item
   readonly input: string
+}
+
+/** One column (fill down or up) or row (fill right or left) of a fill-handle drag, as workbook cells. */
+export interface FillLine {
+  /** The selected cells the drag started from, top to bottom or left to right. */
+  readonly seeds: readonly Item[]
+  /** The cells the drag added, nearest the seeds first; hidden rows and columns are left out. */
+  readonly targets: readonly Item[]
 }
 
 interface SheetLayout {
@@ -362,25 +372,38 @@ export class Workbook {
     )))
   }
 
-  /** Repeats source cells into a destination while HyperFormula translates relative formulas.
-   * Copy/paste cannot run inside engine.batch (it forces evaluation), so each paste recomputes. */
-  fillRange(sheetId: number, source: CellRange, destination: CellRange): void {
+  /**
+   * The fill handle, as one undo step: each line continues its seeds as a series (1, 2 → 3, 4; Jan →
+   * Feb; Item 1 → Item 2) or repeats them, with copied formulas' references moved and styles copied.
+   * `backward` fills up or left, so the targets count down from the seeds.
+   */
+  fillCells(sheetId: number, lines: readonly FillLine[], backward: boolean): void {
+    // The engine cannot be read inside a batch, so every seed is read before anything is written.
+    const writes = lines.flatMap(({ seeds, targets }) => {
+      const filled = fillSeries(
+        seeds.map(([col, row]) => ({
+          input: serializedInput(this.#engine.getCellSerialized({ sheet: sheetId, col, row })),
+          value: plainValue(this.#engine.getCellValue({ sheet: sheetId, col, row })),
+          date: isDateStyle(this.#style(sheetId, col, row)),
+        })),
+        targets.map((_, index) => backward ? -1 - index : seeds.length + index),
+      )
+      return targets.flatMap((target, index) => {
+        const cell = filled[index]
+        const source = cell === undefined ? undefined : seeds[cell.seed]
+        return cell === undefined || source === undefined ? [] : [{ target, source, input: cell.input }]
+      })
+    })
+    if (writes.length === 0) return
     this.#commit(() => {
       const styles = this.#sheetStyles(this.#sheetName(sheetId))
-      this.#forEachCell(destination, (col, row) => {
-        const sourceCol = source.x + ((col - source.x) % source.width + source.width) % source.width
-        const sourceRow = source.y + ((row - source.y) % source.height + source.height) % source.height
-        if (col === sourceCol && row === sourceRow) return
-        this.#engine.copy({
-          start: { sheet: sheetId, col: sourceCol, row: sourceRow },
-          end: { sheet: sheetId, col: sourceCol, row: sourceRow },
-        })
-        this.#engine.paste({ sheet: sheetId, col, row })
-        const sourceStyle = styles.get(styleKey(sourceCol, sourceRow))
-        const targetKey = styleKey(col, row)
-        if (sourceStyle === undefined) styles.delete(targetKey)
-        else styles.set(targetKey, { ...sourceStyle })
-      })
+      this.#engine.batch(() => writes.forEach(({ target: [col, row], source, input }) => {
+        const moved = typeof input === 'string' ? shiftFormula(input, col - source[0], row - source[1]) : input
+        this.#engine.setCellContents({ sheet: sheetId, col, row }, [[moved]])
+        const style = styles.get(styleKey(source[0], source[1]))
+        if (style === undefined) styles.delete(styleKey(col, row))
+        else styles.set(styleKey(col, row), style)
+      }))
     })
   }
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { fillLines } from '../grid-mapping'
 import { sheetNameFrom, sheetNameProblem } from './address'
 import { blankWorkbookData, Workbook } from './Workbook'
 import type { WorkbookData } from './workbook-data'
@@ -114,15 +115,31 @@ describe('Workbook', () => {
     workbook.setCellInput(sheetId, [1, 9], '=A10*2')
     workbook.setNumberFormat(sheetId, [{ x: 1, y: 9, width: 1, height: 1 }], 'currency')
 
-    workbook.fillRange(
-      sheetId,
-      { x: 1, y: 9, width: 1, height: 1 },
-      { x: 1, y: 10, width: 1, height: 1 },
-    )
+    workbook.fillCells(sheetId, [{ seeds: [[1, 9]], targets: [[1, 10]] }], false)
 
     expect(workbook.getCellInput(sheetId, [1, 10])).toBe('=A11*2')
     expect(workbook.getCellValue(sheetId, [1, 10])).toBe(6)
     expect(workbook.getStyle(sheetId, [1, 10]).numberFormat).toBe('currency')
+  })
+
+  it('continues a series past a hidden row and fills up from the seeds, each as one undo step', () => {
+    const workbook = new Workbook()
+    const sheetId = workbook.sheets()[0]?.id ?? 0
+    workbook.setBlock(sheetId, [0, 5], [['1'], ['2']])
+    workbook.hideRows(sheetId, 8)
+    const { lines, backward } = fillLines(
+      { x: 0, y: 5, width: 1, height: 2 },
+      { x: 0, y: 5, width: 1, height: 4 },
+      [0],
+      [0, 1, 2, 3, 4, 5, 6, 7, 9, 10],
+    )
+
+    workbook.fillCells(sheetId, lines, backward)
+    workbook.fillCells(sheetId, [{ seeds: [[0, 5], [0, 6]], targets: [[0, 4], [0, 3]] }], true)
+
+    expect([3, 4, 7, 8, 9].map(row => workbook.getCellValue(sheetId, [0, row]))).toEqual([-1, 0, 3, null, 4])
+    workbook.undo()
+    expect(workbook.getCellValue(sheetId, [0, 4])).toBeNull()
   })
 
   it('finds, replaces, and resolves named cell ranges', () => {

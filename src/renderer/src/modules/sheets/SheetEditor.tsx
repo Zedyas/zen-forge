@@ -26,7 +26,7 @@ import { cancelCut, copyCells, pasteCells, usePendingCut } from './clipboard'
 import { FindBar } from './FindBar'
 import { FormulaBar } from './FormulaBar'
 import { cellFontSize, gridTheme, headerHeight, isLightColor, rowHeight } from './grid-theme'
-import { mapCell, mapRange, viewRange as viewRangeOf, visibleAreas } from './grid-mapping'
+import { fillLines, mapCell, mapRange, viewRange as viewRangeOf, visibleAreas } from './grid-mapping'
 import { columnName, sheetNameProblem } from './model/address'
 import { formatCellValue, formatStatistic } from './model/format'
 import type { FindMatch, Workbook, WorkbookSheet } from './model/Workbook'
@@ -366,7 +366,8 @@ export function SheetEditor({ document, workbook }: SheetEditorProps) {
                 highlightRegions={cutOutline(0, frozenRowCount)}
                 onFillPattern={event => {
                   event.preventDefault()
-                  workbook.fillRange(sheetId, mapRange(event.patternSource, visibleColumns, frozenRows), mapRange(event.fillDestination, visibleColumns, frozenRows))
+                  const { lines, backward } = fillLines(event.patternSource, event.fillDestination, visibleColumns, frozenRows)
+                  workbook.fillCells(sheetId, lines, backward)
                 }}
                 rowMarkers={{ kind: 'number', rowNumber: frozenRowNumber, width: markerWidth }}
                 onCellContextMenu={cell => selectOnContextMenu(cell, 0)}
@@ -385,7 +386,8 @@ export function SheetEditor({ document, workbook }: SheetEditorProps) {
               highlightRegions={cutOutline(frozenRowCount, scrollingRows.length)}
               onFillPattern={event => {
                 event.preventDefault()
-                workbook.fillRange(sheetId, mapRange(event.patternSource, visibleColumns, scrollingRows), mapRange(event.fillDestination, visibleColumns, scrollingRows))
+                const { lines, backward } = fillLines(event.patternSource, event.fillDestination, visibleColumns, scrollingRows)
+                workbook.fillCells(sheetId, lines, backward)
               }}
               rowMarkers={{ kind: 'number', rowNumber: scrollingRowNumber, width: markerWidth }}
               onCellContextMenu={cell => selectOnContextMenu(cell, frozenRowCount)}

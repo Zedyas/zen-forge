@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { mapRange, visibleAreas } from './grid-mapping'
+import { fillLines, mapRange, visibleAreas } from './grid-mapping'
 
 describe('visibleAreas', () => {
   // Rows 2 and 3 and column B are hidden.
@@ -19,5 +19,15 @@ describe('visibleAreas', () => {
 
   it('keeps a selection without hidden rows as one rectangle', () => {
     expect(visibleAreas({ x: 1, y: 2, width: 2, height: 3 }, columns, rows)).toEqual([{ x: 2, y: 4, width: 2, height: 3 }])
+  })
+})
+
+describe('fillLines', () => {
+  it('reads a drag to the left as one backward line per row, nearest cell first', () => {
+    const indexes = [0, 1, 2, 3]
+    expect(fillLines({ x: 2, y: 1, width: 1, height: 1 }, { x: 0, y: 1, width: 3, height: 1 }, indexes, indexes)).toEqual({
+      backward: true,
+      lines: [{ seeds: [[2, 1]], targets: [[1, 1], [0, 1]] }],
+    })
   })
 })
