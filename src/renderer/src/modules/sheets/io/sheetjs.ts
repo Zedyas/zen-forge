@@ -22,7 +22,7 @@ import { textCellInput } from '../model/cell-parse'
 import { aggregateFindings, type FindingEvent } from './findings'
 import { assertZipFitsInMemory } from '../../../services/zip'
 import { numberFormatStyle } from './number-format'
-import { columnWidthPixels, readDefinedNames, unsupportedFunctionEvents } from './xlsx'
+import { columnWidthPixels, readDefinedNames, rowHeightPixels, unsupportedFunctionEvents } from './xlsx'
 
 export type SheetJsFormat = 'xls' | 'ods' | 'numbers'
 
@@ -141,11 +141,11 @@ function readCell(cell: CellObject, context: SheetContext): ImportedCell {
 }
 
 /** `usedRows` and `usedColumns` are the extent of the cells read, which the grid always covers. */
-function readLayout(sheet: WorkSheet, usedRows: number, usedColumns: number, context: SheetContext): SheetData['layout'] {
+function readLayout(sheet: WorkSheet, usedRows: number, usedColumns: number): SheetData['layout'] {
   const columnWidths: [number, number][] = []
   const hiddenColumns: number[] = []
   const hiddenRows: number[] = []
-  let customHeights = 0
+  const rowHeights: [number, number][] = []
 
   // Sparse arrays: forEach skips the columns and rows the file says nothing about.
   ;(sheet['!cols'] ?? []).forEach((column, index) => {
@@ -156,22 +156,14 @@ function readLayout(sheet: WorkSheet, usedRows: number, usedColumns: number, con
   ;(sheet['!rows'] ?? []).forEach((row, index) => {
     if (row === undefined || row === null) return
     if (row.hidden === true) hiddenRows.push(index)
-    else if (typeof row.hpt === 'number') customHeights += 1
+    else if (typeof row.hpt === 'number') rowHeights.push([index, rowHeightPixels(row.hpt)])
   })
-  if (customHeights > 0) {
-    context.events.push({
-      construct: 'Custom row heights',
-      severity: 'degraded',
-      location: context.sheetName,
-      count: customHeights,
-      unit: 'rows',
-    })
-  }
 
   return {
     rowCount: Math.max(defaultRowCount, usedRows, (hiddenRows.at(-1) ?? -1) + 1),
     columnCount: Math.max(defaultColumnCount, usedColumns, (hiddenColumns.at(-1) ?? -1) + 1),
     columnWidths,
+    rowHeights,
     hiddenRows,
     hiddenColumns,
     freezeRows: 0,
@@ -268,7 +260,7 @@ function readWorkbookSheets(workbook: WorkBook, context: Omit<SheetContext, 'she
       cells: grid.map(row => row.map(cell => cell?.input ?? null)),
       values: grid.map(row => row.map(cell => cell?.value ?? null)),
       styles,
-      layout: readLayout(sheet, grid.length, usedColumns, sheetContext),
+      layout: readLayout(sheet, grid.length, usedColumns),
     })
   })
 

@@ -25,7 +25,8 @@ import { Tip } from '../../ui/Tip'
 import { cancelCut, copyCells, pasteCells, usePendingCut } from './clipboard'
 import { FindBar } from './FindBar'
 import { FormulaBar } from './FormulaBar'
-import { cellFontSize, gridTheme, headerHeight, isLightColor, rowHeight } from './grid-theme'
+import { drawCellText, drawsOwnText, fontStack, fontStyle, measureCellHeight } from './cell-text'
+import { gridTheme, headerHeight, isLightColor } from './grid-theme'
 import { fillLines, mapCell, mapRange, viewRange as viewRangeOf, visibleAreas } from './grid-mapping'
 import { columnName, sheetNameProblem } from './model/address'
 import { formatCellValue, formatStatistic } from './model/format'
@@ -114,30 +115,6 @@ function rowMarkerWidth(largestRowNumber: number): number {
   return largestRowNumber > 10_000 ? 48 : largestRowNumber > 1_000 ? 44 : largestRowNumber > 100 ? 36 : 32
 }
 
-/** Glide has no underline; draw it under the rendered text using the cell's own font. */
-const drawUnderline: DrawCellCallback = (args, drawContent) => {
-  drawContent()
-  const { cell, ctx, rect, theme } = args
-  if (cell.kind !== GridCellKind.Text || !cell.themeOverride?.baseFontStyle?.includes('underline')) return
-  const text = cell.displayData
-  if (text === '') return
-  ctx.save()
-  ctx.font = `${cell.themeOverride.baseFontStyle.replace('underline ', '')} ${theme.fontFamily}`
-  const width = Math.min(ctx.measureText(text).width, rect.width - theme.cellHorizontalPadding * 2)
-  const align = cell.contentAlign ?? 'left'
-  const x = align === 'right'
-    ? rect.x + rect.width - theme.cellHorizontalPadding - width
-    : align === 'center' ? rect.x + (rect.width - width) / 2 : rect.x + theme.cellHorizontalPadding
-  const y = Math.round(rect.y + rect.height / 2 + cellFontSize * 0.5) + 0.5
-  ctx.strokeStyle = cell.themeOverride.textDark ?? theme.textDark
-  ctx.lineWidth = 1
-  ctx.beginPath()
-  ctx.moveTo(x, y)
-  ctx.lineTo(x + width, y)
-  ctx.stroke()
-  ctx.restore()
-}
-
 /** Recomputes the grid colours when macOS switches between light and dark. */
 function useGridTheme(): ReturnType<typeof gridTheme> {
   const [version, setVersion] = useState(0)
@@ -188,7 +165,6 @@ export function SheetEditor({ document, workbook }: SheetEditorProps) {
     const value = workbook.getCellValue(sheetId, cell)
     const style = workbook.getStyle(sheetId, cell)
     const displayed = formatCellValue(value, style)
-    const font = `${style.underline === true ? 'underline ' : ''}${style.italic === true ? 'italic ' : ''}${style.bold === true ? '600 ' : ''}${cellFontSize}px`
     const textColor = style.textColor ?? (style.fillColor !== undefined && isLightColor(style.fillColor) ? '#1d1f23' : undefined)
     return {
       kind: GridCellKind.Text,
@@ -197,19 +173,34 @@ export function SheetEditor({ document, workbook }: SheetEditorProps) {
       displayData: displayed,
       copyData: displayed,
       contentAlign: style.align ?? (typeof value === 'number' ? 'right' : 'left'),
+      // The cell editor then wraps too, and takes Return for a new line with ⌥.
+      allowWrapping: style.wrap === true,
       themeOverride: {
-        baseFontStyle: font,
+        baseFontStyle: fontStyle(style),
+        ...(style.fontFamily === undefined || theme.fontFamily === undefined ? {} : { fontFamily: fontStack(style.fontFamily, theme.fontFamily) }),
         ...(textColor === undefined ? {} : { textDark: textColor }),
         ...(style.fillColor === undefined ? {} : { bgCell: style.fillColor }),
       },
     }
-  }, [sheetId, revision, visibleColumns, workbook])
+  }, [sheetId, revision, theme, visibleColumns, workbook])
 
   const editCell = useCallback((viewCell: Item, value: EditableGridCell, rows: readonly number[]) => {
     const cell = mapCell(viewCell, visibleColumns, rows)
-    if (value.kind === GridCellKind.Text) workbook.setCellInput(sheetId, cell, value.data)
-    if (value.kind === GridCellKind.Number) workbook.setCellInput(sheetId, cell, value.data ?? null)
+    if (value.kind === GridCellKind.Text) workbook.setCellInput(sheetId, cell, value.data, measureCellHeight)
+    if (value.kind === GridCellKind.Number) workbook.setCellInput(sheetId, cell, value.data ?? null, measureCellHeight)
   }, [sheetId, visibleColumns, workbook])
+
+  /** Glide draws plain text; wrapped, underlined and struck-through text Ledger draws itself (cell-text.ts). */
+  const drawCell = useCallback((args: Parameters<DrawCellCallback>[0], drawContent: () => void, rows: readonly number[]) => {
+    const style = workbook.getStyle(sheetId, mapCell([args.col, args.row], visibleColumns, rows))
+    if (args.cell.kind === GridCellKind.Text && drawsOwnText(style)) drawCellText(args, args.cell.displayData, style)
+    else drawContent()
+  }, [sheetId, revision, visibleColumns, workbook])
+  const drawScrollingCell = useCallback<DrawCellCallback>((args, draw) => drawCell(args, draw, scrollingRows), [drawCell, scrollingRows])
+  const drawFrozenCell = useCallback<DrawCellCallback>((args, draw) => drawCell(args, draw, frozenRows), [drawCell, frozenRows])
+  const scrollingRowHeight = useCallback((row: number) => workbook.getRowHeight(sheetId, scrollingRows[row] ?? 0), [sheetId, revision, scrollingRows, workbook])
+  const frozenRowHeight = useCallback((row: number) => workbook.getRowHeight(sheetId, frozenRows[row] ?? 0), [sheetId, revision, frozenRows, workbook])
+  const frozenHeight = frozenRows.reduce((total, row) => total + workbook.getRowHeight(sheetId, row), 0)
 
   const getScrollingCell = useCallback((cell: Item) => getCell(cell, scrollingRows), [getCell, scrollingRows])
   const getFrozenCell = useCallback((cell: Item) => getCell(cell, frozenRows), [frozenRows, getCell])
@@ -329,8 +320,6 @@ export function SheetEditor({ document, workbook }: SheetEditorProps) {
     width: '100%',
     height: '100%',
     theme,
-    rowHeight,
-    drawCell: drawUnderline,
     // Copy, cut and paste are Ledger's own (see clipboard.ts), so they keep formulas and styles.
     keybindings: { copy: false, cut: false, paste: false },
     freezeColumns: workbook.getFrozenColumnCount(sheetId),
@@ -353,13 +342,15 @@ export function SheetEditor({ document, workbook }: SheetEditorProps) {
         {findOpen && <FindBar workbook={workbook} revision={revision} onClose={() => setFindOpen(false)} onSelectMatch={selectMatch} />}
         <SheetContextMenu controller={controller}>
           {frozenRowCount > 0 && (
-            <div className="sheet-frozen-rows" style={{ height: headerHeight + frozenRowCount * rowHeight + 1 }}>
+            <div className="sheet-frozen-rows" style={{ height: headerHeight + frozenHeight + 1 }}>
               <DataEditor
                 {...sharedGridProps}
                 ref={frozenGridRef}
                 headerHeight={headerHeight}
                 rows={frozenRows.length}
                 getCellContent={getFrozenCell}
+                drawCell={drawFrozenCell}
+                rowHeight={frozenRowHeight}
                 onCellEdited={editFrozenCell}
                 gridSelection={selectionForRows(selection, 0, frozenRowCount)}
                 onGridSelectionChange={next => setSelection(selectionFromRows(next, 0))}
@@ -380,6 +371,8 @@ export function SheetEditor({ document, workbook }: SheetEditorProps) {
               headerHeight={frozenRowCount > 0 ? 0 : headerHeight}
               rows={scrollingRows.length}
               getCellContent={getScrollingCell}
+              drawCell={drawScrollingCell}
+              rowHeight={scrollingRowHeight}
               onCellEdited={editScrollingCell}
               gridSelection={selectionForRows(selection, frozenRowCount, scrollingRows.length)}
               onGridSelectionChange={next => setSelection(selectionFromRows(next, frozenRowCount))}

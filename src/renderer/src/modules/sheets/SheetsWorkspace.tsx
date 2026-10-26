@@ -36,6 +36,10 @@ function runSheetCommand(command: CommandId): void | Promise<void> {
       return toggleStyle(controller, 'italic')
     case 'format.underline':
       return toggleStyle(controller, 'underline')
+    case 'format.strikethrough':
+      return toggleStyle(controller, 'strike')
+    case 'format.wrapText':
+      return toggleStyle(controller, 'wrap')
     case 'format.clear':
       return controller.workbook.clearFormatting(controller.sheetId, controller.areas)
     case 'file.exportCsv':

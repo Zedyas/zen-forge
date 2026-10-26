@@ -24,6 +24,7 @@ const workbook: WorkbookData = {
       ],
       styles: [
         [0, 0, { numberFormat: 'general', decimalPlaces: 2, bold: true, fillColor: '#eef2ff', align: 'center' }],
+        [1, 0, { numberFormat: 'general', decimalPlaces: 2, strike: true, wrap: true, fontFamily: 'Georgia', fontSize: 14 }],
         [0, 1, {
           numberFormat: 'general',
           decimalPlaces: 2,
@@ -43,6 +44,7 @@ const workbook: WorkbookData = {
         rowCount: 1_000,
         columnCount: 26,
         columnWidths: [[0, 160], [2, 90]],
+        rowHeights: [[1, 40], [3, 18]],
         hiddenRows: [2],
         hiddenColumns: [],
         freezeRows: 1,
@@ -58,6 +60,7 @@ const workbook: WorkbookData = {
         rowCount: 1_000,
         columnCount: 26,
         columnWidths: [],
+        rowHeights: [],
         hiddenRows: [],
         hiddenColumns: [],
         freezeRows: 0,

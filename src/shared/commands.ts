@@ -20,6 +20,9 @@ export const commandIds = [
   'format.underline',
   'format.clear',
   'format.tableOfContents',
+  // Ledger
+  'format.strikethrough',
+  'format.wrapText',
   'view.toolbar',
   'view.inspector',
   'view.zoomIn',
@@ -131,6 +134,9 @@ export const commandDefinitions: readonly CommandDefinition[] = [
   { id: 'text.alignLeft', label: 'Align Text Left', menu: 'format', scope: ['slides'], target: 'renderer', separatorBefore: true },
   { id: 'text.alignCenter', label: 'Align Text Centre', menu: 'format', scope: ['slides'], target: 'renderer' },
   { id: 'text.alignRight', label: 'Align Text Right', menu: 'format', scope: ['slides'], target: 'renderer' },
+  // Ledger
+  { id: 'format.strikethrough', label: 'Strikethrough', menu: 'format', accelerator: 'Shift+CmdOrCtrl+X', scope: ['sheets'], target: 'renderer' },
+  { id: 'format.wrapText', label: 'Wrap Text', menu: 'format', scope: ['sheets'], target: 'renderer', separatorBefore: true },
   { id: 'view.toolbar', label: 'Toolbar', menu: 'view', accelerator: 'Alt+CmdOrCtrl+T', scope: 'editors', target: 'renderer', toggle: 'toolbar' },
   { id: 'view.inspector', label: 'Inspector', menu: 'view', accelerator: 'Alt+CmdOrCtrl+I', scope: 'editors', target: 'renderer', toggle: 'inspector' },
   { id: 'view.zoomIn', label: 'Zoom In', menu: 'view', accelerator: 'CmdOrCtrl+=', scope: ['pdf', 'docs'], target: 'renderer', separatorBefore: true },

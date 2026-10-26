@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { fillLines } from '../grid-mapping'
 import { sheetNameFrom, sheetNameProblem } from './address'
 import { blankWorkbookData, Workbook } from './Workbook'
-import type { WorkbookData } from './workbook-data'
+import type { CellStyle, WorkbookData } from './workbook-data'
 
 /** Four regions with revenue, cost, and a per-row margin formula; totals on row 6. */
 function regionsData(): WorkbookData {
@@ -251,6 +251,26 @@ describe('Workbook', () => {
     expect(workbook.renameSheet(sheetId, 'sheet1')).toBe(true)
     expect(workbook.sheets().map(sheet => sheet.name)).toEqual(['sheet1', 'Sheet2'])
     expect(sheetNameFrom("Budget: 2026 [final]'")).toBe('Budget_ 2026 _final_')
+  })
+
+  it('fits rows to wrapped text in the same undo step as the wrap, and moves heights with inserted rows', () => {
+    const workbook = new Workbook()
+    const sheetId = workbook.sheets()[0]?.id ?? 0
+    // Wrapped text needs 20 px per 10 characters; anything else fits the default row.
+    const measure = (text: string, style: CellStyle): number => style.wrap === true ? Math.ceil(text.length / 10) * 20 : 26
+    workbook.setCellInput(sheetId, [0, 1], 'forty characters of text that need wrap')
+
+    workbook.updateStyle(sheetId, [{ x: 0, y: 1, width: 1, height: 1 }], { wrap: true }, measure)
+    expect(workbook.getRowHeight(sheetId, 1)).toBe(80)
+    workbook.insertRows(sheetId, 0)
+    expect(workbook.getRowHeight(sheetId, 2)).toBe(80)
+    workbook.undo()
+    workbook.undo()
+    expect(workbook.getRowHeight(sheetId, 1)).toBe(26)
+
+    workbook.setRowHeight(sheetId, [3, 4], 40)
+    workbook.fitRows(sheetId, [3], measure)
+    expect([3, 4].map(row => workbook.getRowHeight(sheetId, row))).toEqual([26, 40])
   })
 
   it('clears a range in one undo step and keeps its formatting', () => {

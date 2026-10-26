@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import type { Item } from '@glideapps/glide-data-grid'
+import { measureCellHeight } from './cell-text'
 import type { Workbook } from './model/Workbook'
 import { cellName, formulaReferences } from './model/address'
 import { FunctionAutocomplete } from './FunctionAutocomplete'
@@ -32,7 +33,7 @@ export function FormulaBar({ workbook, sheetId, selectedCell }: FormulaBarProps)
   const commit = (event?: FormEvent): void => {
     event?.preventDefault()
     committedRef.current = draft
-    workbook.setCellInput(sheetId, selectedCell, draft)
+    workbook.setCellInput(sheetId, selectedCell, draft, measureCellHeight)
   }
 
   const chooseFunction = (name: string): void => {

@@ -8,6 +8,7 @@ import {
   Baseline,
   Bold,
   Calendar,
+  Check,
   ChevronDown,
   Columns3,
   DecimalsArrowLeft,
@@ -22,22 +23,26 @@ import {
   Rows3,
   Search,
   Sigma,
+  Strikethrough,
   Underline,
   Undo2,
+  WrapText,
 } from 'lucide-react'
-import { useState } from 'react'
-import type { HorizontalAlign } from './model/workbook-data'
+import { useState, type ReactNode } from 'react'
+import { defaultFontSize, type HorizontalAlign } from './model/workbook-data'
 import type { NumberFormat } from './model/Workbook'
 import {
   autoSum,
   fillColors,
+  fontFamilies,
+  fontSizes,
   setStyle,
   sortByActiveColumn,
   textColors,
   toggleStyle,
   type SheetController,
 } from './sheet-commands'
-import { icon, tinyIcon } from '../../ui/icons'
+import { icon, smallIcon, tinyIcon } from '../../ui/icons'
 import { Tip } from '../../ui/Tip'
 import { ColorTool, Toolbar, ToolButton, ToolSeparator } from '../../ui/Toolbar'
 import { TitleEssentials } from '../../ui/TitleSlot'
@@ -113,6 +118,57 @@ function StructureMenu({ controller, axis }: StructureMenuProps) {
   )
 }
 
+/** A toolbar menu that names its current choice, like Sumi's font menus. */
+function ChoiceMenu({ label, current, children }: { readonly label: string; readonly current: string; readonly children: ReactNode }) {
+  return (
+    <Menu.Root>
+      <Tip label={label}>
+        <Menu.Trigger className="tool is-label menu-label" aria-label={label}>
+          <span>{current}</span>
+          <ChevronDown {...tinyIcon} />
+        </Menu.Trigger>
+      </Tip>
+      <Menu.Portal>
+        <Menu.Positioner sideOffset={6} align="start">
+          <Menu.Popup className="menu-popup sheet-choice-menu">{children}</Menu.Popup>
+        </Menu.Positioner>
+      </Menu.Portal>
+    </Menu.Root>
+  )
+}
+
+function Choice({ active, family, onClick, children }: { readonly active: boolean; readonly family?: string; readonly onClick: () => void; readonly children: ReactNode }) {
+  return (
+    <Menu.Item className="menu-item" data-active={active ? '' : undefined} onClick={onClick}>
+      <span style={family === undefined ? undefined : { fontFamily: `"${family}"` }}>{children}</span>
+      {active && <Check {...smallIcon} />}
+    </Menu.Item>
+  )
+}
+
+/** Font family and size. Excel's default size (11) and the default font are no formatting at all. */
+function FontMenus({ controller }: { readonly controller: SheetController }) {
+  const style = controller.workbook.getStyle(controller.sheetId, controller.cell)
+  const families: readonly string[] = fontFamilies
+  const extra = style.fontFamily !== undefined && !families.includes(style.fontFamily) ? [style.fontFamily] : []
+  const size = style.fontSize ?? defaultFontSize
+  return (
+    <>
+      <ChoiceMenu label="Font" current={style.fontFamily ?? 'Default'}>
+        <Choice active={style.fontFamily === undefined} onClick={() => setStyle(controller, { fontFamily: undefined })}>Default</Choice>
+        {[...families, ...extra].map(family => (
+          <Choice key={family} active={style.fontFamily === family} family={family} onClick={() => setStyle(controller, { fontFamily: family })}>{family}</Choice>
+        ))}
+      </ChoiceMenu>
+      <ChoiceMenu label="Font size" current={String(size)}>
+        {[...new Set([...fontSizes, size])].sort((left, right) => left - right).map(value => (
+          <Choice key={value} active={value === size} onClick={() => setStyle(controller, { fontSize: value === defaultFontSize ? undefined : value })}>{value}</Choice>
+        ))}
+      </ChoiceMenu>
+    </>
+  )
+}
+
 interface SheetToolbarProps {
   readonly controller: SheetController
   readonly findOpen: boolean
@@ -132,9 +188,11 @@ export function SheetToolbar({ controller, findOpen }: SheetToolbarProps) {
         <ToolButton icon={Undo2} label="Undo" command="edit.undo" disabled={!workbook.canUndo()} onClick={() => workbook.undo()} />
         <ToolButton icon={Redo2} label="Redo" command="edit.redo" disabled={!workbook.canRedo()} onClick={() => workbook.redo()} />
         <ToolSeparator />
+        <FontMenus controller={controller} />
         <ToolButton icon={Bold} label="Bold" command="format.bold" pressed={style.bold === true} onClick={() => toggleStyle(controller, 'bold')} />
         <ToolButton icon={Italic} label="Italic" command="format.italic" pressed={style.italic === true} onClick={() => toggleStyle(controller, 'italic')} />
         <ToolButton icon={Underline} label="Underline" command="format.underline" pressed={style.underline === true} onClick={() => toggleStyle(controller, 'underline')} />
+        <ToolButton icon={Strikethrough} label="Strikethrough" command="format.strikethrough" pressed={style.strike === true} onClick={() => toggleStyle(controller, 'strike')} />
         <ColorTool
           icon={Baseline}
           label="Text colour"
@@ -167,6 +225,7 @@ export function SheetToolbar({ controller, findOpen }: SheetToolbarProps) {
             onClick={() => setStyle(controller, { align: style.align === alignment.value ? undefined : alignment.value })}
           />
         ))}
+        <ToolButton icon={WrapText} label="Wrap text" command="format.wrapText" pressed={style.wrap === true} onClick={() => toggleStyle(controller, 'wrap')} />
         <ToolSeparator />
         {numberFormats.map(format => (
           <ToolButton

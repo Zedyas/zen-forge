@@ -118,6 +118,11 @@ export function columnWidthPixels(characters: number): number {
   return Math.max(minimumColumnWidth, Math.min(maximumColumnWidth, Math.round(characters * 7 + 5)))
 }
 
+/** A row height in points, as pixels (96 per inch, so 4/3 per point). */
+export function rowHeightPixels(points: number): number {
+  return Math.max(12, Math.min(600, Math.round(points * 4 / 3)))
+}
+
 function cachedValue(result: ExcelJS.CellValue): string | number | boolean | null {
   if (result === null || result === undefined) return null
   if (result instanceof Date) return dateToSerial(result)
@@ -223,15 +228,11 @@ function readFont(font: Partial<ExcelJS.Font>, context: CellContext, style: Cell
   if (font.underline !== undefined && font.underline !== false && font.underline !== 'none') {
     result = { ...result, underline: true }
   }
-  if (font.strike === true || font.outline === true || font.vertAlign !== undefined) {
-    cellEvent(context, 'Strikethrough, outline and script fonts')
-  }
-  if (
-    (font.name !== undefined && font.name !== defaultFont.name)
-    || (font.size !== undefined && font.size !== defaultFont.size)
-  ) {
-    cellEvent(context, 'Font family and size')
-  }
+  if (font.strike === true) result = { ...result, strike: true }
+  if (font.outline === true || font.vertAlign !== undefined) cellEvent(context, 'Outline and script fonts')
+  // The file's own default font is no font at all here, so those cells show in Ledger's default.
+  if (font.name !== undefined && font.name !== defaultFont.name) result = { ...result, fontFamily: font.name }
+  if (font.size !== undefined && font.size !== defaultFont.size) result = { ...result, fontSize: font.size }
 
   const color = font.color
   if (color === undefined) return result
@@ -282,7 +283,7 @@ function readAlignment(
     cellEvent(context, 'Other text alignment')
   }
 
-  if (alignment.wrapText === true) cellEvent(context, 'Text wrapping')
+  if (alignment.wrapText === true) result = { ...result, wrap: true }
   if (alignment.vertical !== undefined) cellEvent(context, 'Vertical alignment')
   if (
     (alignment.indent !== undefined && alignment.indent !== 0)
@@ -319,6 +320,7 @@ function readCellStyle(cell: ExcelJS.Cell, context: CellContext): CellStyle {
 
 function readLayout(sheet: ExcelJS.Worksheet, events: FindingEvent[]): SheetData['layout'] {
   const columnWidths: [number, number][] = []
+  const rowHeights: [number, number][] = []
   const hiddenColumns: number[] = []
   const hiddenRows: number[] = []
 
@@ -328,20 +330,12 @@ function readLayout(sheet: ExcelJS.Worksheet, events: FindingEvent[]): SheetData
     if (column.hidden === true) hiddenColumns.push(index)
   })
 
-  let customHeights = 0
+  // Excel writes a height on many rows that are simply at the sheet's default; those keep Ledger's default.
+  const defaultHeight = sheet.properties.defaultRowHeight ?? 15
   sheet.eachRow({ includeEmpty: true }, (row, rowNumber) => {
     if (row.hidden === true) hiddenRows.push(rowNumber - 1)
-    if (typeof row.height === 'number') customHeights += 1
+    if (typeof row.height === 'number' && row.height !== defaultHeight) rowHeights.push([rowNumber - 1, rowHeightPixels(row.height)])
   })
-  if (customHeights > 0) {
-    events.push({
-      construct: 'Custom row heights',
-      severity: 'degraded',
-      location: sheet.name,
-      count: customHeights,
-      unit: 'rows',
-    })
-  }
 
   const view = (sheet.views ?? [])[0]
   if (view?.state === 'split') {
@@ -353,6 +347,7 @@ function readLayout(sheet: ExcelJS.Worksheet, events: FindingEvent[]): SheetData
     rowCount: Math.max(defaultRowCount, sheet.rowCount),
     columnCount: Math.max(defaultColumnCount, sheet.columnCount),
     columnWidths,
+    rowHeights,
     hiddenRows,
     hiddenColumns,
     freezeRows: frozen?.ySplit ?? 0,
@@ -509,13 +504,19 @@ function writeCellStyle(cell: ExcelJS.Cell, style: CellStyle): void {
   if (style.bold === true) font.bold = true
   if (style.italic === true) font.italic = true
   if (style.underline === true) font.underline = true
+  if (style.strike === true) font.strike = true
+  if (style.fontFamily !== undefined) font.name = style.fontFamily
+  if (style.fontSize !== undefined) font.size = style.fontSize
   if (style.textColor !== undefined) font.color = { argb: hexToArgb(style.textColor) }
   if (Object.keys(font).length > 0) cell.font = font
 
   if (style.fillColor !== undefined) {
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: hexToArgb(style.fillColor) } }
   }
-  if (style.align !== undefined) cell.alignment = { horizontal: style.align }
+  const alignment: Partial<ExcelJS.Alignment> = {}
+  if (style.align !== undefined) alignment.horizontal = style.align
+  if (style.wrap === true) alignment.wrapText = true
+  if (Object.keys(alignment).length > 0) cell.alignment = alignment
 }
 
 function writeCellValue(
@@ -567,6 +568,9 @@ export async function writeXlsx(data: WorkbookData): Promise<Uint8Array> {
     })
     layout.hiddenColumns.forEach(column => {
       target.getColumn(column + 1).hidden = true
+    })
+    layout.rowHeights.forEach(([row, height]) => {
+      target.getRow(row + 1).height = height * 0.75
     })
     layout.hiddenRows.forEach(row => {
       target.getRow(row + 1).hidden = true

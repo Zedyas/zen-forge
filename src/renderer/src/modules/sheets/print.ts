@@ -1,5 +1,6 @@
 import type { Paper } from '@shared/print'
 import { pageSetup, printableArea, type PageSetup, type Printout } from '../../services/print/print'
+import { fontPixels } from './cell-text'
 import { formatCellValue } from './model/format'
 import type { CellStyle, Workbook } from './model/Workbook'
 import type { HorizontalAlign } from './model/workbook-data'
@@ -101,12 +102,16 @@ export function planSheetPages(columnWidths: readonly number[], frozenColumns: n
 
 function cellElement(cell: PrintCell): HTMLTableCellElement {
   const element = document.createElement('td')
-  const { bold, italic, underline, textColor, fillColor } = cell.style
+  const { bold, italic, underline, strike, wrap, fontFamily, fontSize, textColor, fillColor } = cell.style
   element.textContent = cell.text
   element.style.textAlign = cell.align
   if (bold === true) element.style.fontWeight = '600'
   if (italic === true) element.style.fontStyle = 'italic'
-  if (underline === true) element.style.textDecoration = 'underline'
+  const decorations = [underline === true ? 'underline' : '', strike === true ? 'line-through' : ''].filter(Boolean)
+  if (decorations.length > 0) element.style.textDecoration = decorations.join(' ')
+  if (wrap === true) element.style.whiteSpace = 'pre-wrap'
+  if (fontFamily !== undefined) element.style.fontFamily = `"${fontFamily.replaceAll('"', '')}"`
+  if (fontSize !== undefined) element.style.fontSize = `${fontPixels(cell.style)}px`
   if (textColor !== undefined) element.style.color = textColor
   if (fillColor !== undefined) element.style.backgroundColor = fillColor
   return element

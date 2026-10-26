@@ -70,7 +70,12 @@
 }
 .sheet-delete:hover { background: var(--pressed); color: var(--ink); }
 
+.sheet-choice-menu { max-height: 60vh; overflow-y: auto; }
+
 .inspector-inline-form { display: flex; gap: 6px; margin-bottom: 8px; }
+.sheet-row-height { display: inline-flex; align-items: center; gap: var(--gap); }
+.sheet-row-height .text-field { width: 52px; text-align: right; }
+.sheet-row-height small { color: var(--dim); font-size: 11.5px; }
 .inspector-inline-form .text-field { flex: 1; }
 
 /* Printout (print.ts), mounted only while printing. Light grey gridlines, as Google Sheets prints them. */

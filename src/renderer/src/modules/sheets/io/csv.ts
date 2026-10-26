@@ -94,6 +94,7 @@ export function readDelimited(bytes: Uint8Array, sheetName: string, format: Deli
       rowCount: Math.max(defaultRowCount, rows.length),
       columnCount: Math.max(defaultColumnCount, columnCount),
       columnWidths: [],
+      rowHeights: [],
       hiddenRows: [],
       hiddenColumns: [],
       freezeRows: 0,

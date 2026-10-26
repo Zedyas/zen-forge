@@ -9,12 +9,13 @@ import {
 import { columnName, sheetNameProblem, sheetRangeReference } from './address'
 import { parseCellText } from './cell-parse'
 import { fillSeries } from './fill-series'
-import { isDateStyle } from './format'
+import { formatCellValue, isDateStyle } from './format'
 import { shiftFormula } from './references'
 import {
   defaultCellStyle,
   defaultColumnCount,
   defaultRowCount,
+  defaultRowHeight,
   isDefaultStyle,
   type CellInput,
   type CellRange,
@@ -64,6 +65,7 @@ interface SheetLayout {
   rowCount: number
   columnCount: number
   readonly columnWidths: Map<number, number>
+  readonly rowHeights: Map<number, number>
   readonly hiddenRows: Set<number>
   readonly hiddenColumns: Set<number>
   freezeRows: number
@@ -91,17 +93,28 @@ const blankLayout: SheetLayoutData = {
   rowCount: defaultRowCount,
   columnCount: defaultColumnCount,
   columnWidths: [],
+  rowHeights: [],
   hiddenRows: [],
   hiddenColumns: [],
   freezeRows: 0,
   freezeColumns: 0,
 }
 
+/**
+ * The height a cell's text needs at a column width, in pixels. Measuring needs the screen's fonts, so
+ * the grid supplies it; the workbook uses it to fit rows to wrapped and larger text.
+ */
+export type CellMeasure = (text: string, style: CellStyle, width: number) => number
+
+/** Style properties that change how tall a cell's text is. */
+const textLayoutKeys: readonly (keyof CellStyle)[] = ['wrap', 'fontSize', 'fontFamily']
+
 function layoutFromData(layout: SheetLayoutData): SheetLayout {
   return {
     rowCount: Math.max(layout.rowCount, defaultRowCount),
     columnCount: Math.max(layout.columnCount, defaultColumnCount),
     columnWidths: new Map(layout.columnWidths),
+    rowHeights: new Map(layout.rowHeights),
     hiddenRows: new Set(layout.hiddenRows),
     hiddenColumns: new Set(layout.hiddenColumns),
     freezeRows: layout.freezeRows,
@@ -226,6 +239,45 @@ export class Workbook {
     return this.#layout(sheetId).columnWidths.get(column) ?? defaultColumnWidth
   }
 
+  getRowHeight(sheetId: number, row: number): number {
+    return this.#layout(sheetId).rowHeights.get(row) ?? defaultRowHeight
+  }
+
+  /** Sets rows to `height` pixels as one undo step; undefined puts them back to the default height. */
+  setRowHeight(sheetId: number, rows: readonly number[], height: number | undefined): void {
+    const heights = this.#layout(sheetId).rowHeights
+    const next = height === undefined ? undefined : Math.max(12, Math.min(600, Math.round(height)))
+    if (rows.every(row => heights.get(row) === next)) return
+    this.#commit(() => rows.forEach(row => {
+      if (next === undefined || next === defaultRowHeight) heights.delete(row)
+      else heights.set(row, next)
+    }))
+  }
+
+  /** Makes each row just tall enough for its tallest cell, as double-clicking a row border does in Excel. */
+  fitRows(sheetId: number, rows: readonly number[], measure: CellMeasure): void {
+    this.#commit(() => this.#fitRows(sheetId, rows, measure, false))
+  }
+
+  /** `growOnly` keeps a row that is already tall enough, such as one sized by hand, as it is. */
+  #fitRows(sheetId: number, rows: readonly number[], measure: CellMeasure, growOnly: boolean): void {
+    const layout = this.#layout(sheetId)
+    const styles = this.#styles.get(this.#sheetName(sheetId))
+    const columns = Math.max(this.#engine.getSheetDimensions(sheetId).width, ...[...styles?.keys() ?? []].map(key => parseStyleKey(key)[0] + 1))
+    new Set(rows).forEach(row => {
+      let needed = defaultRowHeight
+      for (let col = 0; col < columns; col += 1) {
+        const style = this.#style(sheetId, col, row)
+        const text = formatCellValue(plainValue(this.#engine.getCellValue({ sheet: sheetId, col, row })), style)
+        if (text !== '') needed = Math.max(needed, measure(text, style, this.getColumnWidth(sheetId, col)))
+      }
+      const height = Math.min(600, Math.ceil(needed))
+      if (growOnly && height <= (layout.rowHeights.get(row) ?? defaultRowHeight)) return
+      if (height === defaultRowHeight) layout.rowHeights.delete(row)
+      else layout.rowHeights.set(row, height)
+    })
+  }
+
   getFrozenColumnCount(sheetId: number): number {
     const layout = this.#layout(sheetId)
     return this.visibleColumns(sheetId).filter(column => column < layout.freezeColumns).length
@@ -254,10 +306,14 @@ export class Workbook {
 
   /**
    * Applies a style patch to every cell of the areas; `undefined` values reset that property. Areas are
-   * the rectangles of one selection, which leave out hidden rows and columns.
+   * the rectangles of one selection, which leave out hidden rows and columns. With `fit`, a change to
+   * wrapping or the font refits the rows to their text in the same undo step.
    */
-  updateStyle(sheetId: number, areas: readonly CellRange[], patch: Partial<CellStyle>): void {
+  updateStyle(sheetId: number, areas: readonly CellRange[], patch: Partial<CellStyle>, fit?: CellMeasure): void {
     this.#updateStyle(sheetId, areas, () => patch)
+    if (fit === undefined || !textLayoutKeys.some(key => key in patch)) return
+    const rows = areas.flatMap(area => Array.from({ length: area.height }, (_, offset) => area.y + offset))
+    this.#amend(() => this.#fitRows(sheetId, rows, fit, false))
   }
 
   clearFormatting(sheetId: number, areas: readonly CellRange[]): void {
@@ -273,9 +329,14 @@ export class Workbook {
     }))
   }
 
-  setCellInput(sheetId: number, [col, row]: Item, input: CellInput): void {
+  /** With `fit`, a row too short for the new text of a wrapped or larger-font cell grows to show it. */
+  setCellInput(sheetId: number, [col, row]: Item, input: CellInput, fit?: CellMeasure): void {
     if (this.getCellInput(sheetId, [col, row]) === String(input ?? '')) return
-    this.#commit(() => this.#engine.setCellContents({ sheet: sheetId, col, row }, [[input]]))
+    this.#commit(() => {
+      this.#engine.setCellContents({ sheet: sheetId, col, row }, [[input]])
+      const style = this.#style(sheetId, col, row)
+      if (fit !== undefined && textLayoutKeys.some(key => style[key] !== undefined)) this.#fitRows(sheetId, [row], fit, true)
+    })
   }
 
   /** Empties values and formulas in the areas as one undo step, keeping formatting. */
@@ -866,6 +927,16 @@ export class Workbook {
     hidden.clear()
     shiftedHidden.forEach(coordinate => hidden.add(coordinate))
 
+    if (axis === 'row') {
+      const shiftedHeights = new Map<number, number>()
+      layout.rowHeights.forEach((height, coordinate) => {
+        if (removedCount > 0 && coordinate >= index && coordinate < index + removedCount) return
+        shiftedHeights.set(coordinate >= index + removedCount ? coordinate + offset : coordinate, height)
+      })
+      layout.rowHeights.clear()
+      shiftedHeights.forEach((height, coordinate) => layout.rowHeights.set(coordinate, height))
+    }
+
     if (axis === 'column') {
       const shiftedWidths = new Map<number, number>()
       layout.columnWidths.forEach((width, coordinate) => {
@@ -931,6 +1002,7 @@ export class Workbook {
             rowCount: layout.rowCount,
             columnCount: layout.columnCount,
             columnWidths: [...layout.columnWidths.entries()],
+            rowHeights: [...layout.rowHeights.entries()],
             hiddenRows: [...layout.hiddenRows],
             hiddenColumns: [...layout.hiddenColumns],
             freezeRows: layout.freezeRows,
@@ -986,6 +1058,12 @@ export class Workbook {
     this.#depth += 1
     this.#emit()
     return result
+  }
+
+  /** Folds a follow-up change into the undo step just committed, such as refitting rows after a style change. */
+  #amend(mutation: () => void): void {
+    mutation()
+    this.#emit()
   }
 
   #emit(): void {
