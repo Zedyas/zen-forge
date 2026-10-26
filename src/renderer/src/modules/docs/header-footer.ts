@@ -60,12 +60,6 @@ export function documentHeadersAndFooters(value: unknown): HeadersAndFooters {
   }
 }
 
-/** The part a page shows: the first page's own when it differs. */
-export function partFor(kind: 'header' | 'footer', firstPage: boolean, headerFooter: HeadersAndFooters): HeaderFooterPart {
-  if (!firstPage || !headerFooter.differentFirstPage) return kind
-  return kind === 'header' ? 'firstHeader' : 'firstFooter'
-}
-
 /** Paragraphs with nothing in them are no header at all, so an emptied header is not saved. */
 export function trimmedPart(content: HeaderFooterContent): HeaderFooterContent {
   return content.every(paragraph => (paragraph.content ?? []).length === 0) ? [] : content
