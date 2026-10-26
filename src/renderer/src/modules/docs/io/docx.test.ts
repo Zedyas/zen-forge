@@ -59,6 +59,7 @@ const document: JSONContent = {
   attrs: { page, theme, headerFooter, properties: { title: 'Quarterly report', subject: '', creator: 'Ana', keywords: 'sales', description: '' } },
   content: [
     { type: 'title', attrs: { textAlign: 'center' }, content: [text('Quarterly report')] },
+    { type: 'tableOfContents', attrs: { levels: 2 } },
     { type: 'heading', attrs: { level: 1 }, content: [text('Summary')] },
     { type: 'heading', attrs: { level: 2 }, content: [text('Regions')] },
     { type: 'heading', attrs: { level: 3 }, content: [text('North')] },
@@ -139,6 +140,16 @@ describe('docx', () => {
     expect(read.findings).toEqual([])
     expect(normalized(read.content)).toEqual(normalized(document))
     expect(sameDocument(schema, read.content, document)).toBe(true)
+  })
+
+  it('writes a table of contents as a Word TOC field whose entries link to the headings', async () => {
+    const xml = strFromU8(unzipSync((await writeDocx(document)).bytes)['word/document.xml'] ?? new Uint8Array())
+    expect(xml).toContain(String.raw`<w:instrText>TOC \o &quot;1-2&quot; \h \z \u</w:instrText>`)
+    expect(xml).toMatch(/<w:hyperlink [^>]*w:anchor="_Toc1"[^>]*>.*?Summary.*?<\/w:hyperlink>/)
+    expect(xml).toContain('<w:bookmarkStart w:name="_Toc1" w:id="1"/>')
+    expect(xml).toContain('<w:bookmarkStart w:name="_Toc2" w:id="2"/>')
+    // Heading 3 and below are not listed at levels 1 to 2.
+    expect(xml).not.toContain('w:anchor="_Toc3"')
   })
 
   it('lists comments as lost, with counts and what happens to them, and keeps the header', async () => {
@@ -248,6 +259,20 @@ describe('docx from Word', () => {
       firstFooter: [{ type: 'paragraph', content: [{ type: 'text', text: 'Cover' }] }],
       differentFirstPage: true,
     })
+  })
+
+  it('reads the table of contents Word makes, without its entries', () => {
+    const field = (code: string): string => `<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> ${code} </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r>`
+    const entry = (title: string, bookmark: string): string => `<w:hyperlink w:anchor="${bookmark}" w:history="1">${run(title)}<w:r><w:tab/></w:r>${field(`PAGEREF ${bookmark} \\h`)}${run('2')}<w:r><w:fldChar w:fldCharType="end"/></w:r></w:hyperlink>`
+    const contents = '<w:sdt><w:sdtPr><w:docPartObj><w:docPartGallery w:val="Table of Contents"/><w:docPartUnique/></w:docPartObj></w:sdtPr><w:sdtContent>'
+      + para(field('TOC \\o "1-4" \\h \\z \\u') + entry('Scope', '_Toc101'), '<w:pStyle w:val="TOC1"/>')
+      + para(entry('Terms', '_Toc102'), '<w:pStyle w:val="TOC2"/>')
+      + para('<w:r><w:fldChar w:fldCharType="end"/></w:r>')
+      + '</w:sdtContent></w:sdt>'
+    const { content, findings } = readDocx(packageOf(contents + para('<w:bookmarkStart w:id="0" w:name="_Toc101"/>' + run('Scope') + '<w:bookmarkEnd w:id="0"/>')))
+
+    expect(findings).toEqual([])
+    expect(content.content).toEqual([{ type: 'tableOfContents', attrs: { levels: 4 } }, { type: 'paragraph', content: [{ type: 'text', text: 'Scope' }] }])
   })
 
   it('unpacks only the parts it reads', () => {

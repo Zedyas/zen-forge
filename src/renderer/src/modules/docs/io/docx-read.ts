@@ -5,6 +5,7 @@
  * - formatting set on the text itself (direct formatting) becomes marks and paragraph attributes,
  *   as does the formatting of any other paragraph style;
  * - numbering.xml says which paragraphs are bulleted, numbered or checklist items, and at what level;
+ * - a TOC field becomes a table of contents, whose entries Sumi lists from the headings itself;
  * - the last section gives the page setup and the headers and footers (header-footer.ts); every
  *   section's headers, footers and columns are checked.
  * Whatever is not kept is reported in the import report, with what happens to it on save. Anything
@@ -29,6 +30,7 @@ import {
   type PageSetup,
   type StyleName,
 } from '../theme'
+import { contentsLevels, deepestContentsLevel } from '../text-stats'
 import { checklistMarks, docxStyleNames, highlightColors, safeHref } from './docx-styles'
 import { toDataUrl } from './images'
 
@@ -1081,14 +1083,56 @@ function group(items: readonly Item[]): JSONContent[] {
   return result
 }
 
+/** How deep fields are nested at the end of a paragraph, from `depth` at its start. */
+function fieldDepthAfter(paragraph: Element, depth: number): number {
+  return all(paragraph, 'w:fldChar').reduce((current, character) => {
+    const type = attr(character, 'w:fldCharType')
+    return type === 'begin' ? current + 1 : type === 'end' ? current - 1 : current
+  }, depth)
+}
+
+/**
+ * A table of contents, from a paragraph whose first field is Word's TOC field. Its entries are
+ * the field's last result, which Sumi lists again from the headings, so only its levels are read.
+ */
+function contentsStart(paragraph: Element, context: Context): JSONContent | undefined {
+  const parts = Array.from(paragraph.getElementsByTagName('*')).filter(element => element.tagName === 'w:fldChar' || element.tagName === 'w:instrText')
+  const begin = parts.findIndex(element => attr(element, 'w:fldCharType') === 'begin')
+  if (begin === -1) return undefined
+  const end = parts.findIndex((element, index) => index > begin && element.tagName === 'w:fldChar')
+  const instruction = parts.slice(begin + 1, end === -1 ? undefined : end).map(element => element.textContent ?? '').join('')
+  if (fieldName(instruction) !== 'TOC') return undefined
+  const range = /\\o\s+"(\d+)-(\d+)"/i.exec(instruction)
+  const levels = contentsLevels(Number(range?.[2] ?? 3))
+  // Sumi writes \o "1-n" \h \z \u; other switches pick other entries or change how they look.
+  const others = instruction.trim().replace(/^TOC/i, '').replace(/\\o\s+"\d+-\d+"|\\[hzu](?=\s|$)/gi, '').trim()
+  if (range === null || range[1] !== '1' || Number(range[2]) > deepestContentsLevel || others !== '') {
+    context.findings.add('Table of contents settings', 'degraded', { alternative: `Lists Heading 1 to ${levels}, and saved that way.` })
+  }
+  return { type: 'tableOfContents', attrs: { levels } }
+}
+
 function blocks(container: Element, context: Context): JSONContent[] {
   const items: Item[] = []
+  // Inside a table of contents until its field ends; those paragraphs are Word's copy of the headings.
+  let contentsDepth = 0
   const collect = (parent: Element): void => {
     for (const child of Array.from(parent.children)) {
       switch (child.tagName) {
-        case 'w:p':
-          items.push(...paragraphItems(child, context))
+        case 'w:p': {
+          if (contentsDepth > 0) {
+            contentsDepth = fieldDepthAfter(child, contentsDepth)
+            break
+          }
+          const contents = contentsStart(child, context)
+          if (contents === undefined) {
+            items.push(...paragraphItems(child, context))
+            break
+          }
+          items.push({ kind: 'block', node: contents, place: { quote: false, level: undefined } })
+          contentsDepth = fieldDepthAfter(child, 0)
           break
+        }
         case 'w:tbl':
           items.push({ kind: 'block', node: table(child, context), place: { quote: false, level: undefined } })
           break

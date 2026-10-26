@@ -179,6 +179,8 @@ export function runDocCommand(command: CommandId): void | Promise<void> {
       if (activePart !== undefined) activePart.chain().focus().unsetAllMarks().run()
       else clearFormatting(editor)
       return
+    case 'format.tableOfContents':
+      return insertTableOfContents(editor)
     case 'view.zoomIn':
       return setZoom(documentId, 1)
     case 'view.zoomOut':
@@ -266,6 +268,11 @@ export function insertPageBreak(editor: Editor): void {
     return
   }
   editor.chain().focus().insertContent({ type: 'pageBreak' }).run()
+}
+
+/** Inserts a table of contents of Heading 1 to 3 at the caret, as Word's default one. */
+export function insertTableOfContents(editor: Editor): void {
+  editor.chain().focus().insertContent({ type: 'tableOfContents', attrs: { levels: 3 } }).run()
 }
 
 /** Word's shortcuts for strikethrough and page break, ahead of TipTap's own (⌘↩ is a line break there). */

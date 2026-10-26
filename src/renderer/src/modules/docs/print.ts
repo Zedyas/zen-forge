@@ -1,5 +1,5 @@
 import type { Editor, JSONContent } from '@tiptap/core'
-import { DOMSerializer } from '@tiptap/pm/model'
+import { DOMSerializer, type Node as ProseMirrorNode } from '@tiptap/pm/model'
 import { toast } from 'sonner'
 import { openFiles } from '../../app/document-actions'
 import { useDocumentsStore } from '../../app/documents-store'
@@ -7,6 +7,7 @@ import { fileService } from '../../services/file/IpcFileService'
 import { openPrintDialog, printToPdf, type Printout } from '../../services/print/print'
 import { documentHeadersAndFooters, type HeaderFooterContent } from './header-footer'
 import { hexColor } from './io/docx-styles'
+import { contentsEntries, contentsLevels, deepestContentsLevel } from './text-stats'
 import { documentPage, documentTheme, themeVariables, toPoints, type BlockStyle } from './theme'
 
 const millimetresPerTwip = 25.4 / 1440
@@ -77,6 +78,35 @@ async function replaceBrokenImages(root: HTMLElement): Promise<void> {
 }
 
 /**
+ * Fills each table of contents with the headings, each a link to its heading, so the entries in a
+ * PDF can be clicked. Chromium cannot tell which page a heading lands on (CSS target-counter is
+ * not supported), so the entries print without page numbers.
+ */
+function fillContents(prose: HTMLElement, doc: ProseMirrorNode): void {
+  const tables = prose.querySelectorAll('.sumi-toc')
+  if (tables.length === 0) return
+  // The headings serialize in document order, the order the entries are in.
+  const entries = contentsEntries(doc, deepestContentsLevel)
+  prose.querySelectorAll('h1, h2, h3, h4, h5, h6').forEach((heading, index) => {
+    heading.id = `sumi-heading-${index + 1}`
+  })
+  for (const table of tables) {
+    const levels = contentsLevels(Number(table.getAttribute('data-levels')))
+    table.replaceChildren(...entries.flatMap((entry, index) => {
+      if (entry.level > levels) return []
+      const line = document.createElement('p')
+      line.className = 'sumi-toc-entry'
+      line.dataset['level'] = String(entry.level)
+      const link = document.createElement('a')
+      link.href = `#sumi-heading-${index + 1}`
+      link.textContent = entry.text
+      line.append(link)
+      return [line]
+    }))
+  }
+}
+
+/**
  * The document as it prints: the editor's content serialized by the schema, styled by the same
  * `.sumi-prose` rules and theme variables as the page on screen (docs.css), on the document's own
  * paper. Word margins can differ on each side, and the header and footer sit in the top and
@@ -100,6 +130,7 @@ export async function docPrintout(editor: Editor): Promise<Printout> {
   prose.className = 'sumi-prose sumi-print'
   for (const [name, value] of themeVariables(theme)) prose.style.setProperty(name, value)
   prose.append(DOMSerializer.fromSchema(editor.schema).serializeFragment(doc.content))
+  fillContents(prose, doc)
   await replaceBrokenImages(prose)
 
   const content = document.createElement('div')

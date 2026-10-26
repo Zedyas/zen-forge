@@ -17,12 +17,13 @@ import {
   Search,
   SeparatorHorizontal,
   Table,
+  TableOfContents,
   Underline,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { TitleEssentials } from '../../ui/TitleSlot'
 import { ColorTool, Toolbar, ToolButton, ToolSeparator, type ColorOption } from '../../ui/Toolbar'
-import { clearFormatting, currentBlockStyle, currentStyle, indent, insertImage, insertPageBreak } from './doc-commands'
+import { clearFormatting, currentBlockStyle, currentStyle, indent, insertImage, insertPageBreak, insertTableOfContents } from './doc-commands'
 import { alignments, AlignMenu, FontMenu, LinkTool, MoreFormattingMenu, SizeMenu, SpacingMenu, StyleMenu, TableMenu, type AlignValue } from './DocMenus'
 import { toPoints, type StyleName } from './theme'
 
@@ -179,6 +180,7 @@ export function DocToolbar({ editor, findOpen, onFind }: DocToolbarProps) {
         <TableMenu editor={editor} inTable={state.table} />
         <ToolButton icon={Minus} label="Horizontal line" onClick={() => chain().setHorizontalRule().run()} />
         <ToolButton icon={SeparatorHorizontal} label="Page break" shortcut="⌘↩" onClick={() => insertPageBreak(editor)} />
+        <ToolButton icon={TableOfContents} label="Insert table of contents" command="format.tableOfContents" onClick={() => insertTableOfContents(editor)} />
         <span className="toolbar-grow" />
         <ToolButton icon={RemoveFormatting} label="Clear formatting" command="format.clear" onClick={() => clearFormatting(editor)} />
         <ToolButton icon={Search} label="Find and replace" command="edit.find" pressed={findOpen} onClick={onFind} />

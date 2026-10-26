@@ -191,6 +191,24 @@
   .sumi-page-break::after { content: none; }
 }
 
+/* A table of contents (schema.ts): one line per heading, indented by level like Word's TOC 1–6
+   styles. On screen each entry is a button that goes to its heading. */
+.sumi-toc { margin: 0 0 var(--sumi-normal-after); }
+.sumi-toc .sumi-toc-entry {
+  display: block; margin: 0 0 5pt; padding: 0; border: 0;
+  background: none; color: inherit; font: inherit; text-align: left;
+}
+.sumi-toc button.sumi-toc-entry { cursor: pointer; }
+.sumi-toc button.sumi-toc-entry:hover { color: #1155cc; text-decoration: underline; }
+.sumi-toc .sumi-toc-entry[data-level="2"] { padding-left: 11pt; }
+.sumi-toc .sumi-toc-entry[data-level="3"] { padding-left: 22pt; }
+.sumi-toc .sumi-toc-entry[data-level="4"] { padding-left: 33pt; }
+.sumi-toc .sumi-toc-entry[data-level="5"] { padding-left: 44pt; }
+.sumi-toc .sumi-toc-entry[data-level="6"] { padding-left: 55pt; }
+.sumi-toc a { color: inherit; text-decoration: none; }
+.sumi-toc-empty { margin: 0; color: #8a8f98; font-style: italic; }
+.sumi-toc.ProseMirror-selectednode { outline: 2px solid #4a6cd4; outline-offset: 2px; }
+
 .sumi-prose p.is-editor-empty:first-child::before {
   content: attr(data-placeholder);
   float: left; height: 0;

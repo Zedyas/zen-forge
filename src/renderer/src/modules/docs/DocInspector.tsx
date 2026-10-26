@@ -6,7 +6,7 @@ import { Inspector, InspectorRow, InspectorSection } from '../../ui/Inspector'
 import { Tip } from '../../ui/Tip'
 import { currentBlockStyle, editPart, setHeadersAndFooters, setPage, setParagraphFormat, type ParagraphFormat } from './doc-commands'
 import { documentHeadersAndFooters, hasPageNumber, partLabels, withPageNumber, type HeaderFooterPart } from './header-footer'
-import { countText, outline } from './text-stats'
+import { contentsLevels, countText, deepestContentsLevel, outline } from './text-stats'
 import { documentPage, isLandscape, lengthUnit, pageFor, paperOf, papers, type PageSetup } from './theme'
 
 const pointsPerUnit = lengthUnit === 'in' ? 72 : 72 / 2.54
@@ -167,6 +167,26 @@ function TableSection({ editor }: { readonly editor: Editor }) {
   )
 }
 
+function ContentsSection({ editor }: { readonly editor: Editor }) {
+  const levels = useEditorState({
+    editor,
+    selector: ({ editor: current }) => current.isActive('tableOfContents') ? contentsLevels(current.getAttributes('tableOfContents')['levels']) : undefined,
+  })
+  if (levels === undefined) return null
+  return (
+    <InspectorSection title="Table of contents">
+      <InspectorRow label="Headings 1 to">
+        <span className="segmented">
+          {Array.from({ length: deepestContentsLevel }, (_, index) => index + 1).map(level => (
+            <button key={level} type="button" aria-pressed={level === levels} onClick={() => editor.chain().focus().updateAttributes('tableOfContents', { levels: level }).run()}>{level}</button>
+          ))}
+        </span>
+      </InspectorRow>
+      <p className="inspector-note">It lists the headings as they are now. Word adds page numbers when you update the table there.</p>
+    </InspectorSection>
+  )
+}
+
 function PageSection({ editor }: { readonly editor: Editor }) {
   const page = useEditorState({ editor, selector: ({ editor: current }) => documentPage(current.state.doc.attrs['page']) })
   const paper = paperOf(page)
@@ -246,6 +266,7 @@ export function DocInspector({ editor, documentId }: { readonly editor: Editor; 
     <Inspector label="Document inspector">
       <ParagraphSection editor={editor} />
       <TableSection editor={editor} />
+      <ContentsSection editor={editor} />
       <PageSection editor={editor} />
       <HeaderFooterSection editor={editor} documentId={documentId} />
 

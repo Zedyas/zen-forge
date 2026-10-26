@@ -1,6 +1,7 @@
 /**
  * Markdown through TipTap's own Markdown support (GitHub-flavoured: tables, task lists, images).
- * The writer leaves out what Markdown cannot hold (underline, alignment, page breaks, fonts);
+ * The writer leaves out what Markdown cannot hold (underline, alignment, page breaks, fonts,
+ * headers and footers) and writes a table of contents as a list of links to the headings;
  * saving over a file checks what would change first (doc-documents.ts).
  */
 
@@ -9,6 +10,7 @@ import { MarkdownManager } from '@tiptap/markdown'
 import type { ImportFindingInput } from '@shared/fidelity'
 import { documentHeadersAndFooters, headerFooterParts } from '../header-footer'
 import { documentExtensions } from '../schema'
+import { contentsLevels } from '../text-stats'
 
 export interface MarkdownImport {
   readonly content: JSONContent
@@ -181,11 +183,73 @@ function forMarkdown(node: JSONContent, imageSources: ReadonlyMap<string, string
 /** What saving as Markdown leaves out that is easy to miss, said in the question before saving over a file. */
 export function markdownLosses(content: JSONContent): string[] {
   const headerFooter = documentHeadersAndFooters(content.attrs?.['headerFooter'])
-  return headerFooterParts.some(part => headerFooter[part].length > 0) ? ['the header and footer are left out'] : []
+  const contents = (node: JSONContent): boolean => node.type === 'tableOfContents' || (node.content ?? []).some(contents)
+  return [
+    ...headerFooterParts.some(part => headerFooter[part].length > 0) ? ['the header and footer are left out'] : [],
+    ...contents(content) ? ['the table of contents becomes a list of links that no longer updates'] : [],
+  ]
+}
+
+interface Heading {
+  readonly level: number
+  readonly text: string
+  readonly slug: string
+}
+
+/**
+ * The document's headings with the anchors GitHub and most Markdown viewers give them: lowercase,
+ * punctuation removed, spaces as hyphens, and -1, -2 after a repeat.
+ */
+function headings(content: JSONContent): Heading[] {
+  const found: Heading[] = []
+  const used = new Map<string, number>()
+  const visit = (node: JSONContent): void => {
+    if (node.type === 'heading') {
+      const text = (node.content ?? []).map(child => child.text ?? '').join('').trim()
+      const level: unknown = node.attrs?.['level']
+      const base = text.toLowerCase().replace(/[^\p{L}\p{N}\s_-]/gu, '').replace(/\s/g, '-')
+      const count = used.get(base) ?? 0
+      used.set(base, count + 1)
+      if (text !== '') found.push({ level: typeof level === 'number' ? level : 1, text, slug: count === 0 ? base : `${base}-${count}` })
+    }
+    node.content?.forEach(visit)
+  }
+  visit(content)
+  return found
+}
+
+/** A table of contents as a bulleted list of links to the headings; deeper headings nest under the one before them. */
+function contentsList(entries: readonly Heading[]): JSONContent[] {
+  const top = Math.min(...entries.map(entry => entry.level))
+  const items: JSONContent[] = []
+  let start = 0
+  while (start < entries.length) {
+    const entry = entries[start]
+    let end = start + 1
+    while ((entries[end]?.level ?? top) > top) end += 1
+    if (entry !== undefined) {
+      const link = { type: 'text', text: entry.text, marks: [{ type: 'link', attrs: { href: `#${entry.slug}` } }] }
+      items.push({ type: 'listItem', content: [{ type: 'paragraph', content: [link] }, ...contentsList(entries.slice(start + 1, end))] })
+    }
+    start = end
+  }
+  return items.length === 0 ? [] : [{ type: 'bulletList', content: items }]
+}
+
+/** The document with each table of contents written out as a list of links; it no longer updates. */
+function withContentsLists(node: JSONContent, entries: readonly Heading[]): JSONContent {
+  if (node.content === undefined) return node
+  return {
+    ...node,
+    content: node.content.flatMap(child => child.type === 'tableOfContents'
+      ? contentsList(entries.filter(entry => entry.level <= contentsLevels(child.attrs?.['levels'])))
+      : [withContentsLists(child, entries)]),
+  }
 }
 
 export function writeMarkdown(content: JSONContent, imageSources: ReadonlyMap<string, string> = new Map()): string {
   const frontMatter: unknown = content.attrs?.['frontMatter']
-  const body = `${escapePlaceholders(markdown().serialize(forMarkdown(content, imageSources)).trim())}\n`
+  const written = forMarkdown(withContentsLists(content, headings(content)), imageSources)
+  const body = `${escapePlaceholders(markdown().serialize(written).trim())}\n`
   return typeof frontMatter === 'string' && frontMatter !== '' ? `${frontMatter.endsWith('\n') ? frontMatter : `${frontMatter}\n`}\n${body}` : body
 }

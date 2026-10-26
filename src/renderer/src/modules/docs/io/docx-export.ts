@@ -7,6 +7,8 @@
  *   indents, alignment), and the file properties;
  * - the page setup as the section's page size and margins, and the headers and footers as the
  *   section's, with page numbers as PAGE and NUMPAGES fields;
+ * - a table of contents as Word's TOC field, with today's headings as its result and bookmarks on
+ *   the headings for its links, so Word shows it at once and can update it;
  * - blocks Word has no style for (code, rule, checklist) as named styles, and a block that
  *   continues a list item as a list level with no number, so it stays inside the item.
  * Whatever does not come back the same (a table inside a list item, say) is caught when saving
@@ -16,7 +18,10 @@
 import type { JSONContent } from '@tiptap/core'
 import {
   AlignmentType,
+  BookmarkEnd,
+  BookmarkStart,
   BorderStyle,
+  BuilderElement,
   Document,
   ExternalHyperlink,
   Footer,
@@ -24,6 +29,7 @@ import {
   HeadingLevel,
   HighlightColor,
   ImageRun,
+  InternalHyperlink,
   LevelFormat,
   LineRuleType,
   Packer,
@@ -38,15 +44,16 @@ import {
   TextRun,
   UnderlineType,
   WidthType,
+  XmlComponent,
   type ILevelsOptions,
   type IParagraphOptions,
   type IParagraphStyleOptions,
   type IRunOptions,
-  type ParagraphChild,
 } from 'docx'
 import { documentHeadersAndFooters, type HeaderFooterContent } from '../header-footer'
+import { contentsLevels } from '../text-stats'
 import { contentWidthPixels, documentPage, documentProperties, documentTheme, toPoints, type BlockStyle, type PageSetup } from '../theme'
-import { checklistMarks, docxStyleNames, hexColor, highlightColors, safeHref, type DocxStyleId } from './docx-styles'
+import { checklistMarks, contentsInstruction, docxStyleNames, hexColor, highlightColors, safeHref, type DocxStyleId } from './docx-styles'
 import { fromDataUrl, imageSize, type PixelSize } from './images'
 
 export interface DocxExport {
@@ -56,10 +63,22 @@ export interface DocxExport {
 }
 
 type Block = Paragraph | Table
+type Inline = TextRun | ImageRun | PageBreak | ExternalHyperlink
 type Alignment = (typeof AlignmentType)[keyof typeof AlignmentType]
+
+/** A heading as a table of contents lists it, with the bookmark its entry links to. */
+interface ContentsEntry {
+  readonly level: number
+  readonly text: string
+  readonly bookmark: string
+}
 
 interface ExportContext {
   readonly page: PageSetup
+  /** Every heading in order, when the document has a table of contents; empty otherwise. */
+  readonly headings: readonly ContentsEntry[]
+  /** Headings written so far, which numbers each one's bookmark. */
+  headingCount: number
   /** Start values of the numbered lists, one numbering definition each. */
   readonly listStarts: Set<number>
   /** Each numbered list restarts at its start value, so each gets its own numbering instance. */
@@ -206,8 +225,8 @@ function inlineRuns(node: JSONContent, context: ExportContext, inLink: boolean):
 }
 
 /** Inline content as runs; neighbouring runs with the same web link share one hyperlink. */
-function runs(nodes: readonly JSONContent[], context: ExportContext): ParagraphChild[] {
-  const result: ParagraphChild[] = []
+function runs(nodes: readonly JSONContent[], context: ExportContext): Inline[] {
+  const result: Inline[] = []
   let link: { readonly href: string; readonly children: Array<TextRun | ImageRun | PageBreak> } | undefined
   const flush = (): void => {
     if (link !== undefined) result.push(new ExternalHyperlink({ link: link.href, children: link.children }))
@@ -262,6 +281,69 @@ function paragraphOptions(node: JSONContent, indents = true): IParagraphOptions 
 
 function paragraph(node: JSONContent, context: ExportContext, options: IParagraphOptions = {}): Paragraph {
   return new Paragraph({ ...paragraphOptions(node), ...options, children: runs(node.content ?? [], context) })
+}
+
+/** A heading, inside a bookmark when a table of contents links to it. */
+function heading(node: JSONContent, context: ExportContext): Paragraph {
+  const level = Math.min(6, Math.max(1, numberAttr(node, 'level') ?? 1))
+  const entry = context.headings[context.headingCount]
+  context.headingCount += 1
+  const children = runs(node.content ?? [], context)
+  const paragraph = new Paragraph({ ...paragraphOptions(node), heading: headingLevels[level - 1], children: entry === undefined ? children : [] })
+  if (entry !== undefined) {
+    // The docx library's Bookmark numbers every bookmark 1; Word needs each one's id to differ.
+    paragraph.addChildElement(new BookmarkStart(entry.bookmark, context.headingCount))
+    children.forEach(child => paragraph.addChildElement(child))
+    paragraph.addChildElement(new BookmarkEnd(context.headingCount))
+  }
+  return paragraph
+}
+
+/** The headings in document order, the order `blocks` writes them in. */
+function contentsEntries(nodes: readonly JSONContent[]): ContentsEntry[] {
+  const entries: ContentsEntry[] = []
+  const visit = (node: JSONContent): void => {
+    if (node.type === 'heading') {
+      const text = xmlText((node.content ?? []).map(child => child.text ?? '').join('').replace(/[\t\n\r\f\v]/g, ' '))
+      entries.push({ level: numberAttr(node, 'level') ?? 1, text, bookmark: `_Toc${entries.length + 1}` })
+    }
+    node.content?.forEach(visit)
+  }
+  nodes.forEach(visit)
+  return entries
+}
+
+/** Part of a field (`w:fldChar` or `w:instrText`); the docx library writes these only inside its own fields. */
+function fieldCharacter(type: 'begin' | 'separate' | 'end'): XmlComponent {
+  return new BuilderElement<{ readonly type: string }>({ name: 'w:fldChar', attributes: { type: { key: 'w:fldCharType', value: type } } })
+}
+
+class FieldCode extends XmlComponent {
+  constructor(code: string) {
+    super('w:instrText')
+    this.root.push(code)
+  }
+}
+
+/**
+ * A table of contents: the field starts in the first entry's paragraph and ends in the last's,
+ * and its result is the entries as they are now, each linking to its heading's bookmark. Page
+ * numbers are left for Word to add when the field is updated.
+ */
+function tableOfContents(node: JSONContent, context: ExportContext): Paragraph[] {
+  const levels = contentsLevels(node.attrs?.['levels'])
+  const begin = new TextRun({ children: [fieldCharacter('begin'), new FieldCode(contentsInstruction(levels)), fieldCharacter('separate')] })
+  const end = new TextRun({ children: [fieldCharacter('end')] })
+  const entries = context.headings.filter(entry => entry.level <= levels)
+  if (entries.length === 0) return [new Paragraph({ children: [begin, end] })]
+  return entries.map((entry, index) => new Paragraph({
+    style: `TOC${entry.level}`,
+    children: [
+      ...(index === 0 ? [begin] : []),
+      new InternalHyperlink({ anchor: entry.bookmark, children: [new TextRun(entry.text)] }),
+      ...(index === entries.length - 1 ? [end] : []),
+    ],
+  }))
 }
 
 const headingLevels = [HeadingLevel.HEADING_1, HeadingLevel.HEADING_2, HeadingLevel.HEADING_3, HeadingLevel.HEADING_4, HeadingLevel.HEADING_5, HeadingLevel.HEADING_6] as const
@@ -370,7 +452,9 @@ function blocks(nodes: readonly JSONContent[], context: ExportContext, style?: D
       case 'title':
         return [paragraph(node, context, { heading: HeadingLevel.TITLE })]
       case 'heading':
-        return [paragraph(node, context, { heading: headingLevels[Math.min(6, Math.max(1, numberAttr(node, 'level') ?? 1)) - 1] })]
+        return [heading(node, context)]
+      case 'tableOfContents':
+        return tableOfContents(node, context)
       case 'bulletList':
       case 'orderedList':
         return listBlocks(node, context, 0, style === 'Quote' ? style : undefined)
@@ -445,7 +529,15 @@ export async function writeDocx(content: JSONContent): Promise<DocxExport> {
   const page = documentPage(content.attrs?.['page'])
   const theme = documentTheme(content.attrs?.['theme'])
   const properties = documentProperties(content.attrs?.['properties'])
-  const context: ExportContext = { page, listStarts: new Set(), listInstances: 0, skippedImages: 0 }
+  const hasContents = (nodes: readonly JSONContent[]): boolean => nodes.some(node => node.type === 'tableOfContents' || hasContents(node.content ?? []))
+  const context: ExportContext = {
+    page,
+    headings: hasContents(content.content ?? []) ? contentsEntries(content.content ?? []) : [],
+    headingCount: 0,
+    listStarts: new Set(),
+    listInstances: 0,
+    skippedImages: 0,
+  }
   const children = blocks(content.content ?? [], context)
   const headerFooter = documentHeadersAndFooters(content.attrs?.['headerFooter'])
   // The first page's own header and footer are written even while unused, as Word keeps them.
@@ -487,6 +579,8 @@ export async function writeDocx(content: JSONContent): Promise<DocxExport> {
         { id: 'TableText', name: docxStyleNames.TableText, basedOn: 'Normal', paragraph: { spacing: { before: 0, after: 0 } } },
         { id: 'Header', name: 'header', basedOn: 'Normal', paragraph: { spacing: { before: 0, after: 0, line: 240, lineRule: LineRuleType.AUTO } } },
         { id: 'Footer', name: 'footer', basedOn: 'Normal', paragraph: { spacing: { before: 0, after: 0, line: 240, lineRule: LineRuleType.AUTO } } },
+        // Word's table of contents styles: each level indented a little more than the one above.
+        ...[1, 2, 3, 4, 5, 6].map(level => ({ id: `TOC${level}`, name: `toc ${level}`, basedOn: 'Normal', next: 'Normal', paragraph: { indent: { left: 220 * (level - 1) }, spacing: { after: 100 } } })),
       ],
       characterStyles: [
         { id: 'InlineCode', name: docxStyleNames.InlineCode, basedOn: 'DefaultParagraphFont', run: { font: 'Courier New', size: 20 } },

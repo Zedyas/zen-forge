@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { readMarkdown, writeMarkdown } from './markdown'
+import { markdownLosses, readMarkdown, writeMarkdown } from './markdown'
 
 const source = `# Trip plan
 
@@ -72,6 +72,17 @@ describe('markdown', () => {
     })
     const row = readMarkdown(saved).content.content?.[0]?.content?.[1]?.content?.map(entry => entry.content?.[0]?.content?.[0]?.text ?? '')
     expect(row).toEqual(['North', '', '42'])
+  })
+
+  it('writes a table of contents as a list of links to the headings, and says so before saving over a file', () => {
+    const heading = (level: number, text: string) => ({ type: 'heading', attrs: { level }, content: [{ type: 'text', text }] })
+    const content = {
+      type: 'doc',
+      attrs: { headerFooter: { footer: [{ type: 'paragraph', content: [{ type: 'text', text: 'Draft' }] }] } },
+      content: [{ type: 'tableOfContents', attrs: { levels: 2 } }, heading(1, 'Plan'), heading(2, 'Two words!'), heading(3, 'Too deep'), heading(1, 'Plan')],
+    }
+    expect(writeMarkdown(content)).toMatch(/^- \[Plan\]\(#plan\)\n\n? {2}- \[Two words!\]\(#two-words\)\n- \[Plan\]\(#plan-1\)\n\n# Plan\n/)
+    expect(markdownLosses(content)).toEqual(['the header and footer are left out', 'the table of contents becomes a list of links that no longer updates'])
   })
 
   it('keeps front matter exactly, and drops links that are not web, mail or relative', () => {
