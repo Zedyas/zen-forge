@@ -129,6 +129,32 @@ describe('object commands while typing', () => {
     void runSlideCommand('caret', 'edit.duplicate')
     expect(count()).toBe(before + 1)
   })
+
+  it('also leave it alone when focus is in any other input, select or editable element', () => {
+    setSlidesDocument('fields', readyDocument(newPresentation()))
+    const first = readySlides('fields')?.present.slides[0]?.elements[0]
+    if (first === undefined) throw new Error('The new presentation has no objects')
+    updateSlides('fields', () => ({ selection: [first.id] }))
+    const count = (): number => readySlides('fields')?.present.slides[0]?.elements.length ?? 0
+    const before = count()
+
+    const fields = [document.createElement('input'), document.createElement('select'), document.createElement('div')]
+    fields[2]?.setAttribute('contenteditable', 'true')
+    fields[2]?.setAttribute('tabindex', '0')
+    for (const field of fields) {
+      document.body.append(field)
+      cleanups.push(() => field.remove())
+      field.focus()
+      expect(document.activeElement).toBe(field)
+      void runSlideCommand('fields', 'edit.duplicate')
+      void runSlideCommand('fields', 'edit.delete')
+      expect(count()).toBe(before)
+    }
+
+    fields[2]?.blur()
+    void runSlideCommand('fields', 'edit.duplicate')
+    expect(count()).toBe(before + 1)
+  })
 })
 
 describe('changing a table while a cell is being typed into', () => {

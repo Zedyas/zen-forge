@@ -517,11 +517,11 @@ export function isTextEntry(target: EventTarget | null): boolean {
 }
 
 /**
- * Whether the caret is in a text box, a table cell or the speaker notes. Object commands leave those
- * alone: ⌘D then must not duplicate the box being typed into.
+ * Whether the caret is in a text box or table cell, or in any field (speaker notes, find, inspector,
+ * command palette). Object commands leave those alone: ⌘D then must not duplicate the selected box.
  */
 function isTyping(id: string): boolean {
-  return readySlides(id)?.editingId !== undefined || window.document.activeElement?.matches('.slides-notes') === true
+  return readySlides(id)?.editingId !== undefined || isTextEntry(window.document.activeElement)
 }
 
 /** Editor commands from the menu, keyboard and toolbar that are not about text formatting (see format-actions). */
