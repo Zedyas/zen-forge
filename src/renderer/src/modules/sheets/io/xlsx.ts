@@ -8,7 +8,7 @@
 import * as ExcelJS from 'exceljs'
 import { HyperFormula } from 'hyperformula'
 import type { ImportFindingInput } from '@shared/fidelity'
-import { sheetRangeReference } from '../model/address'
+import { columnIndex, sheetRangeReference } from '../model/address'
 import { textCellInput } from '../model/cell-parse'
 import {
   defaultCellStyle,
@@ -111,10 +111,6 @@ function argbToHex(argb: string): string | undefined {
 
 function hexToArgb(hex: string): string {
   return `FF${hex.replace('#', '').toUpperCase()}`
-}
-
-function columnIndex(letters: string): number {
-  return [...letters.toUpperCase()].reduce((total, letter) => total * 26 + (letter.charCodeAt(0) - 64), 0) - 1
 }
 
 /** A column width in Excel's character units, as pixels the grid can show. */

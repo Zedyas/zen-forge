@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent } from 'react'
 import { closestCenter, DndContext, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { horizontalListSortingStrategy, SortableContext } from '@dnd-kit/sortable'
 import DataEditor, {
@@ -10,7 +10,9 @@ import DataEditor, {
   type GridColumn,
   type GridSelection,
   type DataEditorRef,
+  type Highlight,
   type Item,
+  type Rectangle,
 } from '@glideapps/glide-data-grid'
 import '@glideapps/glide-data-grid/dist/index.css'
 import { Plus } from 'lucide-react'
@@ -20,10 +22,11 @@ import { useViewStore } from '../../app/view-store'
 import { FidelitySurface } from '../../ui/FidelitySurface'
 import { smallIcon } from '../../ui/icons'
 import { Tip } from '../../ui/Tip'
+import { cancelCut, copyCells, pasteCells, usePendingCut } from './clipboard'
 import { FindBar } from './FindBar'
 import { FormulaBar } from './FormulaBar'
 import { cellFontSize, gridTheme, headerHeight, isLightColor, rowHeight } from './grid-theme'
-import { mapCell, mapRange, visibleAreas } from './grid-mapping'
+import { mapCell, mapRange, viewRange as viewRangeOf, visibleAreas } from './grid-mapping'
 import { columnName, sheetNameProblem } from './model/address'
 import { formatCellValue, formatStatistic } from './model/format'
 import type { FindMatch, Workbook, WorkbookSheet } from './model/Workbook'
@@ -80,6 +83,13 @@ function selectionForRows(selection: GridSelection, rowOffset: number, rowCount:
     columns: selection.columns,
     rows,
   }
+}
+
+/** A view rectangle in one grid's own rows, or undefined when none of it is in that grid. */
+function rectangleInRows(rectangle: Rectangle, rowOffset: number, rowCount: number): Rectangle | undefined {
+  const start = Math.max(rectangle.y, rowOffset)
+  const end = Math.min(rectangle.y + rectangle.height, rowOffset + rowCount)
+  return end > start ? { ...rectangle, y: start - rowOffset, height: end - start } : undefined
 }
 
 function selectionFromRows(selection: GridSelection, rowOffset: number): GridSelection {
@@ -240,6 +250,37 @@ export function SheetEditor({ document, workbook }: SheetEditorProps) {
   useEffect(() => setActiveSheet(controller), [controller])
 
   const stats = workbook.selectionStats(sheetId, areas)
+  const cutRange = usePendingCut(workbook, sheetId)
+  const cutView = cutRange === undefined ? undefined : viewRangeOf(cutRange, visibleColumns, visibleRows)
+  const cutOutline = (rowOffset: number, rowCount: number): readonly Highlight[] | undefined => {
+    const rectangle = cutView === undefined ? undefined : rectangleInRows(cutView, rowOffset, rowCount)
+    return rectangle === undefined ? undefined : [{ color: theme.accentLight ?? 'rgba(0, 0, 0, 0.08)', range: rectangle, style: 'dashed' }]
+  }
+
+  // Edit > Copy, Cut and Paste arrive as clipboard events; they act on the grid only while it has focus.
+  const handleClipboard = useEffectEvent((event: ClipboardEvent) => {
+    const focused = window.document.activeElement
+    if (!(focused instanceof HTMLElement) || focused.closest('.sheet-canvas') === null || event.clipboardData === null) return
+    if (focused.matches('input, textarea, [contenteditable="true"]')) return
+    if (event.type === 'paste') {
+      if (pasteCells(event.clipboardData, { workbook, sheetId, selection: viewRange, columns: visibleColumns, rows: visibleRows })) event.preventDefault()
+      return
+    }
+    event.preventDefault()
+    copyCells(event.clipboardData, {
+      workbook,
+      sheetId,
+      columns: visibleColumns.slice(viewRange.x, viewRange.x + viewRange.width),
+      rows: visibleRows.slice(viewRange.y, viewRange.y + viewRange.height),
+      range,
+    }, event.type === 'cut')
+  })
+  useEffect(() => {
+    const listener = (event: ClipboardEvent): void => handleClipboard(event)
+    const types = ['copy', 'cut', 'paste'] as const
+    types.forEach(type => window.document.addEventListener(type, listener))
+    return () => types.forEach(type => window.document.removeEventListener(type, listener))
+  }, [])
   const activeStyle = workbook.getStyle(sheetId, selectedCell)
 
   const handleSheetDragEnd = (event: DragEndEvent): void => {
@@ -262,7 +303,9 @@ export function SheetEditor({ document, workbook }: SheetEditorProps) {
 
   // ⌘F comes from the native Edit menu; Escape closing find is local to the grid.
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
-    if (event.key === 'Escape' && findOpen) setFindOpen(false)
+    if (event.key !== 'Escape') return
+    if (findOpen) setFindOpen(false)
+    cancelCut()
   }
 
   /** A right-click outside the selection selects that cell first, as Numbers and Excel do. */
@@ -288,6 +331,8 @@ export function SheetEditor({ document, workbook }: SheetEditorProps) {
     theme,
     rowHeight,
     drawCell: drawUnderline,
+    // Copy, cut and paste are Ledger's own (see clipboard.ts), so they keep formulas and styles.
+    keybindings: { copy: false, cut: false, paste: false },
     freezeColumns: workbook.getFrozenColumnCount(sheetId),
     // Glide would clear cell by cell (one undo step each); clear the whole selection as one step instead.
     onDelete: () => {
@@ -318,10 +363,7 @@ export function SheetEditor({ document, workbook }: SheetEditorProps) {
                 onCellEdited={editFrozenCell}
                 gridSelection={selectionForRows(selection, 0, frozenRowCount)}
                 onGridSelectionChange={next => setSelection(selectionFromRows(next, 0))}
-                onPaste={(target, values) => {
-                  workbook.setBlock(sheetId, mapCell(target, visibleColumns, frozenRows), values)
-                  return false
-                }}
+                highlightRegions={cutOutline(0, frozenRowCount)}
                 onFillPattern={event => {
                   event.preventDefault()
                   workbook.fillRange(sheetId, mapRange(event.patternSource, visibleColumns, frozenRows), mapRange(event.fillDestination, visibleColumns, frozenRows))
@@ -340,10 +382,7 @@ export function SheetEditor({ document, workbook }: SheetEditorProps) {
               onCellEdited={editScrollingCell}
               gridSelection={selectionForRows(selection, frozenRowCount, scrollingRows.length)}
               onGridSelectionChange={next => setSelection(selectionFromRows(next, frozenRowCount))}
-              onPaste={(target, values) => {
-                workbook.setBlock(sheetId, mapCell(target, visibleColumns, scrollingRows), values)
-                return false
-              }}
+              highlightRegions={cutOutline(frozenRowCount, scrollingRows.length)}
               onFillPattern={event => {
                 event.preventDefault()
                 workbook.fillRange(sheetId, mapRange(event.patternSource, visibleColumns, scrollingRows), mapRange(event.fillDestination, visibleColumns, scrollingRows))

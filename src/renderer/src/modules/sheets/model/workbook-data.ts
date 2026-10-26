@@ -77,3 +77,29 @@ export interface WorkbookData {
   readonly sheets: readonly SheetData[]
   readonly namedRanges: readonly NamedRange[]
 }
+
+/** A copied cell: its raw input (a formula stays a formula) and its style, if any. */
+export interface CopiedCell {
+  readonly input: CellInput
+  readonly style?: CellStyle
+}
+
+/** Copied cells, as they travel on the clipboard between Ledger tabs and windows. */
+export interface CopiedCells {
+  /** The workbook column and row of each copied column and row; hidden ones are left out, so they can skip numbers. */
+  readonly columns: readonly number[]
+  readonly rows: readonly number[]
+  /** Row-major, `rows.length` by `columns.length`. */
+  readonly cells: readonly (readonly CopiedCell[])[]
+}
+
+/** One cell a paste writes. */
+export interface PastedCell {
+  readonly target: readonly [number, number]
+  readonly input: CellInput
+  /** Replaces the target's style; absent means the default style. */
+  readonly style?: CellStyle
+  /** Where a copied formula came from: its relative references move by the distance to `target`. */
+  readonly source?: readonly [number, number]
+}
+

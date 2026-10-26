@@ -8,6 +8,7 @@ import {
 } from 'hyperformula'
 import { columnName, sheetNameProblem, sheetRangeReference } from './address'
 import { parseCellText } from './cell-parse'
+import { shiftFormula } from './references'
 import {
   defaultCellStyle,
   defaultColumnCount,
@@ -16,14 +17,16 @@ import {
   type CellInput,
   type CellRange,
   type CellStyle,
+  type CopiedCells,
   type NamedRange,
   type NumberFormat,
+  type PastedCell,
   type SheetData,
   type SheetLayoutData,
   type WorkbookData,
 } from './workbook-data'
 
-export type { CellInput, CellRange, CellStyle, NamedRange, NumberFormat, WorkbookData } from './workbook-data'
+export type { CellInput, CellRange, CellStyle, CopiedCells, NamedRange, NumberFormat, PastedCell, WorkbookData } from './workbook-data'
 
 export interface WorkbookSheet {
   readonly id: number
@@ -267,35 +270,96 @@ export class Workbook {
 
   /** Empties values and formulas in the areas as one undo step, keeping formatting. */
   clearContents(sheetId: number, areas: readonly CellRange[]): void {
-    const { width, height } = this.#engine.getSheetDimensions(sheetId)
-    const filled = areas.flatMap(area => {
-      const right = Math.min(area.x + area.width, width)
-      const bottom = Math.min(area.y + area.height, height)
-      return right <= area.x || bottom <= area.y ? [] : [{ x: area.x, y: area.y, width: right - area.x, height: bottom - area.y }]
-    })
-    if (filled.length === 0) return
-    this.#commit(() => this.#engine.batch(() => filled.forEach(area => this.#engine.setCellContents(
-      { sheet: sheetId, col: area.x, row: area.y },
-      Array.from({ length: area.height }, () => Array.from({ length: area.width }, () => null)),
-    ))))
+    const filled = this.#filledAreas(sheetId, areas)
+    if (filled.length > 0) this.#commit(() => this.#clearValues(sheetId, filled))
   }
 
   /** Pastes tabular text and applies formats inferred from Excel or Google Sheets display values. */
   setBlock(sheetId: number, [startCol, startRow]: Item, values: readonly (readonly string[])[]): void {
-    if (values.length === 0) return
+    this.pasteCells(sheetId, values.flatMap((row, rowOffset) => row.map((text, colOffset): PastedCell => ({
+      target: [startCol + colOffset, startRow + rowOffset],
+      ...parseCellText(text),
+    }))))
+  }
+
+  /** The raw inputs and styles of the given columns and rows, for the clipboard. */
+  copyCells(sheetId: number, columns: readonly number[], rows: readonly number[]): CopiedCells {
+    return {
+      columns,
+      rows,
+      cells: rows.map(row => columns.map(col => {
+        const style = this.#styles.get(this.#sheetName(sheetId))?.get(styleKey(col, row))
+        return { input: serializedInput(this.#engine.getCellSerialized({ sheet: sheetId, col, row })), ...(style === undefined ? {} : { style }) }
+      })),
+    }
+  }
+
+  /** Writes pasted cells and their styles as one undo step; copied formulas keep pointing the same distance away. */
+  pasteCells(sheetId: number, cells: readonly PastedCell[]): void {
+    if (cells.length === 0) return
     this.#commit(() => {
       const styles = this.#sheetStyles(this.#sheetName(sheetId))
-      const parsed = values.map(row => row.map(parseCellText))
-      this.#engine.setCellContents(
-        { sheet: sheetId, col: startCol, row: startRow },
-        parsed.map(row => row.map(cell => cell.input)),
-      )
-      parsed.forEach((row, rowOffset) => row.forEach((cell, colOffset) => {
-        const key = styleKey(startCol + colOffset, startRow + rowOffset)
-        if (cell.style === undefined) styles.delete(key)
-        else styles.set(key, cell.style)
+      this.#engine.batch(() => cells.forEach(({ target: [col, row], input, style, source }) => {
+        const moved = typeof input === 'string' && source !== undefined ? shiftFormula(input, col - source[0], row - source[1]) : input
+        this.#engine.setCellContents({ sheet: sheetId, col, row }, [[moved]])
+        if (style === undefined || isDefaultStyle(style)) styles.delete(styleKey(col, row))
+        else styles.set(styleKey(col, row), style)
       }))
     })
+  }
+
+  /**
+   * Moves cells, as Cut and then Paste do: formulas anywhere that referred to them follow them, and their
+   * styles go along, as one undo step. False when the engine cannot, such as when it would split an array.
+   */
+  moveCells(fromSheetId: number, range: CellRange, toSheetId: number, [col, row]: Item): boolean {
+    const source = {
+      start: { sheet: fromSheetId, col: range.x, row: range.y },
+      end: { sheet: fromSheetId, col: range.x + range.width - 1, row: range.y + range.height - 1 },
+    }
+    const destination = { sheet: toSheetId, col, row }
+    if (!this.#engine.isItPossibleToMoveCells(source, destination)) return false
+    this.#commit(() => {
+      this.#engine.moveCells(source, destination)
+      const from = this.#sheetStyles(this.#sheetName(fromSheetId))
+      const to = this.#sheetStyles(this.#sheetName(toSheetId))
+      const moved: [string, CellStyle | undefined][] = []
+      this.#forEachCell(range, (sourceCol, sourceRow) => {
+        const key = styleKey(sourceCol, sourceRow)
+        moved.push([styleKey(col + sourceCol - range.x, row + sourceRow - range.y), from.get(key)])
+        from.delete(key)
+      })
+      moved.forEach(([key, style]) => {
+        if (style === undefined) to.delete(key)
+        else to.set(key, style)
+      })
+    })
+    return true
+  }
+
+  /** Empties values, formulas and formatting in the areas as one undo step. */
+  clearCells(sheetId: number, areas: readonly CellRange[]): void {
+    this.#commit(() => {
+      this.#clearValues(sheetId, this.#filledAreas(sheetId, areas))
+      this.#mapStyles(sheetId, areas, () => defaultCellStyle)
+    })
+  }
+
+  /** The parts of the areas inside the sheet's used area: the only cells that can hold values. */
+  #filledAreas(sheetId: number, areas: readonly CellRange[]): readonly CellRange[] {
+    const { width, height } = this.#engine.getSheetDimensions(sheetId)
+    return areas.flatMap(area => {
+      const right = Math.min(area.x + area.width, width)
+      const bottom = Math.min(area.y + area.height, height)
+      return right <= area.x || bottom <= area.y ? [] : [{ x: area.x, y: area.y, width: right - area.x, height: bottom - area.y }]
+    })
+  }
+
+  #clearValues(sheetId: number, areas: readonly CellRange[]): void {
+    this.#engine.batch(() => areas.forEach(area => this.#engine.setCellContents(
+      { sheet: sheetId, col: area.x, row: area.y },
+      Array.from({ length: area.height }, () => Array.from({ length: area.width }, () => null)),
+    )))
   }
 
   /** Repeats source cells into a destination while HyperFormula translates relative formulas.

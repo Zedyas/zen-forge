@@ -44,3 +44,20 @@ export function visibleAreas(range: Rectangle, columns: readonly number[], rows:
   return runs(rows, range.y, range.height).flatMap(([y, height]) =>
     columnRuns.map(([x, width]) => ({ x, y, width, height })))
 }
+
+/** First and last view index whose workbook index lies in `start` to `start + count - 1`. */
+function viewSpan(indexes: readonly number[], start: number, count: number): readonly [number, number] | undefined {
+  const first = indexes.findIndex(index => index >= start && index < start + count)
+  if (first < 0) return undefined
+  let last = first
+  while ((indexes[last + 1] ?? Number.POSITIVE_INFINITY) < start + count) last += 1
+  return [first, last]
+}
+
+/** The view rectangle showing a workbook range, or undefined when all of it is hidden. */
+export function viewRange(range: CellRange, columns: readonly number[], rows: readonly number[]): Rectangle | undefined {
+  const across = viewSpan(columns, range.x, range.width)
+  const down = viewSpan(rows, range.y, range.height)
+  if (across === undefined || down === undefined) return undefined
+  return { x: across[0], y: down[0], width: across[1] - across[0] + 1, height: down[1] - down[0] + 1 }
+}

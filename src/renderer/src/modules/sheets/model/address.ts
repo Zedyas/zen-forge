@@ -14,6 +14,11 @@ export function columnName(index: number): string {
   return result
 }
 
+/** `A` → 0, `AA` → 26: the inverse of `columnName`. */
+export function columnIndex(letters: string): number {
+  return [...letters.toUpperCase()].reduce((total, letter) => total * 26 + (letter.charCodeAt(0) - 64), 0) - 1
+}
+
 export function cellName([column, row]: Item): string {
   return `${columnName(column)}${row + 1}`
 }
