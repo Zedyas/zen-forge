@@ -1,7 +1,7 @@
 import { toast } from 'sonner'
 import { fileService } from '../../services/file/IpcFileService'
 import { openFiles } from '../../app/document-actions'
-import { imagesToPdf, inspectPdf, savePdf, type ImageSource, type PageRef } from './engine'
+import { imagesToPdf, preparePdf, savePdf, type ImageSource, type PageRef } from './engine'
 
 function report(error: unknown, title: string): void {
   toast.error(title, { description: error instanceof Error ? error.message : undefined })
@@ -39,10 +39,10 @@ export async function combinePdfs(): Promise<void> {
       toast.info('Choose two or more PDFs to combine.', { description: 'Hold ⌘ to select several files.' })
       return
     }
-    const sources = await Promise.all(files.map(file => fileService.read(file.path)))
-    const counts = await Promise.all(sources.map(async source => (await inspectPdf(source)).pageCount))
-    const pages: PageRef[] = counts.flatMap((count, source) =>
-      Array.from({ length: count }, (_, index) => ({ source, index, rotation: 0, edits: [] })))
+    const prepared = await Promise.all(files.map(async file => preparePdf(await fileService.read(file.path))))
+    const sources = prepared.map(({ bytes }) => bytes)
+    const pages: PageRef[] = prepared.flatMap(({ inspection }, source) =>
+      Array.from({ length: inspection.pageCount }, (_, index) => ({ source, index, rotation: 0, edits: [] })))
     await writeAndOpen(await savePdf({ sources, pages }), 'Combined.pdf')
   } catch (error) {
     report(error, 'Could not combine those PDFs')

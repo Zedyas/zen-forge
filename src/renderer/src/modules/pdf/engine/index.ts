@@ -1,4 +1,4 @@
-export { inspectPdf } from './inspect'
+export { inspectPdf, preparePdf } from './inspect'
 export { listFormFields } from './forms'
 export { extractPages, savePdf } from './save'
 export { imagesToPdf } from './images'

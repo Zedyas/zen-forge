@@ -75,5 +75,39 @@ export async function inspectPdf(bytes: Uint8Array): Promise<PdfInspection> {
     pageCount: doc.getPageCount(),
     findings,
     hasForm: (form?.getFields().length ?? 0) > 0,
+    encrypted: doc.isEncrypted,
   }
+}
+
+/**
+ * pdf-lib keeps an encrypted file's strings and streams encrypted while it writes new objects in
+ * the clear, so a save would mix the two into a damaged file. A file with only permission
+ * restrictions (an owner password, no password to open it) is decrypted by MuPDF into a plain PDF
+ * first. A file that needs a password to open is refused.
+ */
+async function decrypt(bytes: Uint8Array): Promise<Uint8Array> {
+  // Loaded on first use: the WebAssembly module is large and only restricted files and redaction need it.
+  const mupdf = await import('mupdf')
+  const document = new mupdf.PDFDocument(bytes)
+  try {
+    if (document.needsPassword()) {
+      const error = new Error('This PDF is password-protected. Opening protected PDFs is not supported yet.')
+      // pdf-actions explains this error by name, as it does pdf.js's own.
+      error.name = 'PasswordException'
+      throw error
+    }
+    return document.saveToBuffer('decrypt').asUint8Array().slice()
+  } finally {
+    document.destroy()
+  }
+}
+
+/**
+ * Inspects a PDF read from disk and gives the bytes to edit: the file itself, or for an encrypted
+ * one its plain copy. The inspection is of the file as read, so it still lists the restrictions a
+ * save removes.
+ */
+export async function preparePdf(bytes: Uint8Array): Promise<{ readonly bytes: Uint8Array; readonly inspection: PdfInspection }> {
+  const inspection = await inspectPdf(bytes)
+  return { bytes: inspection.encrypted ? await decrypt(bytes) : bytes, inspection }
 }
