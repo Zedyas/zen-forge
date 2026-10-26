@@ -2,7 +2,7 @@
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { expect, it } from 'vitest'
-import { matchRange } from './find-reveal'
+import { markInNotes, matchRange } from './find-reveal'
 import { newPresentation, newTable, paragraphOf, textRun, updateCell, updateSlide, type TextBoxElement } from './model'
 import { SlideView } from './SlideView'
 import { findMatches } from './slides-find'
@@ -37,4 +37,22 @@ it('finds where each occurrence is drawn, in a text box across runs and in a tab
   expect(drawn('ab')).toEqual([['ab', 0, 'TD'], ['ab', 3, 'TD']])
   await act(async () => root.unmount())
   host.remove()
+})
+
+it('outlines a notes match without taking focus from the find bar', () => {
+  const find = document.createElement('input')
+  const notes = document.createElement('textarea')
+  notes.className = 'slides-notes'
+  notes.value = 'Say Q3 aloud'
+  document.body.append(find, notes)
+  find.focus()
+
+  const unmark = markInNotes({ where: 'notes', slideId: 's', start: 4, end: 6 })
+  expect(document.activeElement).toBe(find)
+  expect(notes.classList.contains('is-find-target')).toBe(true)
+  expect([notes.selectionStart, notes.selectionEnd]).toEqual([4, 6])
+  unmark()
+  expect(notes.classList.contains('is-find-target')).toBe(false)
+  find.remove()
+  notes.remove()
 })

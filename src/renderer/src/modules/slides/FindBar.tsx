@@ -2,7 +2,7 @@ import { CaseSensitive, ChevronDown, ChevronUp, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { ToolButton } from '../../ui/Toolbar'
-import { markMatch, selectInNotes } from './find-reveal'
+import { markMatch, markInNotes } from './find-reveal'
 import { closeFind, replaceFound, revealMatch } from './slides-actions'
 import { findMatches, occurrences, type FindMatch } from './slides-find'
 import { readySlides, type ReadySlides } from './slides-store'
@@ -22,7 +22,6 @@ export function FindBar({ documentId, document, focusRequest }: FindBarProps) {
   // The match last shown, or -1 before any: the first Return shows the first match.
   const [shown, setShown] = useState(-1)
   // Counts the steps to a match, so stepping to the same one again (the only match) selects it again.
-  const [reveals, setReveals] = useState(0)
   const input = useRef<HTMLInputElement>(null)
   const matches = useMemo(() => findMatches(document.present, query, caseSensitive), [caseSensitive, document.present, query])
   const current = matches.length === 0 ? 0 : Math.max(shown, 0) % matches.length
@@ -35,10 +34,7 @@ export function FindBar({ documentId, document, focusRequest }: FindBarProps) {
   // Marks the shown occurrence, so stepping between two matches in one text box visibly moves.
   const shownMatch = shown < 0 ? undefined : matches[current]
   useEffect(() => (shownMatch === undefined ? undefined : markMatch(shownMatch)), [shownMatch])
-  // Only on a step: the notes field takes focus, which neither an edit of the presentation nor Replace may do.
-  useEffect(() => {
-    if (shownMatch !== undefined) selectInNotes(shownMatch)
-  }, [reveals])
+  useEffect(() => (shownMatch === undefined ? undefined : markInNotes(shownMatch)), [shownMatch])
 
   const show = (index: number, list: readonly FindMatch[]): void => {
     const match = list[index]
@@ -50,7 +46,6 @@ export function FindBar({ documentId, document, focusRequest }: FindBarProps) {
   const move = (step: -1 | 1): void => {
     const from = shown < 0 ? (step === 1 ? -1 : 0) : current
     show((from + step + matches.length) % matches.length, matches)
-    setReveals(count => count + 1)
   }
 
   const replaceCurrent = (): void => {

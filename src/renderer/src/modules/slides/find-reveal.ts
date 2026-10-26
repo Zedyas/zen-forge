@@ -48,13 +48,14 @@ export function markMatch(match: FindMatch): () => void {
 }
 
 /**
- * Selects a notes match in the notes field and scrolls it into view. The field takes focus: a field
- * without it does not show its selection.
+ * Scrolls a notes match into view in the notes field, outlines the field, and sets its selection for
+ * when the person clicks into it. Focus stays in the find bar: moving it would let the next Return,
+ * meant to step on, type into the notes. Returns the function that takes the outline away.
  */
-export function selectInNotes(match: FindMatch): void {
+export function markInNotes(match: FindMatch): () => void {
   const field = window.document.querySelector('.slides-notes')
-  if (match.where !== 'notes' || !(field instanceof HTMLTextAreaElement)) return
-  // Neither selecting nor focusing scrolls a textarea, so the match's height comes from the text before it.
+  if (match.where !== 'notes' || !(field instanceof HTMLTextAreaElement)) return () => undefined
+  // Selecting does not scroll a textarea, so the match's height comes from the text before it.
   const text = field.value
   field.value = text.slice(0, match.end)
   const bottom = field.scrollHeight
@@ -62,5 +63,6 @@ export function selectInNotes(match: FindMatch): void {
   // A short text is as high as the field, whatever it holds; then nothing needs scrolling.
   field.scrollTop = bottom <= field.clientHeight ? 0 : bottom - field.clientHeight / 2
   field.setSelectionRange(match.start, match.end)
-  field.focus()
+  field.classList.add('is-find-target')
+  return () => field.classList.remove('is-find-target')
 }

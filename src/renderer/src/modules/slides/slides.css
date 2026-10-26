@@ -103,6 +103,7 @@
 /* ─── Speaker notes ─── */
 
 ::highlight(find-match) { background-color: #ffd54a; color: #1a1a1a; }
+.slides-notes.is-find-target { outline: 2px solid #ffd54a; outline-offset: -2px; }
 
 .slides-notes {
   flex: none; height: 92px;
