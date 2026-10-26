@@ -43,6 +43,10 @@ describe('formatWithCode', () => {
   })
 
   it('leaves codes outside the subset to General, and knows date codes', () => {
+    // Excel allows 30 decimal places; more would make the formatter throw.
+    expect(supportsFormatCode(`0.${'0'.repeat(101)}`)).toBe(false)
+    expect(formatWithCode(1.5, `0.${'0'.repeat(101)}`)).toBeUndefined()
+    expect(formatWithCode(1.5, `0.${'0'.repeat(30)}`)?.text).toBe(`1.5${'0'.repeat(29)}`)
     expect(supportsFormatCode('[>100]0.0')).toBe(false)
     expect(supportsFormatCode('# ?/?')).toBe(false)
     expect(supportsFormatCode('[h]:mm')).toBe(false)

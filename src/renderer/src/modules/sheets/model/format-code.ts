@@ -37,6 +37,8 @@ const colors: Readonly<Record<string, string>> = {
 
 const dayMilliseconds = 86_400_000
 const serialEpoch = Date.UTC(1899, 11, 30)
+/** Excel's limit on decimal places. */
+const maximumDecimals = 30
 /** Characters Excel shows as themselves without quotes. */
 const plainLiterals = new Set([...'$-+/():!^&\'~{}<>= £€¥'])
 
@@ -148,6 +150,10 @@ function parseSection(source: string): Section | undefined {
   const fraction = tokens.some((token, at) => token.kind === 'literal' && token.text.includes('/')
     && tokens[at - 1]?.kind === 'digit' && tokens[at + 1]?.kind === 'digit')
   if (fraction || (date && tokens.some(token => token.kind === 'digit' && token.placeholder !== '0'))) return undefined
+  const pointAt = tokens.findIndex(token => token.kind === 'point')
+  const exponentAt = tokens.findIndex(token => token.kind === 'exponent')
+  const decimals = pointAt < 0 ? [] : tokens.slice(pointAt, exponentAt > pointAt ? exponentAt : undefined).filter(token => token.kind === 'digit')
+  if (decimals.length > maximumDecimals) return undefined
   return { tokens, color, date }
 }
 
@@ -331,8 +337,19 @@ export function isDateCode(code: string): boolean {
   return sectionsOf(code)?.[0]?.date === true
 }
 
-/** A value shown with an Excel format code, or undefined when the code is not supported. */
+/**
+ * A value shown with an Excel format code, or undefined when the code is not supported. It never throws:
+ * a code that fails on a value shows that value as General.
+ */
 export function formatWithCode(value: string | number | boolean | null, code: string): FormattedValue | undefined {
+  try {
+    return formatWithSections(value, code)
+  } catch {
+    return undefined
+  }
+}
+
+function formatWithSections(value: string | number | boolean | null, code: string): FormattedValue | undefined {
   const sections = sectionsOf(code)
   if (sections === undefined || sections.length === 0) return undefined
   if (value === null) return { text: '' }
