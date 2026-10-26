@@ -1,8 +1,11 @@
 import type { CellStyle } from './workbook-data'
 
-const dayMilliseconds = 86_400_000
-/** Excel's day zero (serial 0 = 1899-12-30), which keeps the 1900 leap-year quirk compatible. */
-const serialEpoch = Date.UTC(1899, 11, 30)
+export const dayMilliseconds = 86_400_000
+/**
+ * Excel's day zero (serial 0 = 1899-12-30), which keeps the 1900 leap-year quirk compatible. Serials
+ * count wall-clock days with no time zone, so they are read and written in UTC.
+ */
+export const serialEpoch = Date.UTC(1899, 11, 30)
 
 /** The ISO code for display, from the file's currency symbol; `$` and anything unrecognised show as dollars. */
 function currencyCode(formatCode: string | undefined): string {

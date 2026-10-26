@@ -1,3 +1,4 @@
+import { dayMilliseconds, serialEpoch } from './format'
 import type { CellInput, CellStyle } from './workbook-data'
 
 function decimalPlaces(value: string): number {
@@ -48,6 +49,20 @@ function plainNumber(text: string): number | undefined {
 }
 
 /**
+ * An ISO date with a time (`2026-08-13 14:30:00`, or with a `T` and without seconds), as a CSV export
+ * writes one, as a date serial of that wall-clock time; undefined for anything else.
+ */
+function isoDateTimeSerial(text: string): number | undefined {
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?$/)
+  if (match === null) return undefined
+  const [year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0] = match.slice(1).map(part => Number(part ?? 0))
+  const time = Date.UTC(year, month - 1, day, hour, minute, second)
+  const date = new Date(time)
+  if (date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day || hour > 23 || minute > 59 || second > 59) return undefined
+  return (time - serialEpoch) / dayMilliseconds
+}
+
+/**
  * Infers a typed value and number format from display text, as Excel and Google Sheets copy it, and as
  * a CSV holds it. Text that would lose information as a number (00123, 1,5, a 16-digit ID) stays text.
  */
@@ -91,6 +106,9 @@ export function parseCellText(value: string): { readonly input: CellInput; reado
       style: trimmed.includes('.') && !/e/i.test(trimmed) ? { numberFormat: 'number', decimalPlaces: decimalPlaces(trimmed) } : undefined,
     }
   }
+
+  const dateTime = isoDateTimeSerial(trimmed)
+  if (dateTime !== undefined) return { input: dateTime, style: { numberFormat: 'date', decimalPlaces: 0 } }
 
   if (/^\d{1,4}[-/]\d{1,2}[-/]\d{1,4}$/.test(trimmed) && !Number.isNaN(Date.parse(trimmed))) {
     return { input: trimmed, style: { numberFormat: 'date', decimalPlaces: 0 } }

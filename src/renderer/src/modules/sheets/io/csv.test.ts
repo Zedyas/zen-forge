@@ -48,7 +48,9 @@ describe('csv', () => {
 
     // The grid shows 1,234.57 and a locale date; the file keeps the values themselves.
     expect(row).toEqual(['1234.5678', '2026-08-13 12:00:00', '2469.1356', '00123'])
-    expect(readDelimited(writeDelimited([row], 'csv'), 'Back', 'csv').data.sheets[0]?.cells[0]?.[3]).toBe("'00123")
+    const back = readDelimited(writeDelimited([row], 'csv'), 'Back', 'csv').data.sheets[0]
+    expect(back?.cells[0]).toEqual([1234.5678, 46_247.5, 2469.1356, "'00123"])
+    expect(back?.styles).toContainEqual([1, 0, { numberFormat: 'date', decimalPlaces: 0 }])
   })
 
   it('quotes separators, quotes and newlines and writes a UTF-8 BOM', () => {

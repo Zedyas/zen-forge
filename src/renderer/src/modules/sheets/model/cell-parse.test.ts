@@ -12,6 +12,8 @@ describe('parseCellText', () => {
     ['$1234.50', 1234.5],
     ['1e+21', 1e21],
     ['123456789012345', 123_456_789_012_345],
+    ['2026-08-13 12:00:00', 46_247.5],
+    ['2026-08-13T06:00', 46_247.25],
   ])('reads %s as a number', (text, number) => {
     expect(parseCellText(text).input).toBe(number)
   })
@@ -25,6 +27,7 @@ describe('parseCellText', () => {
     ['12,34', "'12,34"],
     ['$1,5', "'$1,5"],
     ['12E3', "'12E3"],
+    ['2026-02-30 10:00', "'2026-02-30 10:00"],
   ])('keeps %s as text', (text, input) => {
     expect(parseCellText(text).input).toBe(input)
   })
