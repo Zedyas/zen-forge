@@ -254,6 +254,17 @@ describe('Workbook', () => {
     expect(workbook.getCellValue(sheetId, [1, 3])).toBe(29_400)
   })
 
+  it('keeps a format code set with the number format, and drops it once the format changes', () => {
+    const workbook = regionsWorkbook()
+    const sheetId = workbook.sheets()[0]?.id ?? 0
+    const areas = [{ x: 1, y: 1, width: 1, height: 1 }]
+
+    workbook.updateStyle(sheetId, areas, { numberFormat: 'general', decimalPlaces: 2, formatCode: '0.00E+00' })
+    expect(workbook.getStyle(sheetId, [1, 1]).formatCode).toBe('0.00E+00')
+    workbook.changeDecimalPlaces(sheetId, areas, 1)
+    expect(workbook.getStyle(sheetId, [1, 1])).toEqual({ numberFormat: 'number', decimalPlaces: 3 })
+  })
+
   it('renames sheets only to names Excel accepts', () => {
     const workbook = regionsWorkbook()
     const sheetId = workbook.sheets()[0]?.id ?? 0

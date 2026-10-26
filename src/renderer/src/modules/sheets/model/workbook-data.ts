@@ -31,8 +31,9 @@ export interface CellStyle {
   readonly fillColor?: string
   readonly align?: HorizontalAlign
   /**
-   * The number format pattern from the opened file (`[$€-2] #,##0.00`, `dd/mm/yyyy`…). It is written
-   * back unchanged, so a round trip keeps the file's exact format; editing the number format drops it.
+   * An Excel number format code (`[$€-2] #,##0.00`, `dd/mm/yyyy`…), from the opened file or typed as a
+   * custom format. Cells show with it when Ledger supports the code (format-code.ts), and it is written
+   * back unchanged either way; choosing one of the five formats drops it.
    */
   readonly formatCode?: string
 }

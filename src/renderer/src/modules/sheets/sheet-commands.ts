@@ -2,6 +2,8 @@ import type { Item } from '@glideapps/glide-data-grid'
 import { toast } from 'sonner'
 import { askConfirm } from '../../ui/ConfirmDialog'
 import { measureCellHeight } from './cell-text'
+import { numberFormatStyle } from './io/number-format'
+import { supportsFormatCode } from './model/format-code'
 import type { CellRange, CellStyle, Workbook } from './model/Workbook'
 
 /** The active grid's state that toolbar buttons and menu commands act on. */
@@ -43,6 +45,22 @@ export function toggleStyle(controller: SheetController, key: ToggleKey): void {
 /** Rows refit to their text when wrapping or the font changes. */
 export function setStyle(controller: SheetController, patch: Partial<CellStyle>): void {
   controller.workbook.updateStyle(controller.sheetId, controller.areas, patch, measureCellHeight)
+}
+
+/**
+ * An Excel format code typed as a custom number format. The nearest of the five formats goes with it,
+ * so dates still fill and save as dates; a code Ledger cannot show displays as General and is kept for
+ * the file. An empty code or `General` clears it.
+ */
+export function setFormatCode(controller: SheetController, code: string): void {
+  const trimmed = code.trim()
+  const general = trimmed === '' || trimmed.toLowerCase() === 'general'
+  const { style } = numberFormatStyle(trimmed)
+  setStyle(controller, {
+    numberFormat: general || !supportsFormatCode(trimmed) ? 'general' : style.numberFormat,
+    decimalPlaces: style.decimalPlaces,
+    formatCode: general ? undefined : trimmed,
+  })
 }
 
 /** The selection's visible rows, for row height. */

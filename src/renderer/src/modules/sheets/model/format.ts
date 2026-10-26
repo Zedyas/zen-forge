@@ -1,3 +1,4 @@
+import { formatWithCode, isDateCode } from './format-code'
 import type { CellStyle } from './workbook-data'
 
 export const dayMilliseconds = 86_400_000
@@ -17,11 +18,16 @@ function currencyCode(formatCode: string | undefined): string {
 
 /** Whether the style shows numbers as dates, so they fill and export as dates. */
 export function isDateStyle(style: CellStyle): boolean {
-  return style.numberFormat === 'date'
+  return style.numberFormat === 'date' || (style.formatCode !== undefined && isDateCode(style.formatCode))
 }
 
-/** Formats a computed value the way the grid shows it and a CSV export writes it. */
+/**
+ * Formats a computed value the way the grid shows it and the clipboard copies it: with the cell's Excel
+ * format code when Ledger supports it, otherwise with the nearest of its five formats.
+ */
 export function formatCellValue(value: string | number | boolean | null, style: CellStyle): string {
+  const custom = style.formatCode === undefined ? undefined : formatWithCode(value, style.formatCode)
+  if (custom !== undefined) return custom.text
   if (value === null) return ''
   if (typeof value === 'boolean') return value ? 'TRUE' : 'FALSE'
   const digits = { minimumFractionDigits: style.decimalPlaces, maximumFractionDigits: style.decimalPlaces }
@@ -49,6 +55,11 @@ export function formatCellValue(value: string | number | boolean | null, style: 
     if (!Number.isNaN(date.valueOf())) return date.toLocaleDateString()
   }
   return value
+}
+
+/** The colour the format code gives this value, such as `[Red]` on negatives. */
+export function formatColor(value: string | number | boolean | null, style: CellStyle): string | undefined {
+  return style.formatCode === undefined ? undefined : formatWithCode(value, style.formatCode)?.color
 }
 
 /** A date serial as ISO 8601 (`2026-08-13`), with the time (`2026-08-13 14:30:00`) when it has one. */

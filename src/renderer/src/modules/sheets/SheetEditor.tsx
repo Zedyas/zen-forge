@@ -30,7 +30,7 @@ import { drawCellText, drawsOwnText, fontStack, fontStyle, measureCellHeight } f
 import { gridTheme, headerHeight, isLightColor } from './grid-theme'
 import { coverBlocks, fillLines, mapCell, mapRange, snapCell, viewRange as viewRangeOf, visibleAreas } from './grid-mapping'
 import { columnName, sheetNameProblem } from './model/address'
-import { formatCellValue, formatStatistic } from './model/format'
+import { formatCellValue, formatColor, formatStatistic } from './model/format'
 import type { FindMatch, Workbook, WorkbookSheet } from './model/Workbook'
 import { setActiveSheet, type SheetController } from './sheet-commands'
 import { SheetContextMenu } from './SheetContextMenu'
@@ -181,7 +181,7 @@ export function SheetEditor({ document, workbook }: SheetEditorProps) {
     const value = workbook.getCellValue(sheetId, cell)
     const style = workbook.getStyle(sheetId, cell)
     const displayed = formatCellValue(value, style)
-    const textColor = style.textColor ?? (style.fillColor !== undefined && isLightColor(style.fillColor) ? '#1d1f23' : undefined)
+    const textColor = formatColor(value, style) ?? style.textColor ?? (style.fillColor !== undefined && isLightColor(style.fillColor) ? '#1d1f23' : undefined)
     return {
       kind: GridCellKind.Text,
       allowOverlay: true,

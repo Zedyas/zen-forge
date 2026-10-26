@@ -167,4 +167,23 @@ describe('xlsx', () => {
     const styles = unzipSync(await writeXlsx(opened.data))['xl/styles.xml']
     expect(new TextDecoder().decode(styles)).toContain('formatCode="[$€-2] #,##0.00"')
   })
+
+  it('shows custom format codes, and keeps the ones it cannot show unchanged', async () => {
+    const codes = ['0.00E+00', '#,##0.00;[Red]-#,##0.00', 'dddd', '# ?/?']
+    const source = new ExcelJS.Workbook()
+    const sheet = source.addWorksheet('Codes')
+    codes.forEach((code, row) => {
+      sheet.getCell(row + 1, 1).value = -1234.5
+      sheet.getCell(row + 1, 1).numFmt = code
+    })
+    const opened = await readXlsx(new Uint8Array(await source.xlsx.writeBuffer()))
+    const reopened = await readXlsx(await writeXlsx(opened.data))
+    const styles = reopened.data.sheets[0]?.styles.map(([, , style]) => style) ?? []
+
+    expect(styles.map(style => style.formatCode)).toEqual(codes)
+    expect(formatCellValue(-1234.5, styles[0] ?? defaultCellStyle)).toBe('-1.23E+03')
+    expect(formatCellValue(-1234.5, styles[1] ?? defaultCellStyle)).toBe('-1,234.50')
+    // Only the fraction is outside the supported codes.
+    expect(opened.findings.map(finding => finding.construct)).toEqual(['Unmapped number formats'])
+  })
 })

@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { cellName, columnName } from './model/address'
 import { formatStatistic } from './model/format'
+import { supportsFormatCode } from './model/format-code'
 import type { CellRange } from './model/Workbook'
 import { measureCellHeight } from './cell-text'
 import { selectedRows, type SheetController } from './sheet-commands'
@@ -87,7 +88,10 @@ export function SheetInspector({ controller }: { readonly controller: SheetContr
 
       <InspectorSection title="Number">
         <InspectorRow label="Format"><span>{style.numberFormat === 'general' ? 'General' : `${style.numberFormat.charAt(0).toUpperCase()}${style.numberFormat.slice(1)}`}</span></InspectorRow>
-        {style.numberFormat !== 'general' && style.numberFormat !== 'date' && (
+        {style.formatCode !== undefined && (
+          <InspectorRow label={supportsFormatCode(style.formatCode) ? 'Code' : 'Code (shown as General)'}><code>{style.formatCode}</code></InspectorRow>
+        )}
+        {style.numberFormat !== 'general' && style.numberFormat !== 'date' && style.formatCode === undefined && (
           <InspectorRow label="Decimal places"><span>{style.decimalPlaces}</span></InspectorRow>
         )}
       </InspectorSection>

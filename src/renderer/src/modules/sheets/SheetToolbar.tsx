@@ -7,6 +7,7 @@ import {
   ArrowUpZA,
   Baseline,
   Bold,
+  Braces,
   Calendar,
   Check,
   ChevronDown,
@@ -31,7 +32,11 @@ import {
   WrapText,
 } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
-import { defaultFontSize, type HorizontalAlign } from './model/workbook-data'
+import { CellPopover } from './CellPopover'
+import { numberFormatPattern } from './io/number-format'
+import { formatCellValue } from './model/format'
+import { formatWithCode } from './model/format-code'
+import { defaultCellStyle, defaultFontSize, type HorizontalAlign } from './model/workbook-data'
 import type { NumberFormat } from './model/Workbook'
 import {
   autoSum,
@@ -39,6 +44,7 @@ import {
   fontFamilies,
   fontSizes,
   mergeSelection,
+  setFormatCode,
   setStyle,
   sortByActiveColumn,
   textColors,
@@ -172,6 +178,45 @@ function FontMenus({ controller }: { readonly controller: SheetController }) {
   )
 }
 
+const formatCodeExamples = ['#,##0.00;[Red]-#,##0.00', '0.0%', '€#,##0.00', '0.00E+00', '0.0,,"M"', 'd mmm yyyy', 'dddd', 'h:mm AM/PM']
+
+/** "Custom…" number format: an Excel format code, previewed on the active cell's value. */
+function FormatCodeTool({ controller }: { readonly controller: SheetController }) {
+  const { workbook, sheetId, cell } = controller
+  const style = workbook.getStyle(sheetId, cell)
+  const value = workbook.getCellValue(sheetId, cell)
+  const sample = value === null || value === '' ? 1234.5 : value
+  return (
+    <CellPopover
+      icon={Braces}
+      label="Custom number format"
+      pressed={style.formatCode !== undefined}
+      initial={style.formatCode ?? numberFormatPattern(style) ?? 'General'}
+      placeholder="Excel format code, like #,##0.00"
+      submitLabel="Apply"
+      onSubmit={code => {
+        setFormatCode(controller, code)
+        return true
+      }}
+    >
+      {(draft, setDraft) => (
+        <>
+          <p className="sheet-cell-popover-note">
+            {draft.trim() === '' || draft.trim().toLowerCase() === 'general'
+              ? formatCellValue(sample, defaultCellStyle)
+              : formatWithCode(sample, draft)?.text ?? 'Ledger shows this code as General, and keeps it in the file.'}
+          </p>
+          <div className="sheet-format-examples">
+            {formatCodeExamples.map(example => (
+              <button key={example} type="button" className="button is-quiet" onClick={() => setDraft(example)}><code>{example}</code></button>
+            ))}
+          </div>
+        </>
+      )}
+    </CellPopover>
+  )
+}
+
 interface SheetToolbarProps {
   readonly controller: SheetController
   readonly findOpen: boolean
@@ -239,10 +284,11 @@ export function SheetToolbar({ controller, findOpen }: SheetToolbarProps) {
             icon={format.icon}
             text={format.text}
             label={format.label}
-            pressed={style.numberFormat === format.value}
+            pressed={style.numberFormat === format.value && style.formatCode === undefined}
             onClick={() => setStyle(controller, { numberFormat: format.value })}
           />
         ))}
+        <FormatCodeTool controller={controller} />
         <ToolButton icon={DecimalsArrowLeft} label="Fewer decimal places" onClick={() => workbook.changeDecimalPlaces(sheetId, controller.areas, -1)} />
         <ToolButton icon={DecimalsArrowRight} label="More decimal places" onClick={() => workbook.changeDecimalPlaces(sheetId, controller.areas, 1)} />
         <ToolSeparator />

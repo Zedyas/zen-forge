@@ -1,5 +1,6 @@
 /** Translation between Excel number format patterns and the workbook's five formats. */
 
+import { splitSections, supportsFormatCode } from '../model/format-code'
 import { defaultCellStyle, type CellStyle, type NumberFormat } from '../model/workbook-data'
 
 export interface ParsedNumberFormat {
@@ -17,29 +18,6 @@ const localeMarker = /\[\$-[0-9A-Fa-f]+\]/g
 const bracketed = /\[[^\]]*\]/g
 const quoted = /"[^"]*"/g
 const escaped = /\\./g
-
-/** Splits `positive;negative;zero;text` while ignoring separators inside quotes or brackets. */
-function splitSections(pattern: string): readonly string[] {
-  const sections: string[] = []
-  let current = ''
-  let quoting = false
-  let depth = 0
-
-  for (const character of pattern) {
-    if (character === '"') quoting = !quoting
-    if (!quoting && character === '[') depth += 1
-    if (!quoting && character === ']') depth = Math.max(0, depth - 1)
-    if (character === ';' && !quoting && depth === 0) {
-      sections.push(current)
-      current = ''
-      continue
-    }
-    current += character
-  }
-
-  sections.push(current)
-  return sections
-}
 
 export function parseNumberFormat(pattern: string): ParsedNumberFormat {
   const trimmed = pattern.trim()
@@ -70,13 +48,14 @@ export function parseNumberFormat(pattern: string): ParsedNumberFormat {
 /**
  * A file's number format pattern as a cell style: the nearest of the five formats, plus the pattern
  * itself when it says more than the one this app would write for that style. `mapped` is false when
- * the model can only approximate the pattern.
+ * the cell can only approximate the pattern: neither the five formats nor the format code display
+ * (format-code.ts) show it as Excel does.
  */
 export function numberFormatStyle(pattern: string): { readonly style: CellStyle; readonly mapped: boolean } {
   const parsed = parseNumberFormat(pattern)
   const style: CellStyle = { ...defaultCellStyle, numberFormat: parsed.numberFormat, decimalPlaces: parsed.decimalPlaces }
   const keepsPattern = pattern !== numberFormatPattern(style) && !(parsed.mapped && parsed.numberFormat === 'general')
-  return { style: keepsPattern ? { ...style, formatCode: pattern } : style, mapped: parsed.mapped }
+  return { style: keepsPattern ? { ...style, formatCode: pattern } : style, mapped: parsed.mapped || supportsFormatCode(pattern) }
 }
 
 /** The pattern written for a style, or undefined when Excel's General format already matches. */

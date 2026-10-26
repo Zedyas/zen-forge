@@ -367,11 +367,14 @@ export class Workbook {
     this.#commit(() => this.#mapStyles(sheetId, areas, () => defaultCellStyle))
   }
 
-  /** Applies a per-cell patch. Changing the number format drops the file's own pattern, which no longer applies. */
+  /**
+   * Applies a per-cell patch. Changing the number format drops the cell's format code, which no longer
+   * applies, unless the patch sets a new one.
+   */
   #updateStyle(sheetId: number, areas: readonly CellRange[], patchFor: (style: CellStyle) => Partial<CellStyle>): void {
     this.#commit(() => this.#mapStyles(sheetId, areas, style => {
       const patch = patchFor(style)
-      const formatChanged = patch.numberFormat !== undefined || patch.decimalPlaces !== undefined
+      const formatChanged = (patch.numberFormat !== undefined || patch.decimalPlaces !== undefined) && !('formatCode' in patch)
       return mergeStyle(style, formatChanged ? { ...patch, formatCode: undefined } : patch)
     }))
   }

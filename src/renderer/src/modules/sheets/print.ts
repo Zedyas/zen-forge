@@ -1,7 +1,7 @@
 import type { Paper } from '@shared/print'
 import { pageSetup, printableArea, type PageSetup, type Printout } from '../../services/print/print'
 import { fontPixels } from './cell-text'
-import { formatCellValue } from './model/format'
+import { formatCellValue, formatColor } from './model/format'
 import type { CellStyle, Workbook } from './model/Workbook'
 import type { HorizontalAlign } from './model/workbook-data'
 
@@ -31,7 +31,12 @@ export function sheetPrintTable(workbook: Workbook, sheetId: number): SheetPrint
   const cells = rows.map(row => columns.map((column): PrintCell => {
     const value = workbook.getCellValue(sheetId, [column, row])
     const style = workbook.getStyle(sheetId, [column, row])
-    return { text: formatCellValue(value, style), style, align: style.align ?? (typeof value === 'number' ? 'right' : 'left') }
+    const color = formatColor(value, style)
+    return {
+      text: formatCellValue(value, style),
+      style: color === undefined ? style : { ...style, textColor: color },
+      align: style.align ?? (typeof value === 'number' ? 'right' : 'left'),
+    }
   }))
   if (cells.every(row => row.every(cell => cell.text === ''))) return undefined
   // Frozen rows are the sheet's top rows, so the visible ones start the printed rows.
