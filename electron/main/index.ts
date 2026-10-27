@@ -289,7 +289,8 @@ function createWindow(restore?: WindowSession): WindowRecord {
     refreshMenu()
   })
   window.on('close', event => {
-    if (!record.state.hasUnsaved || record.closeApproved) return
+    // A crashed page cannot answer, and its unsaved changes went with it; waiting would keep the window, and a quit, stuck.
+    if (!record.state.hasUnsaved || record.closeApproved || window.webContents.isCrashed()) return
     // The renderer walks its unsaved documents with Save / Don't Save / Cancel, then calls resolveClose.
     event.preventDefault()
     send(record, 'shell:close-requested')
