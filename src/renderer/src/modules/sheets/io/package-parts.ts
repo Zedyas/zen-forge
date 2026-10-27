@@ -166,12 +166,13 @@ export function customHeightRows(bytes: Uint8Array): ReadonlyMap<string, Readonl
 
 const hyperlinkType = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink'
 const emptyRelationships = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>'
-/** A place in the workbook (`Sheet2!A1`), which a link names in its `location` rather than a relationship. */
-const workbookLocation = /^[^!]+![A-Za-z]+\d+$/
 /** The worksheet parts that come after its links, in the order the file format requires. */
 const afterHyperlinks = /<(?:printOptions|pageMargins|pageSetup|headerFooter|rowBreaks|colBreaks|customProperties|cellWatches|ignoredErrors|smartTags|drawing|legacyDrawing|legacyDrawingHF|picture|oleObjects|controls|webPublishItems|tableParts|extLst)\b|<\/worksheet>/
 
-/** Each sheet's links, by sheet name, then cell address (`B2`). */
+/**
+ * Each sheet's links, by sheet name, then cell address (`B2`). A link to a place in the workbook (a cell,
+ * range or name), which the file keeps in a `location` rather than a relationship, starts with `#`.
+ */
 export type SheetLinks = ReadonlyMap<string, ReadonlyMap<string, string>>
 
 /**
@@ -189,7 +190,8 @@ export function takeHyperlinks(bytes: Uint8Array): { readonly bytes: Uint8Array;
     const sheetLinks = new Map<string, string>()
     for (const [tag] of element.matchAll(/<hyperlink\b[^>]*>/g)) {
       const cell = attribute(tag, 'ref')?.split(':')[0]
-      const target = targets.get(attribute(tag, 'r:id')) ?? attribute(tag, 'location')
+      const location = attribute(tag, 'location')
+      const target = targets.get(attribute(tag, 'r:id')) ?? (location === undefined || location === '' ? undefined : `#${location}`)
       if (cell !== undefined && target !== undefined && target !== '') sheetLinks.set(cell, unescapeXml(target))
     }
     links.set(name, sheetLinks)
@@ -211,8 +213,8 @@ export function withHyperlinks(bytes: Uint8Array, links: SheetLinks): Uint8Array
     const elements: string[] = []
     const relationships: string[] = []
     sheetLinks.forEach(([cell, target], index) => {
-      if (workbookLocation.test(target)) {
-        elements.push(`<hyperlink ref="${cell}" location="${escapeXml(target)}"/>`)
+      if (target.startsWith('#')) {
+        elements.push(`<hyperlink ref="${cell}" location="${escapeXml(target.slice(1))}"/>`)
       } else {
         elements.push(`<hyperlink ref="${cell}" r:id="rIdLink${index}"/>`)
         relationships.push(`<Relationship Id="rIdLink${index}" Type="${hyperlinkType}" Target="${escapeXml(target)}" TargetMode="External"/>`)

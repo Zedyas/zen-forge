@@ -176,6 +176,30 @@ describe('xlsx', () => {
     expect(reopened.getCellValue(sheetId, [1, 0])).toBe(true)
   })
 
+  it('keeps links to places in the workbook as places, not as links to files', async () => {
+    const source = new ExcelJS.Workbook()
+    const sheet = source.addWorksheet('Sheet1')
+    source.addWorksheet('Sheet2')
+    ;['A1', 'A2', 'A3'].forEach(address => { sheet.getCell(address).value = 'go' })
+    const entries = unzipSync(new Uint8Array(await source.xlsx.writeBuffer()))
+    const part = 'xl/worksheets/sheet1.xml'
+    entries[part] = new TextEncoder().encode(new TextDecoder().decode(entries[part]).replace('<pageMargins',
+      '<hyperlinks><hyperlink ref="A1" location="Sheet2!$A$1"/><hyperlink ref="A2" location="Totals"/></hyperlinks><pageMargins'))
+
+    const opened = new Workbook((await readXlsx(zipSync(entries))).data)
+    const sheetId = opened.sheets()[0]?.id ?? 0
+    opened.updateStyle(sheetId, [{ x: 0, y: 2, width: 1, height: 1 }], { link: '#Sheet2!B2' })
+    expect([0, 1, 2].map(row => opened.getStyle(sheetId, [0, row]).link)).toEqual(['#Sheet2!$A$1', '#Totals', '#Sheet2!B2'])
+
+    const saved = unzipSync(await writeXlsx(opened.toData()))
+    const sheetXml = new TextDecoder().decode(saved[part])
+    expect([...sheetXml.matchAll(/<hyperlink\b[^>]*>/g)].map(([tag]) => tag)).toEqual([
+      '<hyperlink ref="A1" location="Sheet2!$A$1"/>',
+      '<hyperlink ref="A2" location="Totals"/>',
+      '<hyperlink ref="A3" location="Sheet2!B2"/>',
+    ])
+  })
+
   it('keeps every text cell text, whatever the engine would read it as, without showing the mark', async () => {
     const source = new ExcelJS.Workbook()
     const sheet = source.addWorksheet('Sheet1')
