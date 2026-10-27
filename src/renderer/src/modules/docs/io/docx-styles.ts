@@ -9,6 +9,7 @@ export const docxStyleNames = {
   ListContinue: 'List Continue',
   Checklist: 'Checklist',
   TableText: 'Table Text',
+  TableEnd: 'Table End',
 } as const
 
 export type DocxStyleId = keyof typeof docxStyleNames

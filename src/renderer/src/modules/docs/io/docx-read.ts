@@ -449,6 +449,7 @@ const kindsByStyleName: Readonly<Record<string, BlockKind>> = {
   [docxStyleNames.Checklist.toLowerCase()]: 'checklist',
   [docxStyleNames.ListContinue.toLowerCase()]: 'continue',
   [docxStyleNames.TableText.toLowerCase()]: 'cell',
+  [docxStyleNames.TableEnd.toLowerCase()]: 'cell',
 }
 
 /** Word's everyday styles over Normal, shown as Normal with their spacing and indents kept on each paragraph, without a report. */
@@ -1012,9 +1013,13 @@ function table(element: Element, context: Context): JSONContent {
       }
       const fill = attr(kid(tcPr, 'w:shd'), 'w:fill')
       const content = blocks(cell, context)
-      // Word needs a paragraph after a table that ends a cell; an empty one is only that.
-      const last = content[content.length - 1]
-      if (content[content.length - 2]?.type === 'table' && last?.type === 'paragraph' && last.content === undefined && last.attrs === undefined) content.pop()
+      // Word needs a paragraph after a table that ends a cell; Sumi marks the one it adds, and any other empty paragraph is the user's.
+      const tail = cell.lastElementChild
+      if (tail?.tagName === 'w:p' && cell.children[cell.children.length - 2]?.tagName === 'w:tbl'
+        && context.styles.name(val(kid(tail, 'w:pPr'), 'w:pStyle')) === docxStyleNames.TableEnd.toLowerCase()) {
+        const last = content[content.length - 1]
+        if (last?.type === 'paragraph' && last.content === undefined) content.pop()
+      }
       const build: CellBuild = {
         header,
         colspan: span,

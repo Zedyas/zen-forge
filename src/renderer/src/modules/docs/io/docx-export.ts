@@ -441,6 +441,8 @@ function table(node: JSONContent, context: ExportContext): Table {
           ? { ...child, attrs: { ...child.attrs, textAlign: align } }
           : child)
         const children = blocks(content, context, 'TableText')
+        // Word needs a paragraph after a table that ends a cell; this one is marked so the reader knows it is only that.
+        if (content[content.length - 1]?.type === 'table') children.push(new Paragraph({ style: 'TableEnd' }))
         return new TableCell({
           ...(columnSpan > 1 ? { columnSpan } : {}),
           ...(rowSpan > 1 ? { rowSpan } : {}),
@@ -587,6 +589,7 @@ export async function writeDocx(content: JSONContent): Promise<DocxExport> {
         { id: 'ListContinue', name: docxStyleNames.ListContinue, basedOn: 'Normal', paragraph: { indent: { left: 720 } } },
         { id: 'Checklist', name: docxStyleNames.Checklist, basedOn: 'Normal', paragraph: { contextualSpacing: true } },
         { id: 'TableText', name: docxStyleNames.TableText, basedOn: 'Normal', paragraph: { spacing: { before: 0, after: 0 } } },
+        { id: 'TableEnd', name: docxStyleNames.TableEnd, basedOn: 'TableText', run: { size: 2 } },
         { id: 'Header', name: 'header', basedOn: 'Normal', paragraph: { spacing: { before: 0, after: 0, line: 240, lineRule: LineRuleType.AUTO } } },
         { id: 'Footer', name: 'footer', basedOn: 'Normal', paragraph: { spacing: { before: 0, after: 0, line: 240, lineRule: LineRuleType.AUTO } } },
         // Word's table of contents styles: each level indented a little more than the one above.

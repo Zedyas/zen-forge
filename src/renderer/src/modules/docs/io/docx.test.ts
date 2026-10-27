@@ -188,10 +188,13 @@ describe('docx', () => {
     expect(sameDocument(schema, readDocx(bytes).content, code)).toBe(true)
   })
 
-  it('opens a table inside a table cell without an empty line after it', async () => {
+  it('opens a table inside a table cell without an empty line after it, and keeps an empty line the user typed there', async () => {
     const inner: JSONContent = { type: 'table', content: [{ type: 'tableRow', content: [cell('tableCell', 'Inner')] }] }
-    const nested: JSONContent = { type: 'doc', content: [{ type: 'table', content: [{ type: 'tableRow', content: [{ type: 'tableCell', content: [paragraph(text('Outer')), inner] }] }] }] }
-    expect(sameDocument(schema, readDocx((await writeDocx(nested)).bytes).content, nested)).toBe(true)
+    const outer = (...content: JSONContent[]): JSONContent => ({ type: 'doc', content: [{ type: 'table', content: [{ type: 'tableRow', content: [{ type: 'tableCell', content }] }] }] })
+    const endsWithTable = outer(paragraph(text('Outer')), inner)
+    expect(sameDocument(schema, readDocx((await writeDocx(endsWithTable)).bytes).content, endsWithTable)).toBe(true)
+    const emptyAfter = outer(paragraph(text('Outer')), inner, { type: 'paragraph' })
+    expect(sameDocument(schema, readDocx((await writeDocx(emptyAfter)).bytes).content, emptyAfter)).toBe(true)
   })
 
   it('writes a file that opens when the text holds control characters', async () => {
