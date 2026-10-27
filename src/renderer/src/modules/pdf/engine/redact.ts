@@ -200,9 +200,13 @@ function withoutQuotes(doc: PDFDocument, stream: PDFObject | undefined): void {
 function removePageCopies(doc: PDFDocument, page: PDFPage): void {
   const visited = new Set<string>()
   const clean = (resources: PDFDict | undefined): void => {
-    for (const value of resources?.lookupMaybe(PDFName.of('Properties'), PDFDict)?.values() ?? []) {
+    const named = resources?.lookupMaybe(PDFName.of('Properties'), PDFDict)
+    for (const [name, value] of named?.entries() ?? []) {
       const properties = doc.context.lookup(value)
-      if (properties instanceof PDFDict) dropQuotes(properties)
+      if (!(properties instanceof PDFDict)) continue
+      // Other pages can name the same property list: the redacted page gets its own copy without the quotes.
+      const own = properties.clone(doc.context)
+      if (dropQuotes(own)) named?.set(name, own)
     }
     for (const value of resources?.lookupMaybe(PDFName.of('XObject'), PDFDict)?.values() ?? []) {
       const form = doc.context.lookup(value)

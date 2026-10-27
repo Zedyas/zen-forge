@@ -167,6 +167,25 @@ describe('redactPages', () => {
     expect(text).toContain('KEEP ME')
   })
 
+  it('removes the quoted text of a property list another page shares only from the redacted page', async () => {
+    const doc = await PDFDocument.create()
+    const { context } = doc
+    const font = await doc.embedFont(StandardFonts.Helvetica)
+    const quoted = context.register(context.obj({ ActualText: PDFString.of('SHARED-QUOTE') }))
+    for (let index = 0; index < 2; index += 1) {
+      const page = doc.addPage([400, 600])
+      page.node.set(PDFName.of('Resources'), context.obj({ Font: { F1: font.ref }, Properties: { Quoted: quoted } }))
+      page.node.set(PDFName.of('Contents'), context.register(context.stream('/Span /Quoted BDC BT /F1 14 Tf 40 300 Td (KEEP ME) Tj ET EMC')))
+    }
+
+    // The box covers a blank corner of the first page.
+    const output = await redactPages(await doc.save({ useObjectStreams: false }), [{ index: 0, shown: plainPage, boxes: [{ x: 300, y: 10, width: 20, height: 20 }] }], keepHidden)
+
+    const quotes = (await PDFDocument.load(output)).getPages().map(page =>
+      page.node.Resources()?.lookup(PDFName.of('Properties'), PDFDict).lookup(PDFName.of('Quoted'), PDFDict).get(PDFName.of('ActualText'))?.toString())
+    expect(quotes).toEqual([undefined, '(SHARED-QUOTE)'])
+  })
+
   it('removes the application data and metadata of a form drawn on a redacted page', async () => {
     const box = { x: 36, y: 82, width: 170, height: 24 }
     const { doc, page } = await layeredPdf('/Drawn Do BT /F1 14 Tf 40 300 Td (KEEP ME) Tj ET', { Drawn: { content: 'BT /F1 14 Tf 40 505 Td (ZZZZ) Tj ET' } })
