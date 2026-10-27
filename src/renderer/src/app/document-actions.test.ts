@@ -18,7 +18,7 @@ vi.mock('./editors', () => ({ editorFor }))
 
 import { closeDocument, openRecent, resolveWindowClose } from './document-actions'
 import type { EditorHandler } from './editors'
-import { homeTabId, useDocumentsStore } from './documents-store'
+import { homeTabId, useDocumentsStore, type OpenDocument } from './documents-store'
 
 const report: FileReference = { path: '/files/report.docx', name: 'report', extension: 'docx', size: 1, lastModified: 0 }
 
@@ -75,7 +75,7 @@ describe('closing the window', () => {
 describe('closing a tab', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    useDocumentsStore.setState({ documents: [{ id: 'untitled:1', name: 'Untitled', extension: 'docx', kind: 'docs', dirty: true }], activeId: 'untitled:1' })
+    useDocumentsStore.setState({ documents: [{ id: 'untitled:0', name: 'Untitled', extension: 'docx', kind: 'docs', dirty: true }], activeId: 'untitled:0' })
   })
 
   it('closes a new document once Save has written it, though saving gave the tab its file path', async () => {
@@ -90,8 +90,28 @@ describe('closing a tab', () => {
       },
     })
     confirmClose.mockResolvedValue('save')
-    expect(await closeDocument('untitled:1')).toBe(true)
+    expect(await closeDocument('untitled:0')).toBe(true)
     expect(useDocumentsStore.getState().documents).toEqual([])
     expect(release).toHaveBeenCalledWith(report.path)
+  })
+
+  it('closes the saved tab, not one opened while Save was writing it', async () => {
+    const existing: OpenDocument = { id: '/files/budget.xlsx', name: 'budget', extension: 'xlsx', kind: 'sheets', path: '/files/budget.xlsx', dirty: false }
+    useDocumentsStore.setState(state => ({ documents: [existing, ...state.documents] }))
+    let opened = ''
+    editorFor.mockReturnValue({
+      run: () => undefined,
+      release: () => undefined,
+      save: async id => {
+        // A new spreadsheet joins the spreadsheets, ahead of the document being saved.
+        opened = useDocumentsStore.getState().openUntitled('sheets')
+        useDocumentsStore.getState().setDirty(opened, true)
+        useDocumentsStore.getState().setSaved(id, report)
+        return true
+      },
+    })
+    confirmClose.mockResolvedValue('save')
+    expect(await closeDocument('untitled:0')).toBe(true)
+    expect(useDocumentsStore.getState().documents.map(document => document.id)).toEqual([existing.id, opened])
   })
 })

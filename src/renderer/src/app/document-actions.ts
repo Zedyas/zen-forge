@@ -111,14 +111,21 @@ function flushTyping(id: string): void {
 
 /**
  * Saves a document and resolves the id its tab has afterwards, or undefined when it was not saved.
- * A first save or a saved copy re-keys the tab to its new path, in the same position.
+ * A first save or a saved copy re-keys the tab to its new path in one update, in the same position.
+ * Watching for that update finds the tab even when tabs open or close while the file is written.
  */
 async function saveForClose(id: string): Promise<string | undefined> {
-  const before = useDocumentsStore.getState().documents
-  const position = before.findIndex(candidate => candidate.id === id)
-  if (!(await saveDocument(id, false))) return undefined
-  const after = useDocumentsStore.getState().documents[position]
-  return after !== undefined && !before.some(candidate => candidate.id === after.id) ? after.id : id
+  let current = id
+  const unsubscribe = useDocumentsStore.subscribe((state, previous) => {
+    if (state.documents.length !== previous.documents.length || state.documents.some(candidate => candidate.id === current)) return
+    const rekeyed = state.documents[previous.documents.findIndex(candidate => candidate.id === current)]
+    if (rekeyed !== undefined) current = rekeyed.id
+  })
+  try {
+    return (await saveDocument(id, false)) ? current : undefined
+  } finally {
+    unsubscribe()
+  }
 }
 
 /** Closes a tab, asking Save / Don't Save / Cancel first when it has unsaved changes. */
