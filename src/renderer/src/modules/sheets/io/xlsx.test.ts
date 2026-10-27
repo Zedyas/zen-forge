@@ -151,6 +151,17 @@ describe('xlsx', () => {
     ])
   })
 
+  it('opens a sheet with more rows than a function call can take arguments', async () => {
+    const source = new ExcelJS.Workbook()
+    const sheet = source.addWorksheet('Sheet1')
+    for (let row = 1; row <= 130_000; row += 1) sheet.getCell(row, 1).value = row
+
+    const { data } = await readXlsx(new Uint8Array(await source.xlsx.writeBuffer()))
+
+    expect(data.sheets[0]?.cells).toHaveLength(130_000)
+    expect(data.sheets[0]?.cells.at(-1)).toEqual([130_000])
+  }, 30_000)
+
   it('keeps every text cell text, whatever the engine would read it as, without showing the mark', async () => {
     const source = new ExcelJS.Workbook()
     const sheet = source.addWorksheet('Sheet1')

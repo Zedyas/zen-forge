@@ -460,7 +460,9 @@ function materialize(grid: ReadonlyMap<number, ReadonlyMap<number, ImportedCell>
   readonly cells: CellInput[][]
   readonly values: (string | number | boolean | null)[][]
 } {
-  const lastRow = Math.max(-1, ...grid.keys())
+  // A loop, not Math.max(...rows): a spread of more than about 125,000 rows overflows the call stack.
+  let lastRow = -1
+  grid.forEach((_, row) => { lastRow = Math.max(lastRow, row) })
   const cells: CellInput[][] = []
   const values: (string | number | boolean | null)[][] = []
 
