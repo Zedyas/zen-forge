@@ -310,7 +310,9 @@ export class Workbook {
   #fitRows(sheetId: number, rows: readonly number[], measure: CellMeasure, growOnly: boolean): void {
     const layout = this.#layout(sheetId)
     const styles = this.#styles.get(this.#sheetName(sheetId))
-    const columns = Math.max(this.#engine.getSheetDimensions(sheetId).width, ...[...styles?.keys() ?? []].map(key => parseStyleKey(key)[0] + 1))
+    // A loop, not Math.max(...styles): a spread of more than about 125,000 styled cells overflows the call stack.
+    let columns = this.#engine.getSheetDimensions(sheetId).width
+    styles?.forEach((_, key) => { columns = Math.max(columns, parseStyleKey(key)[0] + 1) })
     new Set(rows).forEach(row => {
       let needed = defaultRowHeight
       for (let col = 0; col < columns; col += 1) {

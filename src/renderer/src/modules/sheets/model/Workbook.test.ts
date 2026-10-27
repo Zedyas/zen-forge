@@ -54,6 +54,20 @@ describe('Workbook', () => {
     expect(workbook.toData().namedRanges).toEqual([])
   })
 
+  it('fits a row to wrapped text on a sheet with more styled cells than a function call can take arguments', () => {
+    const blank = blankWorkbookData()
+    const sheet = blank.sheets[0]
+    if (sheet === undefined) throw new Error('Blank workbook has no sheet.')
+    const wrapped: CellStyle = { numberFormat: 'general', decimalPlaces: 2, wrap: true }
+    const styles = Array.from({ length: 130_000 }, (_, index) => [index % 5, Math.floor(index / 5), wrapped] as const)
+    const workbook = new Workbook({ ...blank, sheets: [{ ...sheet, styles }] })
+    const sheetId = workbook.sheets()[0]?.id ?? 0
+
+    workbook.setCellInput(sheetId, [0, 0], 'long wrapped text', () => 60)
+
+    expect(workbook.getRowHeight(sheetId, 0)).toBe(60)
+  })
+
   it('calculates references across added and renamed sheets', () => {
     const workbook = regionsWorkbook()
     const firstSheet = workbook.sheets()[0]
