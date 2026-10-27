@@ -568,6 +568,11 @@ function imageFromDrawing(drawing: Element, context: Context): JSONContent | und
   if (all(drawing, 'wp:anchor').length > 0) {
     context.findings.add('Image positions and text wrapping', 'degraded', { alternative: 'Shown in line with the text, and saved that way.' })
   }
+  const flag = (value: string | undefined): boolean => value === '1' || value === 'true'
+  const cropped = all(drawing, 'a:srcRect').some(rect => ['l', 't', 'r', 'b'].some(side => (number(attr(rect, side)) ?? 0) !== 0))
+    || all(drawing, 'v:imagedata').some(data => ['croptop', 'cropbottom', 'cropleft', 'cropright'].some(side => (number(attr(data, side)) ?? 0) !== 0))
+  const turned = all(drawing, 'a:xfrm').some(xfrm => (number(attr(xfrm, 'rot')) ?? 0) % 21_600_000 !== 0 || flag(attr(xfrm, 'flipH')) || flag(attr(xfrm, 'flipV')))
+  if (cropped || turned) context.findings.add('Picture cropping and rotation', 'degraded', { alternative: 'Shown whole and upright, and saved that way.' })
   const extent = all(drawing, 'wp:extent')[0]
   const properties = all(drawing, 'wp:docPr')[0]
   const style = attr(all(drawing, 'v:shape')[0], 'style') ?? ''

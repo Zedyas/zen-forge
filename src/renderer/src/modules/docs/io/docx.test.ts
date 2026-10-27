@@ -267,6 +267,22 @@ describe('docx from Word', () => {
     }
   })
 
+  it('reports cropped, rotated and flipped pictures, which show whole and upright', () => {
+    const rels = relationships('<Relationship Id="rId1" Type="image" Target="media/image1.png"/>')
+    const picture = (srcRect: string, xfrm: string): string => '<w:r><w:drawing><wp:inline xmlns:wp="wp" xmlns:a="a" xmlns:pic="pic"><wp:extent cx="381000" cy="190500"/>'
+      + `<a:graphic><a:graphicData><pic:pic><pic:blipFill><a:blip r:embed="rId1"/>${srcRect}</pic:blipFill><pic:spPr><a:xfrm${xfrm}/></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>`
+    const media = Uint8Array.from(atob(png.split(',')[1] ?? ''), character => character.charCodeAt(0))
+    const open = (body: string): readonly string[] => {
+      const bytes = unzipSync(packageOf(body, { 'word/_rels/document.xml.rels': rels }))
+      return readDocx(zipSync({ ...bytes, 'word/media/image1.png': media })).findings.map(finding => finding.construct)
+    }
+
+    expect(open(para(picture('<a:srcRect/>', ' rot="0"')))).toEqual([])
+    for (const changed of [picture('<a:srcRect l="10000" r="5000"/>', ''), picture('', ' rot="5400000"'), picture('', ' flipH="1"')]) {
+      expect(open(para(changed))).toEqual(['Picture cropping and rotation'])
+    }
+  })
+
   it('reports what it does not keep, so saving over the file asks first', () => {
     const footer = '<?xml version="1.0"?><w:ftr NS><w:p><w:fldSimple w:instr=" DATE "><w:r><w:t>25 September 2026</w:t></w:r></w:fldSimple></w:p></w:ftr>'
     const header = `<?xml version="1.0"?><w:hdr NS>${para(run('Confidential draft'))}</w:hdr>`
