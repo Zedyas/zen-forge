@@ -56,9 +56,13 @@ function currentWindow(): WindowRecord | undefined {
   return recordFor(BrowserWindow.getFocusedWindow()) ?? lastFocused ?? records.at(-1)
 }
 
-/** The window a file or command from outside goes to; a new one when none is open. */
-function targetWindow(): WindowRecord {
-  const record = currentWindow() ?? createWindow()
+/**
+ * The window a file or command from outside goes to; a new one when none is open. A file already
+ * open in a window goes to that window, so one file never has tabs in two windows.
+ */
+function targetWindow(path?: string): WindowRecord {
+  const holder = path === undefined ? undefined : records.find(record => record.state.session.paths.includes(path))
+  const record = holder ?? currentWindow() ?? createWindow()
   if (record.window.isMinimized()) record.window.restore()
   record.window.focus()
   return record
@@ -109,7 +113,7 @@ function menuItems(menu: MenuId, record: WindowRecord | undefined): MenuItemCons
 }
 
 function sendRecentsRequest(request: RecentsRequest): void {
-  send(targetWindow(), 'shell:recents-request', request)
+  send(targetWindow(request.action === 'open' ? request.path : undefined), 'shell:recents-request', request)
 }
 
 /** File > Open Recent. Choosing a file asks a window to open it; that window owns the list and reports a file that is gone. */
@@ -312,7 +316,7 @@ function openDocument(file: FileReference): void {
   const application = applicationForExtension(file.extension)
   if (application === undefined || !findApplication(application).available) return
   app.addRecentDocument(file.path)
-  send(targetWindow(), 'shell:document-opened', file)
+  send(targetWindow(file.path), 'shell:document-opened', file)
 }
 
 /** Finder has no window to show a toast in, so a file it hands over that cannot be read is reported in a message box. */
