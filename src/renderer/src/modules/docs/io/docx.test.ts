@@ -301,6 +301,27 @@ describe('docx from Word', () => {
     }
   })
 
+  it('keeps the link Word stores on a picture itself, and reports one it cannot keep', () => {
+    const rels = relationships(
+      '<Relationship Id="rId1" Type="image" Target="media/image1.png"/>',
+      '<Relationship Id="rId2" Type="hyperlink" Target="https://example.com/" TargetMode="External"/>',
+      '<Relationship Id="rId3" Type="hyperlink" Target="file:///Users/ana/plan.xlsx" TargetMode="External"/>',
+    )
+    const picture = (id: string): string => '<w:r><w:drawing><wp:inline xmlns:wp="wp" xmlns:a="a" xmlns:pic="pic"><wp:extent cx="381000" cy="190500"/>'
+      + `<wp:docPr id="1" name="Picture 1"><a:hlinkClick r:id="${id}"/></wp:docPr>`
+      + '<a:graphic><a:graphicData><pic:pic><pic:blipFill><a:blip r:embed="rId1"/></pic:blipFill></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>'
+    const media = Uint8Array.from(atob(png.split(',')[1] ?? ''), character => character.charCodeAt(0))
+    const open = (id: string): ReturnType<typeof readDocx> => {
+      const bytes = unzipSync(packageOf(para(picture(id)), { 'word/_rels/document.xml.rels': rels }))
+      return readDocx(zipSync({ ...bytes, 'word/media/image1.png': media }))
+    }
+
+    const linked = open('rId2')
+    expect(linked.findings).toEqual([])
+    expect(linked.content.content?.[0]?.content?.[0]).toMatchObject({ type: 'image', marks: [{ type: 'link', attrs: { href: 'https://example.com/' } }] })
+    expect(open('rId3').findings.map(finding => finding.construct)).toEqual(['Links to files and other apps'])
+  })
+
   it('reports right indents, which it does not keep', () => {
     const open = (pPr: string): readonly string[] => readDocx(packageOf(para(run('Indented'), pPr))).findings.map(finding => finding.construct)
     expect(open('<w:ind w:left="720" w:right="0"/>')).toEqual([])

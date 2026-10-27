@@ -587,6 +587,14 @@ function imageFromDrawing(drawing: Element, context: Context): JSONContent | und
   const width = extent === undefined ? vmlWidth === undefined ? undefined : vmlWidth * 4 / 3 : (number(attr(extent, 'cx')) ?? 0) / 9525
   const height = extent === undefined ? vmlHeight === undefined ? undefined : vmlHeight * 4 / 3 : (number(attr(extent, 'cy')) ?? 0) / 9525
   const alt = attr(properties, 'descr') || attr(properties, 'title')
+  // Word stores a link on the picture itself as a click action in the picture's properties.
+  const click = all(drawing, 'a:hlinkClick')[0]
+  const clickId = attr(click, 'r:id') ?? ''
+  const clickTarget = context.relationships.get(clickId)
+  if (clickId !== '' && clickTarget?.external !== true) {
+    context.findings.add('Links within the document', 'degraded', { unit: 'link', alternative: 'The link text is kept; the links are not.' })
+  }
+  const href = clickTarget?.external === true ? keptLink(clickTarget.target, context) : undefined
   return {
     type: 'image',
     attrs: {
@@ -594,6 +602,7 @@ function imageFromDrawing(drawing: Element, context: Context): JSONContent | und
       ...(alt === undefined || alt === '' ? {} : { alt }),
       ...(width === undefined || height === undefined ? {} : { width: Math.round(width), height: Math.round(height) }),
     },
+    ...(href === undefined ? {} : { marks: [{ type: 'link', attrs: { href } }] }),
   }
 }
 
