@@ -1,15 +1,18 @@
 import type { Paper } from '@shared/print'
 import { pageSetup, printableArea, type PageSetup, type Printout } from '../../services/print/print'
 import { fontPixels } from './cell-text'
+import { viewRange } from './grid-mapping'
 import { formatCellValue, formatColor } from './model/format'
 import type { CellStyle, Workbook } from './model/Workbook'
-import type { HorizontalAlign } from './model/workbook-data'
+import type { CellRange, HorizontalAlign } from './model/workbook-data'
 
 export interface PrintCell {
   readonly text: string
   readonly style: CellStyle
   /** The cell's own alignment, else the grid's: numbers right, everything else left. */
   readonly align: HorizontalAlign
+  /** The merged block holding the cell, in table columns and rows; the block prints as one cell. */
+  readonly block?: CellRange
 }
 
 /** A sheet's used range as it prints: hidden rows and columns left out, values formatted as the grid shows them. */
@@ -28,14 +31,18 @@ export function sheetPrintTable(workbook: Workbook, sheetId: number): SheetPrint
   const { width, height } = workbook.usedSize(sheetId)
   const rows = workbook.visibleRows(sheetId).filter(row => row < height)
   const columns = workbook.visibleColumns(sheetId).filter(column => column < width)
-  const cells = rows.map(row => columns.map((column): PrintCell => {
+  const blocks = workbook.merges(sheetId).flatMap(merge => viewRange(merge, columns, rows) ?? [])
+  const cells = rows.map((row, rowIndex) => columns.map((column, columnIndex): PrintCell => {
     const value = workbook.getCellValue(sheetId, [column, row])
     const style = workbook.getStyle(sheetId, [column, row])
     const color = formatColor(value, style)
+    const block = blocks.find(candidate => columnIndex >= candidate.x && columnIndex < candidate.x + candidate.width
+      && rowIndex >= candidate.y && rowIndex < candidate.y + candidate.height)
     return {
       text: formatCellValue(value, style),
       style: color === undefined ? style : { ...style, textColor: color },
       align: style.align ?? (typeof value === 'number' ? 'right' : 'left'),
+      ...(block === undefined ? {} : { block }),
     }
   }))
   if (cells.every(row => row.every(cell => cell.text === ''))) return undefined
@@ -130,16 +137,29 @@ function tableElement(table: SheetPrintTable, columns: readonly number[]): HTMLT
     colgroup.appendChild(document.createElement('col')).style.width = `${width}px`
   })
   element.style.width = `${sum(widths)}px`
-  const addRows = (section: HTMLTableSectionElement, rows: readonly (readonly PrintCell[])[]): void => rows.forEach(row => {
+  // `offset` is the section's first table row, which merged blocks count from.
+  const addRows = (section: HTMLTableSectionElement, rows: readonly (readonly PrintCell[])[], offset: number): void => rows.forEach((row, index) => {
     const line = section.insertRow()
-    columns.forEach(column => {
+    columns.forEach((column, position) => {
       const cell = row[column]
-      if (cell !== undefined) line.append(cellElement(cell))
+      const block = cell?.block
+      if (cell === undefined) return
+      if (block === undefined) {
+        line.append(cellElement(cell))
+        return
+      }
+      // A merged block prints from its first row and column on this page and in this section; its other cells are covered.
+      const inBlock = (candidate: number | undefined): boolean => candidate !== undefined && candidate >= block.x && candidate < block.x + block.width
+      if (offset + index !== Math.max(block.y, offset) || inBlock(columns[position - 1])) return
+      const merged = cellElement(cell)
+      merged.colSpan = columns.filter(inBlock).length
+      merged.rowSpan = Math.min(block.y + block.height, offset + rows.length) - (offset + index)
+      line.append(merged)
     })
   })
   // A table header repeats at the top of every printed page.
-  if (table.headRows.length > 0) addRows(element.createTHead(), table.headRows)
-  addRows(element.createTBody(), table.bodyRows)
+  if (table.headRows.length > 0) addRows(element.createTHead(), table.headRows, 0)
+  addRows(element.createTBody(), table.bodyRows, table.headRows.length)
   return element
 }
 

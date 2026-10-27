@@ -1,7 +1,8 @@
+// @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest'
 import { a4Paper, letterPaper } from '@shared/print'
 import { blankWorkbookData, Workbook } from './model/Workbook'
-import { planSheetPages, sheetPrintTable, type PrintCell } from './print'
+import { planSheetPages, sheetPrintout, sheetPrintTable, type PrintCell } from './print'
 
 function workbookWith(cells: (string | number)[][]): { workbook: Workbook; sheetId: number } {
   const blank = blankWorkbookData()
@@ -56,6 +57,23 @@ describe('sheetPrintTable', () => {
 
     expect(texts(table?.headRows ?? [])).toEqual([['Month']])
     expect(texts(table?.bodyRows ?? [])).toEqual([['Jan'], ['Feb']])
+  })
+
+  it('prints a merged cell as one cell across its columns and rows', () => {
+    const { workbook, sheetId } = workbookWith([['Quarterly report for every region'], ['North', 'Q1', 10], ['', 'Q2', 20]])
+    workbook.mergeCells(sheetId, { x: 0, y: 0, width: 3, height: 1 }, false)
+    workbook.mergeCells(sheetId, { x: 0, y: 1, width: 1, height: 2 }, false)
+
+    const table = sheetPrintTable(workbook, sheetId)
+    const content = table === undefined ? undefined : sheetPrintout(table, letterPaper).content
+    const printed = content instanceof HTMLElement ? content.querySelector('table') : null
+    const rows = [...printed?.rows ?? []].map(row => [...row.cells].map(cell => [cell.textContent, cell.colSpan, cell.rowSpan]))
+
+    expect(rows).toEqual([
+      [['Quarterly report for every region', 3, 1]],
+      [['North', 1, 2], ['Q1', 1, 1], ['10', 1, 1]],
+      [['Q2', 1, 1], ['20', 1, 1]],
+    ])
   })
 
   it('has nothing to print when the visible cells are empty', () => {
