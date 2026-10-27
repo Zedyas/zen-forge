@@ -166,6 +166,7 @@ function appearanceItems(): MenuItemConstructorOptions[] {
 /** The menu bar follows the focused window's active tab: Format appears for a spreadsheet, Page for a PDF, Slide for a presentation. */
 function buildMenu(record: WindowRecord | undefined): Menu {
   const edit = menuItems('edit', record)
+  const history = edit.filter(item => item.id === 'edit.undo' || item.id === 'edit.redo')
   const find = edit.filter(item => item.id === 'edit.find')
   const editing = edit.filter(item => item.id !== 'edit.undo' && item.id !== 'edit.redo' && item.id !== 'edit.find' && item.type !== 'separator')
   const file = menuItems('file', record)
@@ -205,7 +206,8 @@ function buildMenu(record: WindowRecord | undefined): Menu {
     {
       label: 'Edit',
       submenu: [
-        ...edit.filter(item => item.id === 'edit.undo' || item.id === 'edit.redo'),
+        // Home has no document to undo; its text fields still need Undo and Redo, which macOS reaches only through the menu.
+        ...(history.length > 0 ? history : [{ role: 'undo' as const }, { role: 'redo' as const }]),
         { type: 'separator' },
         { role: 'cut' },
         { role: 'copy' },
