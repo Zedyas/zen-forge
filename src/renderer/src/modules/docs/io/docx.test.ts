@@ -257,6 +257,16 @@ describe('docx from Word', () => {
     expect(content.content?.map(node => node.attrs)).toEqual([{ spaceAfter: 0, lineHeight: 1 }, { indentLeft: 36 }])
   })
 
+  it('reports links to files and other apps, which it does not keep', () => {
+    const rels = relationships('<Relationship Id="rId1" Type="hyperlink" Target="file:///Users/ana/plan.xlsx" TargetMode="External"/>')
+    const field = '<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> HYPERLINK "onenote:///Notes/Plan.one" </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r>'
+      + run('notes') + '<w:r><w:fldChar w:fldCharType="end"/></w:r>'
+    for (const body of [para(`<w:hyperlink r:id="rId1">${run('the plan')}</w:hyperlink>`), para(field), para(`<w:fldSimple w:instr=" HYPERLINK &quot;file:///x.docx&quot; ">${run('x')}</w:fldSimple>`)]) {
+      const { findings } = readDocx(packageOf(body, { 'word/_rels/document.xml.rels': rels }))
+      expect(findings.map(finding => finding.construct)).toEqual(['Links to files and other apps'])
+    }
+  })
+
   it('reports what it does not keep, so saving over the file asks first', () => {
     const footer = '<?xml version="1.0"?><w:ftr NS><w:p><w:fldSimple w:instr=" DATE "><w:r><w:t>25 September 2026</w:t></w:r></w:fldSimple></w:p></w:ftr>'
     const header = `<?xml version="1.0"?><w:hdr NS>${para(run('Confidential draft'))}</w:hdr>`

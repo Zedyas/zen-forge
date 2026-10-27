@@ -494,6 +494,15 @@ function hyperlinkTarget(instruction: string): string | undefined {
   return /^\s*HYPERLINK\s+"([^"]+)"/i.exec(instruction)?.[1]
 }
 
+/** A link's target when Sumi keeps it (web and mail); a link to a file or another app is reported, as only its text is kept. */
+function keptLink(target: string | undefined, context: Context): string | undefined {
+  const href = safeHref(target)
+  if (href === undefined && target !== undefined) {
+    context.findings.add('Links to files and other apps', 'degraded', { unit: 'link', alternative: 'The link text is kept; the links are not.' })
+  }
+  return href
+}
+
 /** Formatting set on the text, as marks. A link's own style gives its colour and underline, which the link mark shows. */
 function marksFor(run: RunProps, href: string | undefined, code: boolean, context: Context): JSONContent['marks'] {
   if (code) return [{ type: 'code' }]
@@ -613,7 +622,8 @@ function inlineContent(paragraph: Element, styleRun: RunProps, context: Context)
             const name = ended === undefined ? '' : fieldName(ended.instruction)
             const pageField = pageFieldOf(name, context)
             if (pageField !== undefined) current().push({ type: 'pageField', attrs: { kind: pageField }, ...markList(marks()) })
-            else if (name !== '' && name !== 'HYPERLINK') {
+            else if (name === 'HYPERLINK') keptLink(hyperlinkTarget(ended?.instruction ?? ''), context)
+            else if (name !== '') {
               context.findings.add('Fields', 'dropped', { name, alternative: 'Their last shown text is kept as plain text; they no longer update.' })
             }
           }
@@ -695,7 +705,7 @@ function inlineContent(paragraph: Element, styleRun: RunProps, context: Context)
         case 'w:hyperlink': {
           const relationship = context.relationships.get(attr(child, 'r:id') ?? '')
           const anchor = attr(child, 'w:anchor')
-          const target = relationship?.external === true ? safeHref(`${relationship.target}${anchor === undefined ? '' : `#${anchor}`}`) : undefined
+          const target = relationship?.external === true ? keptLink(`${relationship.target}${anchor === undefined ? '' : `#${anchor}`}`, context) : undefined
           if (relationship === undefined && anchor !== undefined) {
             context.findings.add('Links within the document', 'degraded', { unit: 'link', alternative: 'The link text is kept; the links are not.' })
           }
@@ -711,7 +721,7 @@ function inlineContent(paragraph: Element, styleRun: RunProps, context: Context)
             break
           }
           if (name !== 'HYPERLINK') context.findings.add('Fields', 'dropped', { name, alternative: 'Their last shown text is kept as plain text; they no longer update.' })
-          walk(child, safeHref(hyperlinkTarget(instruction)) ?? href)
+          walk(child, keptLink(hyperlinkTarget(instruction), context) ?? href)
           break
         }
         case 'w:ins':
