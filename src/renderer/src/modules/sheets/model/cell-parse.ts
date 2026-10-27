@@ -74,11 +74,12 @@ export function parseCellText(value: string): { readonly input: CellInput; reado
   if (trimmed.startsWith('=')) return { input: value }
   if (/^(true|false)$/i.test(trimmed)) return { input: trimmed.toLowerCase() === 'true' }
 
-  const currency = trimmed.match(/^\(?\s*[$€£]\s*([\d,]+(?:\.\d+)?)\s*\)?$/)
+  // A negative amount shows as -$12.50 (Excel, Google Sheets) or ($12.50) (accounting).
+  const currency = trimmed.match(/^-?\(?\s*[$€£]\s*([\d,]+(?:\.\d+)?)\s*\)?$/)
   const currencyAmount = currency === null ? undefined : groupedNumber(currency[1] ?? '')
   if (currency !== null && currencyAmount !== undefined) {
     return {
-      input: currencyAmount * (trimmed.startsWith('(') ? -1 : 1),
+      input: currencyAmount * (trimmed.startsWith('(') || trimmed.startsWith('-') ? -1 : 1),
       style: { numberFormat: 'currency', decimalPlaces: decimalPlaces(currency[1] ?? '') },
     }
   }
