@@ -141,6 +141,8 @@ export async function closeDocument(id: string): Promise<boolean> {
     if (choice === 'save') {
       const saved = await saveForClose(id)
       if (saved === undefined) return false
+      // Typing during the save is not in the file; closing now would throw it away, so ask again.
+      if (findDocument(saved)?.dirty === true) return closeDocument(saved)
       closing = saved
     }
   }

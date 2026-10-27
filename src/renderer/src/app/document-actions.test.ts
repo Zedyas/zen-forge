@@ -114,4 +114,23 @@ describe('closing a tab', () => {
     expect(await closeDocument('untitled:0')).toBe(true)
     expect(useDocumentsStore.getState().documents.map(document => document.id)).toEqual([existing.id, opened])
   })
+
+  it('asks again instead of closing when typing arrived while Save was writing the file', async () => {
+    const release = vi.fn<(id: string) => void>()
+    editorFor.mockReturnValue({
+      run: () => undefined,
+      release,
+      // As the editors do: edits made while the file was written keep the tab unsaved.
+      save: async id => {
+        const saved = useDocumentsStore.getState().setSaved(id, report)
+        useDocumentsStore.getState().setDirty(saved, true)
+        return true
+      },
+    })
+    confirmClose.mockResolvedValueOnce('save').mockResolvedValueOnce('cancel')
+    expect(await closeDocument('untitled:0')).toBe(false)
+    expect(confirmClose).toHaveBeenCalledTimes(2)
+    expect(release).not.toHaveBeenCalled()
+    expect(useDocumentsStore.getState().documents).toMatchObject([{ id: report.path, dirty: true }])
+  })
 })
