@@ -129,7 +129,7 @@ describe('.pptx font names', () => {
     const xml = strFromU8(unzipSync(bytes)['ppt/slides/slide1.xml'] ?? new Uint8Array())
     expect(new DOMParser().parseFromString(xml, 'application/xml').getElementsByTagName('parsererror')).toHaveLength(0)
     const [text, grid] = reopened.slides[0]?.elements ?? []
-    expect(text?.kind === 'text' ? text.paragraphs.slice(0, 2).map(paragraph => paragraph.runs[0]?.font) : undefined).toEqual([font, font])
+    expect(text?.kind === 'text' ? text.paragraphs.map(paragraph => paragraph.runs[0]?.font) : undefined).toEqual([font, font, 'The "Font"'])
     expect(grid).toMatchObject({ kind: 'table', font })
   })
 })

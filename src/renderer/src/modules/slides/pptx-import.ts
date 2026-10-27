@@ -382,7 +382,8 @@ function readRun(span: Element, context: TextContext): TextRun {
     underline: (style.get('text-decoration') ?? '').includes('underline'),
     color: parseColor(style.get('color')) ?? defaultTheme.text,
     size: Math.round((Number.isFinite(size) ? size : 18) * context.fontScale * 10) / 10,
-    font: (style.get('font-family') ?? '').replace(/["']/g, '').split(',')[0]?.trim() || defaultTheme.font,
+    // Only quotes around the whole name are CSS; a quote inside it is part of the name.
+    font: (style.get('font-family') ?? '').split(',')[0]?.trim().replace(/^(["'])(.*)\1$/, '$2') || defaultTheme.font,
   })
 }
 
