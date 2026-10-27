@@ -26,9 +26,17 @@ export interface SheetPrintTable {
   readonly bodyRows: readonly (readonly PrintCell[])[]
 }
 
+/** The used size of a sheet, grown to the far edge of any merged cell that starts inside it, so a merged title keeps its size. */
+function printedSize(workbook: Workbook, sheetId: number): { readonly width: number; readonly height: number } {
+  const used = workbook.usedSize(sheetId)
+  return workbook.merges(sheetId).reduce((size, merge) => merge.x < used.width && merge.y < used.height
+    ? { width: Math.max(size.width, merge.x + merge.width), height: Math.max(size.height, merge.y + merge.height) }
+    : size, used)
+}
+
 /** The printable table of a sheet, or undefined when its visible cells are all empty. */
 export function sheetPrintTable(workbook: Workbook, sheetId: number): SheetPrintTable | undefined {
-  const { width, height } = workbook.usedSize(sheetId)
+  const { width, height } = printedSize(workbook, sheetId)
   const rows = workbook.visibleRows(sheetId).filter(row => row < height)
   const columns = workbook.visibleColumns(sheetId).filter(column => column < width)
   const blocks = workbook.merges(sheetId).flatMap(merge => viewRange(merge, columns, rows) ?? [])

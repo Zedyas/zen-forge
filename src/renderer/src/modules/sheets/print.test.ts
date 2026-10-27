@@ -76,6 +76,17 @@ describe('sheetPrintTable', () => {
     ])
   })
 
+  it('prints a sheet whose only content is a title merged across several cells at the merge\'s size', () => {
+    const { workbook, sheetId } = workbookWith([['Quarterly report']])
+    workbook.mergeCells(sheetId, { x: 0, y: 0, width: 3, height: 2 }, false)
+
+    const table = sheetPrintTable(workbook, sheetId)
+
+    expect(table?.columnWidths).toHaveLength(3)
+    expect(table?.bodyRows).toHaveLength(2)
+    expect(table?.bodyRows[0]?.[0]?.block).toEqual({ x: 0, y: 0, width: 3, height: 2 })
+  })
+
   it('has nothing to print when the visible cells are empty', () => {
     const empty = workbookWith([])
     expect(sheetPrintTable(empty.workbook, empty.sheetId)).toBeUndefined()
