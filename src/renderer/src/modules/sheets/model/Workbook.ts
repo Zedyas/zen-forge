@@ -83,6 +83,9 @@ interface MutableCellRange {
 const workbookConfig = {
   licenseKey: 'gpl-v3',
   precisionRounding: 10,
+  // Excel's grid; the engine's own default stops at 40,000 rows, so a larger file would not open.
+  maxRows: 1_048_576,
+  maxColumns: 16_384,
   // Undo history is owned by the snapshot stacks below; the engine keeps none.
   undoLimit: 0,
 } as const

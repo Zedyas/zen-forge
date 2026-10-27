@@ -68,6 +68,20 @@ describe('Workbook', () => {
     expect(workbook.getRowHeight(sheetId, 0)).toBe(60)
   })
 
+  it('holds as many rows as Excel, beyond the engine’s default limit of 40,000', () => {
+    const blank = blankWorkbookData()
+    const sheet = blank.sheets[0]
+    if (sheet === undefined) throw new Error('Blank workbook has no sheet.')
+    const cells = Array.from({ length: 50_000 }, (_, row) => [row + 1])
+    const workbook = new Workbook({ ...blank, sheets: [{ ...sheet, cells }] })
+    const sheetId = workbook.sheets()[0]?.id ?? 0
+
+    workbook.setCellInput(sheetId, [1, 0], '=SUM(A:A)')
+
+    expect(workbook.getCellValue(sheetId, [0, 49_999])).toBe(50_000)
+    expect(workbook.getCellValue(sheetId, [1, 0])).toBe(1_250_025_000)
+  })
+
   it('calculates references across added and renamed sheets', () => {
     const workbook = regionsWorkbook()
     const firstSheet = workbook.sheets()[0]
