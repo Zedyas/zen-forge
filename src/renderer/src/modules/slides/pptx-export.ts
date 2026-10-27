@@ -42,7 +42,7 @@ function lineOf(border: Border | undefined, arrow: boolean): PptxGenJS.ShapeLine
  */
 function textRuns(paragraphs: readonly Paragraph[]): PptxGenJS.TextProps[] {
   return paragraphs.flatMap((paragraph, index) => paragraph.runs.map((run, position): PptxGenJS.TextProps => ({
-    text: run.text,
+    text: xmlText(run.text),
     options: {
       bold: run.bold,
       italic: run.italic,
@@ -67,9 +67,17 @@ function hex(color: string): string | undefined {
   return opaqueHex(color)?.slice(1)
 }
 
+/**
+ * Text without the control characters XML cannot hold, which would make PowerPoint refuse the file.
+ * Pasted text brings them: PowerPoint itself copies a line break as a vertical tab.
+ */
+function xmlText(text: string): string {
+  return text.replace(/[^\t\n\r\u0020-\uFFFD\u{10000}-\u{10FFFF}]/gu, '')
+}
+
 /** pptxgenjs writes font names into its XML as they are, where `&`, `<` and `"` would break the file. */
 function fontName(font: string): string {
-  return font.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  return xmlText(font).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
 /**
@@ -80,7 +88,7 @@ function addTable(slide: PptxGenJS.Slide, table: TableElement): void {
   const visible = table.border.width > 0 && transparency(table.border.color) < 100
   const edge: PptxGenJS.BorderProps = visible ? { type: 'solid', pt: table.border.width, color: hex(table.border.color) } : { type: 'none' }
   const rows: PptxGenJS.TableRow[] = table.rows.map(row => row.cells.map((cell): PptxGenJS.TableCell => ({
-    text: cell.text,
+    text: xmlText(cell.text),
     options: {
       bold: cell.bold,
       color: hex(cell.color ?? table.color),
@@ -307,7 +315,7 @@ export async function writePptx(presentation: Presentation): Promise<Uint8Array>
     const output = pptx.addSlide()
     output.background = slide.backgroundImage === undefined ? fillOf(slide.background) : { data: withoutScheme(slide.backgroundImage) }
     slide.elements.forEach(element => addElement(output, element))
-    if (slide.notes.trim() !== '') output.addNotes(slide.notes)
+    if (slide.notes.trim() !== '') output.addNotes(xmlText(slide.notes))
   }
   const written = await pptx.write({ outputType: 'uint8array' })
   if (!(written instanceof Uint8Array)) throw new Error('The presentation could not be written.')

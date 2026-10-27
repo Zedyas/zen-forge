@@ -133,6 +133,23 @@ describe('.pptx font names', () => {
   })
 })
 
+describe('.pptx control characters', () => {
+  it('saves pasted text holding PowerPoint\'s vertical-tab line breaks without them, so the file stays valid XML', async () => {
+    const pasted = 'one\u000btwo'
+    const box: SlideElement = { ...title, paragraphs: [paragraphOf(pasted)] }
+    const table = updateCell(newTable(1, 1, { width: 960, height: 540, theme: 'light' }), 0, 0, { text: pasted })
+    const deck: Presentation = { ...presentation, slides: [{ id: newId(), background: '#ffffff', elements: [box, table], notes: pasted }] }
+
+    const parts = unzipSync(await writePptx(deck))
+
+    for (const name of ['ppt/slides/slide1.xml', 'ppt/notesSlides/notesSlide1.xml']) {
+      const xml = strFromU8(parts[name] ?? new Uint8Array())
+      expect(xml).toContain('onetwo')
+      expect(xml).not.toContain('\u000b')
+    }
+  })
+})
+
 describe('.pptx placeholder bullets', () => {
   it('leaves out the bullets a content placeholder\'s layout turns off, and keeps them where it does not', async () => {
     const box = (text: string, y: number): SlideElement => ({ ...title, id: newId(), y, paragraphs: [paragraphOf(text)] })
