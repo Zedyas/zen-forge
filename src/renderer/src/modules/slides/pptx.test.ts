@@ -114,6 +114,25 @@ describe('.pptx table borders', () => {
   })
 })
 
+describe('.pptx font names', () => {
+  it('saves a font name with &, < or " as a file that reopens, with the same name', async () => {
+    const font = 'Fira & Co <Sans>'
+    const box: SlideElement = { ...title, paragraphs: [paragraphOf('Named', { font }), paragraphOf('', { font }), paragraphOf('Quoted', { font: 'The "Font"' })] }
+    const table = { ...newTable(1, 1, { width: 960, height: 540, theme: 'light' }), font }
+    const deck: Presentation = { ...presentation, slides: [{ id: newId(), background: '#ffffff', elements: [box, table], notes: '' }] }
+
+    const bytes = await writePptx(deck)
+    const { presentation: reopened } = await readPptx(bytes)
+
+    // PowerPoint refuses a slide whose XML is not well formed; pptxtojson reads past it.
+    const xml = strFromU8(unzipSync(bytes)['ppt/slides/slide1.xml'] ?? new Uint8Array())
+    expect(new DOMParser().parseFromString(xml, 'application/xml').getElementsByTagName('parsererror')).toHaveLength(0)
+    const [text, grid] = reopened.slides[0]?.elements ?? []
+    expect(text?.kind === 'text' ? text.paragraphs.slice(0, 2).map(paragraph => paragraph.runs[0]?.font) : undefined).toEqual([font, font])
+    expect(grid).toMatchObject({ kind: 'table', font })
+  })
+})
+
 describe('.pptx placeholder bullets', () => {
   it('leaves out the bullets a content placeholder\'s layout turns off, and keeps them where it does not', async () => {
     const box = (text: string, y: number): SlideElement => ({ ...title, id: newId(), y, paragraphs: [paragraphOf(text)] })

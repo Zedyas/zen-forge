@@ -51,7 +51,7 @@ function textRuns(paragraphs: readonly Paragraph[]): PptxGenJS.TextProps[] {
       transparency: transparency(run.color),
       highlight: run.highlight === undefined ? undefined : hex(run.highlight),
       fontSize: run.size,
-      fontFace: run.font,
+      fontFace: fontName(run.font),
       align: paragraph.align,
       ...(position === 0 ? {
         bullet: paragraph.list === 'bullet' ? true : paragraph.list === 'number' ? { type: 'number' } : false,
@@ -65,6 +65,11 @@ function textRuns(paragraphs: readonly Paragraph[]): PptxGenJS.TextProps[] {
 
 function hex(color: string): string | undefined {
   return opaqueHex(color)?.slice(1)
+}
+
+/** pptxgenjs writes font names into its XML as they are, where `&`, `<` and `"` would break the file. */
+function fontName(font: string): string {
+  return font.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
 /**
@@ -83,7 +88,7 @@ function addTable(slide: PptxGenJS.Slide, table: TableElement): void {
       align: cell.align,
       valign: cell.verticalAlign,
       fontSize: table.size,
-      fontFace: table.font,
+      fontFace: fontName(table.font),
       border: [edge, edge, edge, edge],
     },
   })))
@@ -243,7 +248,7 @@ function endParagraphProperties(style: RunStyle): string {
   const hex = opaqueHex(style.color)?.slice(1) ?? '000000'
   const opacity = 100 - transparency(style.color)
   const alpha = opacity < 100 ? `<a:alpha val="${opacity * 1000}"/>` : ''
-  const font = style.font.replace(/[<>&"]/g, '')
+  const font = fontName(style.font)
   return `<a:endParaRPr lang="en-US" sz="${Math.round(style.size * 100)}" b="${style.bold ? 1 : 0}" i="${style.italic ? 1 : 0}" u="${style.underline ? 'sng' : 'none'}" dirty="0">`
     + `<a:solidFill><a:srgbClr val="${hex}">${alpha}</a:srgbClr></a:solidFill><a:latin typeface="${font}"/></a:endParaRPr>`
 }
