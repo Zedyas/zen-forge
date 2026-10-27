@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, Menu, nativeTheme, type IpcMainInvokeEvent, type MenuItemConstructorOptions } from 'electron'
+import { app, BrowserWindow, dialog, Menu, nativeTheme, type IpcMainInvokeEvent, type MenuItemConstructorOptions, type WebContents } from 'electron'
 import { basename, extname, join } from 'node:path'
 import { applicationForExtension, findApplication, suiteName } from '../../src/shared/applications'
 import { commandApplies, commandDefinitions, type CommandDefinition, type MenuId } from '../../src/shared/commands'
@@ -56,16 +56,23 @@ function currentWindow(): WindowRecord | undefined {
   return recordFor(BrowserWindow.getFocusedWindow()) ?? lastFocused ?? records.at(-1)
 }
 
+/** A window other than `sender`'s with a tab on `path`. */
+function windowWith(path: string, sender?: WebContents): WindowRecord | undefined {
+  return records.find(record => record.window.webContents !== sender && record.state.session.paths.includes(path))
+}
+
+function bringForward(record: WindowRecord): WindowRecord {
+  if (record.window.isMinimized()) record.window.restore()
+  record.window.focus()
+  return record
+}
+
 /**
  * The window a file or command from outside goes to; a new one when none is open. A file already
  * open in a window goes to that window, so one file never has tabs in two windows.
  */
 function targetWindow(path?: string): WindowRecord {
-  const holder = path === undefined ? undefined : records.find(record => record.state.session.paths.includes(path))
-  const record = holder ?? currentWindow() ?? createWindow()
-  if (record.window.isMinimized()) record.window.restore()
-  record.window.focus()
-  return record
+  return bringForward((path === undefined ? undefined : windowWith(path)) ?? currentWindow() ?? createWindow())
 }
 
 /** Remembers each open window's saved tabs for the next launch. Skipped while quitting so closing windows do not erase it. */
@@ -340,6 +347,14 @@ handle('shell:new-window', () => {
 handle('shell:open-in-new-window', (_event, file: FileReference) => {
   send(createWindow(), 'shell:document-opened', file)
 })
+handle('shell:show-in-other-window', async (event, path: unknown) => {
+  if (typeof path !== 'string') return false
+  const holder = windowWith(path, event.sender)
+  if (holder === undefined) return false
+  // Sent as an opened document, which selects the tab there without asking about other windows again.
+  send(bringForward(holder), 'shell:document-opened', await fileService.describeFile(path))
+  return true
+})
 handle('shell:take-session', event => {
   const record = senderRecord(event)
   const restore = record?.restore
@@ -415,8 +430,7 @@ app.whenReady().then(() => {
   if (!app.isPackaged) app.dock?.setIcon(join(__dirname, '../../build/icon.png'))
   applySecurity()
   applyStoredAppearance()
-  registerFileIpc((event, path) => records.some(record =>
-    record.window.webContents !== event.sender && record.state.session.paths.includes(path)))
+  registerFileIpc((event, path) => windowWith(path, event.sender) !== undefined)
   registerUpdates(broadcast)
   registerPrintIpc()
   registerLinkIpc()

@@ -75,6 +75,8 @@ export interface ShellBridge {
   newWindow(): Promise<void>
   /** Opens a saved file as the only tab of a new window. */
   openInNewWindow(file: FileReference): Promise<void>
+  /** Brings forward another window that has a tab on the file, showing that tab; false when no other window has it. */
+  showInOtherWindow(path: string): Promise<boolean>
   /** Last session's tabs for this window, handed over once; undefined for windows that start empty. */
   takeSession(): Promise<WindowSession | undefined>
   showOpenDialog(options: OpenFileOptions): Promise<readonly FileReference[]>

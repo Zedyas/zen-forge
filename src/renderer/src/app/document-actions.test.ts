@@ -1,16 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CloseChoice, FileReference } from '@shared/shell'
 
-const { describeFile, forgetRecent, recordRecent, confirmClose, resolveClose } = vi.hoisted(() => ({
+const { describeFile, forgetRecent, recordRecent, confirmClose, resolveClose, showInOtherWindow } = vi.hoisted(() => ({
   describeFile: vi.fn<(path: string) => Promise<FileReference>>(),
   forgetRecent: vi.fn<(path: string) => Promise<void>>(async () => undefined),
   recordRecent: vi.fn<(file: FileReference) => Promise<void>>(async () => undefined),
   confirmClose: vi.fn<(name: string) => Promise<CloseChoice>>(),
   resolveClose: vi.fn<(approved: boolean) => Promise<void>>(async () => undefined),
+  showInOtherWindow: vi.fn<(path: string) => Promise<boolean>>(async () => false),
 }))
 vi.mock('../services/file/IpcFileService', () => ({ fileService: { describe: describeFile } }))
 vi.mock('../services/index/document-index', () => ({ forgetRecent, recordRecent }))
-vi.mock('../services/platform/client', () => ({ platformClient: { confirmClose, resolveClose } }))
+vi.mock('../services/platform/client', () => ({ platformClient: { confirmClose, resolveClose, showInOtherWindow } }))
 vi.mock('../ui/ConfirmDialog', () => ({ askConfirm: async () => ({ value: 'cancel' }) }))
 vi.mock('./editors', () => ({ editorFor: () => undefined }))
 
@@ -31,6 +32,14 @@ describe('opening a recent file', () => {
     expect(useDocumentsStore.getState().documents.map(document => document.id)).toEqual([report.path])
     expect(recordRecent).toHaveBeenCalledWith(report)
     expect(forgetRecent).not.toHaveBeenCalled()
+  })
+
+  it('shows a file another window has open in that window instead of opening a second tab', async () => {
+    describeFile.mockResolvedValue(report)
+    showInOtherWindow.mockResolvedValueOnce(true)
+    await openRecent(report.path)
+    expect(showInOtherWindow).toHaveBeenCalledWith(report.path)
+    expect(useDocumentsStore.getState().documents).toEqual([])
   })
 
   it('drops a file that is gone from the list and reports why it did not open', async () => {

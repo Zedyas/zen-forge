@@ -13,6 +13,10 @@ export const platformClient = {
     await requireBridge('New windows').openInNewWindow(file)
   },
 
+  async showInOtherWindow(path: string): Promise<boolean> {
+    return (await getBridge()?.showInOtherWindow(path)) ?? false
+  },
+
   async takeSession(): Promise<WindowSession | undefined> {
     return getBridge()?.takeSession()
   },

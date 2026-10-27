@@ -22,10 +22,14 @@ function isOpenable(file: FileReference): boolean {
   return kind !== undefined && findApplication(kind).available
 }
 
-/** Opens files as tabs in this window and records them in recents. */
+/**
+ * Opens files as tabs in this window and records them in recents. A file another window has open
+ * is shown in that window instead: two tabs on one file would save over each other's changes.
+ */
 export async function openFiles(files: readonly FileReference[]): Promise<void> {
   for (const file of files) {
     if (!isOpenable(file)) throw new Error(`.${file.extension || 'unknown'} files cannot be opened yet.`)
+    if (await platformClient.showInOtherWindow(file.path)) continue
     useDocumentsStore.getState().openFile(file)
     await recordRecent(file)
   }
