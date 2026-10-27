@@ -241,6 +241,8 @@ export class Workbook {
   readonly #undoStack: WorkbookData[] = []
   readonly #redoStack: WorkbookData[] = []
   #revision = 0
+  /** The used sizes read at one revision, since finding them walks the whole sheet. */
+  #usedSizes: { revision: number; sizes: Map<number, { readonly width: number; readonly height: number }> } = { revision: -1, sizes: new Map() }
   #sheetOrder: string[] = []
   /** Undo steps from the loaded state; the document is dirty when it differs from the saved depth. */
   #depth = 0
@@ -992,6 +994,9 @@ export class Workbook {
    * own dimensions also reach every empty cell a formula reads (=SUM(A2:A1000) makes 1,000 rows).
    */
   usedSize(sheetId: number): { readonly width: number; readonly height: number } {
+    if (this.#usedSizes.revision !== this.#revision) this.#usedSizes = { revision: this.#revision, sizes: new Map() }
+    const known = this.#usedSizes.sizes.get(sheetId)
+    if (known !== undefined) return known
     let width = 0
     let height = 0
     this.#engine.getSheetSerialized(sheetId).forEach((row, rowIndex) => row.forEach((input, col) => {
@@ -999,7 +1004,9 @@ export class Workbook {
       width = Math.max(width, col + 1)
       height = rowIndex + 1
     }))
-    return { width, height }
+    const size = { width, height }
+    this.#usedSizes.sizes.set(sheetId, size)
+    return size
   }
 
   /** The workbook as plain data, with computed values, for saving to a file. */

@@ -212,6 +212,29 @@ describe('Workbook', () => {
     expect(workbook.getCellValue(sheetId, [5, 0])).toBe(144_111)
   })
 
+  it('keeps the used area up to date through edits, undo and structure changes', () => {
+    const workbook = new Workbook()
+    const sheetId = workbook.sheets()[0]?.id ?? 0
+    const sizeOf = (): string => `${workbook.usedSize(sheetId).width}x${workbook.usedSize(sheetId).height}`
+    expect(sizeOf()).toBe('0x0')
+
+    workbook.setCellInput(sheetId, [2, 4], '=SUM(A1:Z500)')
+    expect(sizeOf()).toBe('3x5')
+    workbook.setCellInput(sheetId, [5, 1], 'x')
+    expect(sizeOf()).toBe('6x5')
+    workbook.insertRows(sheetId, 0)
+    expect(sizeOf()).toBe('6x6')
+    workbook.clearContents(sheetId, [{ x: 2, y: 5, width: 1, height: 1 }])
+    expect(sizeOf()).toBe('6x3')
+
+    workbook.undo()
+    expect(sizeOf()).toBe('6x6')
+    workbook.undo()
+    expect(sizeOf()).toBe('6x5')
+    workbook.redo()
+    expect(sizeOf()).toBe('6x6')
+  })
+
   it('replaces text in 60,000 cells in well under the test timeout', () => {
     const blank = blankWorkbookData()
     const sheet = blank.sheets[0]
