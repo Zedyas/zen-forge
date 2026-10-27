@@ -188,6 +188,12 @@ describe('docx', () => {
     expect(sameDocument(schema, readDocx(bytes).content, code)).toBe(true)
   })
 
+  it('opens a table inside a table cell without an empty line after it', async () => {
+    const inner: JSONContent = { type: 'table', content: [{ type: 'tableRow', content: [cell('tableCell', 'Inner')] }] }
+    const nested: JSONContent = { type: 'doc', content: [{ type: 'table', content: [{ type: 'tableRow', content: [{ type: 'tableCell', content: [paragraph(text('Outer')), inner] }] }] }] }
+    expect(sameDocument(schema, readDocx((await writeDocx(nested)).bytes).content, nested)).toBe(true)
+  })
+
   it('writes a file that opens when the text holds control characters', async () => {
     const { bytes } = await writeDocx({ type: 'doc', content: [paragraph(text('Page one\fPage two\u000bthree\u0007'))] })
     const xml = strFromU8(unzipSync(bytes)['word/document.xml'] ?? new Uint8Array())

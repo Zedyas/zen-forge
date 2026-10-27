@@ -1003,6 +1003,9 @@ function table(element: Element, context: Context): JSONContent {
       }
       const fill = attr(kid(tcPr, 'w:shd'), 'w:fill')
       const content = blocks(cell, context)
+      // Word needs a paragraph after a table that ends a cell; an empty one is only that.
+      const last = content[content.length - 1]
+      if (content[content.length - 2]?.type === 'table' && last?.type === 'paragraph' && last.content === undefined && last.attrs === undefined) content.pop()
       const build: CellBuild = {
         header,
         colspan: span,
