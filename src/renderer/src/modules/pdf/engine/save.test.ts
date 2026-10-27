@@ -1,4 +1,4 @@
-import { PDFDocument, PDFName, PDFNumber, StandardFonts, degrees, type PDFPage } from '@cantoo/pdf-lib'
+import { PDFDocument, PDFName, PDFNumber, PDFString, StandardFonts, degrees, type PDFPage } from '@cantoo/pdf-lib'
 import { describe, expect, it } from 'vitest'
 import type { Rect } from './geometry'
 import { redactPages } from './redact'
@@ -122,6 +122,17 @@ describe('deleted content', () => {
 
     expect(await fileContainsText(output, 'SALARYVALUE')).toBe(false)
     expect(await fileContainsText(output, 'KEEPNAME')).toBe(true)
+  })
+
+  it('saves a page whose application data has a type written as text', async () => {
+    const doc = await PDFDocument.load(await documentWith(['ALPHA']))
+    const { context } = doc
+    const data = context.register(context.obj({ Type: PDFString.of('custom'), Private: PDFString.of('DATA') }))
+    doc.getPages()[0]?.node.set(PDFName.of('PieceInfo'), context.obj({ App: { Private: data } }))
+
+    const output = await savePdf({ sources: [await doc.save()], pages: [{ source: 0, index: 0, rotation: 0, edits: [] }] })
+
+    expect(await extractPageTexts(output)).toEqual(['ALPHA'])
   })
 })
 

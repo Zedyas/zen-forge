@@ -1,8 +1,9 @@
 import { PDFArray, PDFDict, PDFName, PDFRef, PDFStream, type PDFDocument, type PDFObject } from '@cantoo/pdf-lib'
 
 function isPageNode(object: PDFObject | undefined): boolean {
-  const type = object instanceof PDFDict ? object.lookupMaybe(PDFName.of('Type'), PDFName)?.decodeText() : undefined
-  return type === 'Page' || type === 'Pages'
+  // Any dictionary can come here, and private ones (application data) can give /Type as something other than a name.
+  const type = object instanceof PDFDict ? object.lookup(PDFName.of('Type')) : undefined
+  return type === PDFName.of('Page') || type === PDFName.of('Pages')
 }
 
 /** The references of the page tree's nodes: the pages the document shows, and the nodes above them. */
