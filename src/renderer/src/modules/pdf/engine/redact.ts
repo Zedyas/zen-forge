@@ -188,11 +188,13 @@ function withoutQuotes(doc: PDFDocument, stream: PDFObject | undefined): void {
 }
 
 /**
- * Marked content can quote the text it marks, as /ActualText or /Alt in its property list, and
- * MuPDF keeps those lists when it removes the text. On a redacted page they lose these entries:
- * inline in the content of the page and of the forms it draws, and named in their resources.
+ * Copies of a redacted page's content that MuPDF keeps when it removes what lies under the boxes:
+ *   - marked content can quote the text it marks, as /ActualText or /Alt in its property list, inline
+ *     in the content of the page and of the forms it draws, or named in their resources;
+ *   - a form's application data (/PieceInfo) and metadata can each hold a copy of what it draws, as
+ *     the page's own can (see `markRedactions`).
  */
-function removeMarkedText(doc: PDFDocument, page: PDFPage): void {
+function removePageCopies(doc: PDFDocument, page: PDFPage): void {
   const visited = new Set<string>()
   const clean = (resources: PDFDict | undefined): void => {
     for (const value of resources?.lookupMaybe(PDFName.of('Properties'), PDFDict)?.values() ?? []) {
@@ -205,6 +207,7 @@ function removeMarkedText(doc: PDFDocument, page: PDFPage): void {
       visited.add(value.tag)
       if (form.dict.lookupMaybe(PDFName.of('Subtype'), PDFName)?.decodeText() !== 'Form') continue
       withoutQuotes(doc, form)
+      for (const key of ['PieceInfo', 'Metadata']) form.dict.delete(PDFName.of(key))
       clean(form.dict.lookupMaybe(PDFName.of('Resources'), PDFDict) ?? resources)
     }
   }
@@ -269,7 +272,7 @@ export async function redactPages(
   const doc = await loadDocument(applied)
   const pages = doc.getPages()
   const redacted = requests.flatMap(request => pages[request.index] ?? [])
-  redacted.forEach(page => removeMarkedText(doc, page))
+  redacted.forEach(page => removePageCopies(doc, page))
   removeTagText(doc, new Set(redacted.map(page => page.ref.tag)))
   if (options.removeHiddenInformation) removeHiddenInformation(doc)
   dropUnreachable(doc)

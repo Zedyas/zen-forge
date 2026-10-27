@@ -1,4 +1,4 @@
-import { PDFDict, PDFDocument, PDFName, PDFString, StandardFonts, degrees } from '@cantoo/pdf-lib'
+import { PDFDict, PDFDocument, PDFName, PDFRawStream, PDFString, StandardFonts, degrees } from '@cantoo/pdf-lib'
 import { describe, expect, it } from 'vitest'
 import { pageGeometry, rectToDisplayed } from './geometry'
 import { redactPages } from './redact'
@@ -135,6 +135,18 @@ describe('redactPages', () => {
     expect(await fileContainsText(output, '/MCID 0')).toBe(true)
     const [text] = await extractPageTexts(output)
     expect(text).toContain('KEEP ME')
+  })
+
+  it('removes the application data and metadata of a form drawn on a redacted page', async () => {
+    const box = { x: 36, y: 82, width: 170, height: 24 }
+    const { doc, page } = await layeredPdf('/Drawn Do BT /F1 14 Tf 40 300 Td (KEEP ME) Tj ET', { Drawn: { content: 'BT /F1 14 Tf 40 505 Td (ZZZZ) Tj ET' } })
+    const form = doc.context.lookup(page.node.Resources()?.lookup(PDFName.of('XObject'), PDFDict).get(PDFName.of('Drawn')))
+    if (!(form instanceof PDFRawStream)) throw new Error('No form')
+    form.dict.set(PDFName.of('PieceInfo'), doc.context.obj({ App: { Private: PDFString.of('SECRET-PIECE') } }))
+    form.dict.set(PDFName.of('Metadata'), doc.context.register(doc.context.stream('<x:xmpmeta>SECRET-XMP</x:xmpmeta>')))
+
+    const output = await redactPages(await doc.save({ useObjectStreams: false }), [{ index: 0, shown: plainPage, boxes: [box] }], keepHidden)
+    for (const secret of ['SECRET-PIECE', 'SECRET-XMP']) expect(await fileContainsText(output, secret)).toBe(false)
   })
 
   it('removes tag alt text whose page only its marked-content reference names', async () => {
