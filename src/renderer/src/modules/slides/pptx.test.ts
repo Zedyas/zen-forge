@@ -3,7 +3,7 @@ import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 import PptxGenJS from 'pptxgenjs'
 import { describe, expect, it } from 'vitest'
 import { createImportReport } from '@shared/fidelity'
-import { createSlide, lineEnds, newId, newTable, paragraphOf, textRun, updateCell, withHeaderRow, type Paragraph, type Presentation, type SlideElement } from './model'
+import { createSlide, hasHeaderRow, lineEnds, newId, newTable, paragraphOf, textRun, updateCell, withHeaderRow, type Paragraph, type Presentation, type SlideElement } from './model'
 import { writePptx } from './pptx-export'
 import { readPptx } from './pptx-import'
 import { findTheme } from './themes'
@@ -274,6 +274,20 @@ describe('.pptx table text colour', () => {
     expect(table.color).toBe(small.color)
     expect(table.rows[0]?.cells[0]).toMatchObject({ color: '#ffffff', bold: true })
     expect(withHeaderRow(table, false, findTheme('light')).rows[0]?.cells[0]?.color ?? table.color).toBe(small.color)
+  })
+})
+
+describe('.pptx one-row table text colour', () => {
+  it('keeps a one-row table readable when its header row is turned off', async () => {
+    const single = newTable(1, 2, { width: 960, height: 540, theme: 'light' })
+    const deck: Presentation = { ...presentation, slides: [{ id: newId(), background: '#ffffff', elements: [single], notes: '' }] }
+
+    const { presentation: reopened } = await readPptx(await writePptx(deck))
+
+    const table = reopened.slides[0]?.elements[0]
+    if (table?.kind !== 'table') throw new Error('The table did not come back')
+    expect(hasHeaderRow(table)).toBe(true)
+    expect(withHeaderRow(table, false, findTheme('light')).rows[0]?.cells[0]?.color ?? table.color).toBe(single.color)
   })
 })
 

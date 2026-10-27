@@ -718,8 +718,11 @@ function tableOf(source: SourceTable, context: ElementContext): TableElement {
   if (edges.some(cellEdge => cellEdge !== undefined && !sameEdge(cellEdge, edge))) context.findings.add('tableBorders', context.slide)
   const firstEnd = xml?.ends.flat().find(style => style.size !== undefined)
   // Counted below the first row, which may be a header in its own colour: the table's colour is what a row shows without one.
+  // A table of one header row has no such rows to count, so it takes the default text colour, not its header's.
+  const only = read.length === 1 ? read[0] : undefined
+  const headerOnly = only !== undefined && only.length > 0 && only.every(({ cell }) => cell.bold && cell.fill !== undefined)
   const body = read.length > 1 ? read.slice(1) : read
-  const color = commonColor(body.flatMap(row => row.map(cell => cell.cell.color))) ?? commonColor(read.flatMap(row => row.map(cell => cell.cell.color))) ?? defaultTheme.text
+  const color = headerOnly ? defaultTheme.text : commonColor(body.flatMap(row => row.map(cell => cell.cell.color))) ?? commonColor(read.flatMap(row => row.map(cell => cell.cell.color))) ?? defaultTheme.text
   const rows = read.map((row, index) => ({
     height: source.rowHeights[index] ?? 32,
     cells: columns.map((_, column) => {
