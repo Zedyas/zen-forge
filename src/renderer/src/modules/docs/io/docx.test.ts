@@ -174,6 +174,11 @@ describe('docx', () => {
     expect(sameDocument(schema, readDocx((await writeDocx(nested)).bytes).content, nested)).toBe(true)
   })
 
+  it('keeps the link on a linked picture', async () => {
+    const linked: JSONContent = { type: 'doc', content: [paragraph({ type: 'image', attrs: { src: png, width: 40, height: 20 }, marks: [{ type: 'link', attrs: { href: 'https://example.com/' } }] })] }
+    expect(sameDocument(schema, readDocx((await writeDocx(linked)).bytes).content, linked)).toBe(true)
+  })
+
   it('writes a file that opens when the text holds control characters', async () => {
     const { bytes } = await writeDocx({ type: 'doc', content: [paragraph(text('Page one\fPage two\u000bthree\u0007'))] })
     const xml = strFromU8(unzipSync(bytes)['word/document.xml'] ?? new Uint8Array())

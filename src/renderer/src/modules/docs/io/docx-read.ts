@@ -664,7 +664,8 @@ function inlineContent(paragraph: Element, styleRun: RunProps, context: Context)
       case 'w:drawing':
       case 'w:pict': {
         const image = imageFromDrawing(child, context)
-        if (image !== undefined) current().push(image)
+        // A picture keeps only its link; the run's text formatting has nothing to show on it.
+        if (image !== undefined) current().push({ ...image, ...markList(marks()?.filter(mark => mark.type === 'link')) })
         return
       }
       case 'mc:AlternateContent': {
