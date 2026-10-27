@@ -57,7 +57,7 @@
     "react-dom": "^19.2.8",
     "sonner": "^2.0.8",
     "xlsx": "file:vendor/xlsx-0.20.3.tgz",
-    "zod": "^4.4.3",
+    "zod": "^4.6.6",
     "zustand": "^5.0.15"
   },
   "devDependencies": {
