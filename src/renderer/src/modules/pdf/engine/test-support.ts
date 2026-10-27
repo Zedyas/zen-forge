@@ -198,12 +198,13 @@ export function encodePng(
 
 /**
  * Whether `text` survives anywhere in the file, not only on its pages: every stream is decoded
- * and searched for the text and for the hex form pdf-lib writes standard-font strings in.
+ * and searched for the text and for the hex forms pdf-lib writes strings in, a byte per character
+ * for standard-font text and UTF-16 for text strings such as form options.
  */
 export async function fileContainsText(bytes: Uint8Array, text: string): Promise<boolean> {
   const doc = await PDFDocument.load(bytes, { updateMetadata: false })
-  const hex = Array.from(text, character => character.charCodeAt(0).toString(16).padStart(2, '0')).join('')
-  const needles = [text, hex.toUpperCase(), hex.toLowerCase()]
+  const hex = (width: number) => Array.from(text, character => character.charCodeAt(0).toString(16).padStart(width, '0')).join('')
+  const needles = [text, ...[hex(2), hex(4)].flatMap(form => [form.toUpperCase(), form.toLowerCase()])]
   return doc.context.enumerateIndirectObjects().some(([, object]) => {
     let content = object.toString()
     if (object instanceof PDFRawStream) {

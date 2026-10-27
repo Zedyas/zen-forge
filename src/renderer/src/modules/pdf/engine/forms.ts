@@ -1,4 +1,5 @@
 import {
+  PDFAcroButton,
   PDFButton,
   PDFCheckBox,
   PDFDocument,
@@ -154,6 +155,9 @@ export function removeWidgets(doc: PDFDocument, doomed: (widget: PDFWidgetAnnota
       if (!marked[index] || ref === undefined) continue
       pageOfWidget.get(ref.tag)?.node.removeAnnot(ref)
       field.acroField.removeWidget(index)
+      // A button group's /Opt lists one export value per widget, in widget order: the others keep theirs.
+      const { acroField } = field
+      if (acroField instanceof PDFAcroButton && index < (acroField.getExportValues()?.length ?? 0)) acroField.removeExportValue(index)
     }
   }
 }
