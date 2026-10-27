@@ -72,6 +72,21 @@ describe('deleted content', () => {
     expect(await fileContainsText(output, 'SALARYTABLE')).toBe(false)
   })
 
+  it('leaves nothing of a deleted page from another file that a kept page links to', async () => {
+    const donor = await PDFDocument.load(await documentWith(['KEPT', 'DELETEDPAGE']))
+    const [kept, deleted] = donor.getPages()
+    const link = donor.context.obj({ Type: 'Annot', Subtype: 'Link', Rect: [40, 40, 120, 60], Dest: [deleted.ref, 'Fit'] })
+    kept.node.addAnnot(donor.context.register(link))
+
+    const output = await savePdf({
+      sources: [await documentWith(['ALPHA']), await donor.save()],
+      pages: [{ source: 0, index: 0, rotation: 0, edits: [] }, { source: 1, index: 0, rotation: 0, edits: [] }],
+    })
+
+    expect(await extractPageTexts(output)).toEqual(['ALPHA', 'KEPT'])
+    expect(await fileContainsText(output, 'DELETEDPAGE')).toBe(false)
+  })
+
   it('removes the form fields of a deleted page, values included, and keeps the others', async () => {
     const doc = await PDFDocument.create()
     const [first, second] = [doc.addPage([400, 600]), doc.addPage([400, 600])]
