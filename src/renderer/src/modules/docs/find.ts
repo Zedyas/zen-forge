@@ -14,10 +14,13 @@ export interface FindState {
   readonly matches: readonly FindMatch[]
   /** Index of the current match in `matches`. */
   readonly current: number
+  /** Text that replacements of this search inserted; it is never matched, so Replace cannot re-enter it. */
+  readonly inserted: readonly FindMatch[]
   readonly decorations: DecorationSet
 }
 
-type FindUpdate = Partial<Pick<FindState, 'query' | 'caseSensitive' | 'current'>>
+/** `inserted` is new text a transaction put in, in the positions of the document after it. */
+type FindUpdate = Partial<Pick<FindState, 'query' | 'caseSensitive' | 'current'>> & { readonly inserted?: readonly FindMatch[] }
 
 const findKey = new PluginKey<FindState>('find')
 
@@ -51,10 +54,10 @@ function decorate(doc: ProseMirrorNode, matches: readonly FindMatch[], current: 
     Decoration.inline(match.from, match.to, { class: index === current ? 'sumi-find-match is-current' : 'sumi-find-match' })))
 }
 
-function build(doc: ProseMirrorNode, query: string, caseSensitive: boolean, current: number): FindState {
-  const matches = findMatches(doc, query, caseSensitive)
+function build(doc: ProseMirrorNode, query: string, caseSensitive: boolean, current: number, inserted: readonly FindMatch[]): FindState {
+  const matches = findMatches(doc, query, caseSensitive).filter(match => !inserted.some(range => match.from < range.to && match.to > range.from))
   const index = matches.length === 0 ? 0 : Math.min(Math.max(current, 0), matches.length - 1)
-  return { query, caseSensitive, matches, current: index, decorations: decorate(doc, matches, index) }
+  return { query, caseSensitive, matches, current: index, inserted, decorations: decorate(doc, matches, index) }
 }
 
 /** Highlights find matches; the find bar drives it through the functions below. */
@@ -64,11 +67,18 @@ export const FindHighlight = Extension.create({
     return [new Plugin<FindState>({
       key: findKey,
       state: {
-        init: (_config, state) => build(state.doc, '', false, 0),
+        init: (_config, state) => build(state.doc, '', false, 0, []),
         apply: (transaction, previous, _oldState, state) => {
           const update: FindUpdate | undefined = transaction.getMeta(findKey)
           if (update === undefined && !transaction.docChanged) return previous
-          return build(state.doc, update?.query ?? previous.query, update?.caseSensitive ?? previous.caseSensitive, update?.current ?? previous.current)
+          // A new search starts over; otherwise the inserted text follows the edits around it.
+          const inserted = update?.query !== undefined || update?.caseSensitive !== undefined ? [] : [
+            ...previous.inserted
+              .map(range => ({ from: transaction.mapping.map(range.from, 1), to: transaction.mapping.map(range.to, -1) }))
+              .filter(range => range.to > range.from),
+            ...update?.inserted ?? [],
+          ]
+          return build(state.doc, update?.query ?? previous.query, update?.caseSensitive ?? previous.caseSensitive, update?.current ?? previous.current, inserted)
         },
       },
       props: {
@@ -104,16 +114,19 @@ export function moveFind(editor: Editor, step: 1 | -1): void {
 }
 
 /**
- * Replaces the current match; the next match after the new text becomes current, so a replacement
- * that holds the search text is not matched again. Keeps the formatting of the replaced text.
+ * Replaces the current match; the next match after the new text becomes current. The new text is never
+ * matched by this search, so a replacement that holds the search text is not replaced again, and
+ * Replace does nothing once no other match is left. Keeps the formatting of the replaced text.
  */
 export function replaceCurrent(editor: Editor, replacement: string): void {
   const state = findState(editor.state)
   const match = state?.matches[state.current]
-  if (state === undefined || match === undefined) return
+  if (match === undefined) return
+  const end = match.from + replacement.length
   const transaction = replacement === '' ? editor.state.tr.delete(match.from, match.to) : editor.state.tr.insertText(replacement, match.from, match.to)
-  const next = findMatches(transaction.doc, state.query, state.caseSensitive).findIndex(candidate => candidate.from >= match.from + replacement.length)
-  editor.view.dispatch(transaction.setMeta(findKey, { current: Math.max(next, 0) }))
+  editor.view.dispatch(transaction.setMeta(findKey, { inserted: replacement === '' ? [] : [{ from: match.from, to: end }] }))
+  const next = findState(editor.state)?.matches.findIndex(candidate => candidate.from >= end) ?? -1
+  update(editor, { current: Math.max(next, 0) })
   revealCurrent(editor)
 }
 
@@ -126,7 +139,14 @@ export function replaceAll(editor: Editor, replacement: string): number {
     if (replacement === '') transaction.delete(match.from, match.to)
     else transaction.insertText(replacement, match.from, match.to)
   }
-  if (matches.length > 0) editor.view.dispatch(transaction)
+  // Where each replacement ends up, once the ones before it have changed the length.
+  let shift = 0
+  const inserted = replacement === '' ? [] : matches.map(match => {
+    const from = match.from + shift
+    shift += replacement.length - (match.to - match.from)
+    return { from, to: from + replacement.length }
+  })
+  if (matches.length > 0) editor.view.dispatch(transaction.setMeta(findKey, { inserted }))
   return matches.length
 }
 
