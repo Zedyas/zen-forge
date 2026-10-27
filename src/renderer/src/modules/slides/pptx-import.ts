@@ -516,6 +516,9 @@ interface ElementContext {
   readonly findings: Findings
   readonly slide: number
   readonly place: Placement
+  /** Whether the groups around the element, taken together, mirror it left to right or top to bottom. */
+  readonly flipH: boolean
+  readonly flipV: boolean
   readonly paragraphs: ReadonlyMap<string, readonly ParagraphInfo[]>
   readonly tables: ReadonlyMap<string, TableXml>
   readonly frames: ReadonlyMap<string, Positioned>
@@ -785,16 +788,19 @@ function convert(source: SourceElement, context: ElementContext): SlideElement[]
       findings.add('groups', slide)
       const centre = { x: source.left + source.width / 2, y: source.top + source.height / 2 }
       // A flipped group mirrors where its children sit, which way they turn, and the children themselves.
+      // Each group mirrors by its own flip only; the groups around it mirror the result in turn through `context.place`.
       const mirror = (value: number, size: number, flipped: boolean): number => flipped ? size - value : value
       const turn = source.isFlipH === source.isFlipV ? 1 : -1
       const place: Placement = (child, rotation) => context.place(
         rotatePoint({ x: source.left + mirror(child.x, source.width, source.isFlipH), y: source.top + mirror(child.y, source.height, source.isFlipV) }, centre, source.rotate),
         turn * rotation + source.rotate,
       )
-      const flipped = (child: SourceElement): SourceElement => 'isFlipH' in child
-        ? { ...child, isFlipH: child.isFlipH !== source.isFlipH, isFlipV: child.isFlipV !== source.isFlipV }
+      const inside = { ...context, place, flipH: context.flipH !== source.isFlipH, flipV: context.flipV !== source.isFlipV }
+      // A group inside this one is mirrored by `place` like any other child; only shapes and pictures take the flip themselves.
+      const flipped = (child: SourceElement): SourceElement => 'isFlipH' in child && child.type !== 'group'
+        ? { ...child, isFlipH: child.isFlipH !== inside.flipH, isFlipV: child.isFlipV !== inside.flipV }
         : child
-      return ordered(source.elements).flatMap(child => convert(flipped(child), { ...context, place }))
+      return ordered(source.elements).flatMap(child => convert(flipped(child), inside))
     }
     case 'diagram': {
       findings.add('smartArt', slide)
@@ -933,7 +939,7 @@ export async function readPptx(bytes: Uint8Array): Promise<ImportedPresentation>
     if (sourceSlide === undefined) return []
     const number = index + 1
     const xml = readSlideXml(file === undefined ? '<p:sld/>' : strFromU8(parts[file] ?? new Uint8Array()), designPlaceholders(file))
-    const context: ElementContext = { findings, slide: number, place: onSlide, paragraphs: xml.paragraphs, tables: xml.tables, frames: xml.frames }
+    const context: ElementContext = { findings, slide: number, place: onSlide, flipH: false, flipV: false, paragraphs: xml.paragraphs, tables: xml.tables, frames: xml.frames }
     if (xml.animated) findings.add('animations', number)
     if (sourceSlide.transition !== undefined && sourceSlide.transition !== null && sourceSlide.transition.type !== 'none') findings.add('transitions', number)
     if (xml.hidden) findings.add('hiddenSlides', number)

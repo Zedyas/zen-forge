@@ -195,6 +195,23 @@ describe('.pptx flipped groups', () => {
   })
 })
 
+describe('.pptx nested groups', () => {
+  it('mirrors a shape once for the flipped group that holds its unflipped group', async () => {
+    const parts = unzipSync(await writePptx({ ...presentation, slides: [{ id: newId(), background: '#ffffff', elements: [], notes: '' }] }))
+    const square = '<p:sp><p:nvSpPr><p:cNvPr id="63" name="Square"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="228600" cy="228600"/></a:xfrm>'
+      + '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="FF0000"/></a:solidFill></p:spPr></p:sp>'
+    const group = (id: number, flip: string, size: number, content: string): string => `<p:grpSp><p:nvGrpSpPr><p:cNvPr id="${id}" name="Group ${id}"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>`
+      + `<p:grpSpPr><a:xfrm${flip}><a:off x="0" y="0"/><a:ext cx="${size}" cy="${size}"/><a:chOff x="0" y="0"/><a:chExt cx="${size}" cy="${size}"/></a:xfrm></p:grpSpPr>${content}</p:grpSp>`
+    // A 144 pt group flipped left to right holds an unflipped 72 pt group holding an 18 pt square at its left edge.
+    const nested = group(60, ' flipH="1"', 1828800, group(61, '', 914400, square))
+    parts['ppt/slides/slide1.xml'] = strToU8(strFromU8(parts['ppt/slides/slide1.xml'] ?? new Uint8Array()).replace('</p:spTree>', `${nested}</p:spTree>`))
+
+    const { presentation: reopened } = await readPptx(zipSync(parts))
+
+    expect(reopened.slides[0]?.elements[0]).toMatchObject({ kind: 'shape', x: 126, y: 0, width: 18, height: 18 })
+  })
+})
+
 describe('.pptx placeholder bullets', () => {
   it('leaves out the bullets a content placeholder\'s layout turns off, and keeps them where it does not', async () => {
     const box = (text: string, y: number): SlideElement => ({ ...title, id: newId(), y, paragraphs: [paragraphOf(text)] })
