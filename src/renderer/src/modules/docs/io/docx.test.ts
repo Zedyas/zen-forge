@@ -168,6 +168,12 @@ describe('docx', () => {
     expect(content.attrs?.['headerFooter']).toMatchObject({ header: [{ type: 'paragraph', content: [{ text: 'Confidential' }] }], footer: [] })
   })
 
+  it('numbers each nested list from its own start, not on from the nested list before it', async () => {
+    const numbered = (...values: string[]): JSONContent => ({ type: 'orderedList', content: values.map(value => item(paragraph(text(value)))) })
+    const nested: JSONContent = { type: 'doc', content: [{ type: 'bulletList', content: [item(paragraph(text('A')), numbered('x', 'y')), item(paragraph(text('B')), numbered('z'))] }] }
+    expect(sameDocument(schema, readDocx((await writeDocx(nested)).bytes).content, nested)).toBe(true)
+  })
+
   it('writes a file that opens when the text holds control characters', async () => {
     const { bytes } = await writeDocx({ type: 'doc', content: [paragraph(text('Page one\fPage two\u000bthree\u0007'))] })
     const xml = strFromU8(unzipSync(bytes)['word/document.xml'] ?? new Uint8Array())

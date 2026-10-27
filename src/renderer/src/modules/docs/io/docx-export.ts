@@ -79,8 +79,11 @@ interface ExportContext {
   readonly headings: readonly ContentsEntry[]
   /** Headings written so far, which numbers each one's bookmark. */
   headingCount: number
-  /** Start values of the numbered lists, one numbering definition each. */
-  readonly listStarts: Set<number>
+  /**
+   * Each numbered list's own numbering definition and its start value. Word counts on across lists
+   * that share a definition, and only a list's first level can restart, so a nested list needs its own.
+   */
+  readonly numberedLists: Map<string, number>
   /** Each numbered list restarts at its start value, so each gets its own numbering instance. */
   listInstances: number
   skippedImages: number
@@ -370,10 +373,10 @@ function continuation(node: JSONContent, context: ExportContext, level: number, 
 /** Bulleted and numbered lists; each list is its own Word list, so neighbouring lists stay apart. */
 function listBlocks(list: JSONContent, context: ExportContext, level: number, style?: DocxStyleId): Block[] {
   const ordered = list.type === 'orderedList'
-  const start = numberAttr(list, 'start') ?? 1
-  if (ordered) context.listStarts.add(start)
   context.listInstances += 1
-  const numbering = { reference: ordered ? `numbered-${start}` : 'bulleted', level: Math.min(level, 8), instance: context.listInstances }
+  const reference = ordered ? `numbered-${context.listInstances}` : 'bulleted'
+  if (ordered) context.numberedLists.set(reference, numberAttr(list, 'start') ?? 1)
+  const numbering = { reference, level: Math.min(level, 8), instance: context.listInstances }
   return (list.content ?? []).flatMap(item => (item.content ?? []).flatMap((child, index) => {
     if (index === 0 && child.type === 'paragraph') {
       return [new Paragraph({ ...paragraphOptions(child, false), numbering, ...(style === undefined ? {} : { style }), children: runs(child.content ?? [], context) })]
@@ -534,7 +537,7 @@ export async function writeDocx(content: JSONContent): Promise<DocxExport> {
     page,
     headings: hasContents(content.content ?? []) ? contentsEntries(content.content ?? []) : [],
     headingCount: 0,
-    listStarts: new Set(),
+    numberedLists: new Map(),
     listInstances: 0,
     skippedImages: 0,
   }
@@ -591,8 +594,8 @@ export async function writeDocx(content: JSONContent): Promise<DocxExport> {
         { reference: 'bulleted', levels: numberingLevels(index => ({ format: LevelFormat.BULLET, text: bulletGlyphs[index % 3] })) },
         { reference: 'placement', levels: unnumberedLevels(index => 720 * (index + 1)) },
         { reference: 'checklist', levels: unnumberedLevels(index => 360 * index) },
-        ...[...context.listStarts].map(start => ({
-          reference: `numbered-${start}`,
+        ...[...context.numberedLists].map(([reference, start]) => ({
+          reference,
           levels: numberingLevels(index => ({ format: numberFormats[index % 3], text: `%${index + 1}.`, start })),
         })),
       ],
