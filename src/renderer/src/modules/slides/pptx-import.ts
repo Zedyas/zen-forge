@@ -200,17 +200,23 @@ function inheritedList(styles: readonly (Element | undefined)[], level: number):
 /** The shapes a slide placeholder takes its look from, nearest first: its layout's placeholder, then its master's. */
 type DesignPlaceholders = (placeholder: Element) => readonly (Element | undefined)[]
 
-/** The placeholder in a layout or master that a slide placeholder takes its look from: the same index, or else the same type. */
+/**
+ * The placeholder in a layout or master that a slide placeholder takes its look from: of the same kind
+ * (a title with titles, body text with body text), the one with the same index, or else the first.
+ * Indexes alone do not match across parts: a master's title and a layout's body can share one.
+ */
 function matchingPlaceholder(design: Document, placeholder: Element): Element | undefined {
-  const typeOf = (element: Element): string => element.getAttribute('type') ?? 'obj'
-  const type = typeOf(placeholder)
+  const kindOf = (element: Element): string => {
+    const type = element.getAttribute('type') ?? 'obj'
+    return type === 'ctrTitle' ? 'title' : type === 'obj' || type === 'subTitle' ? 'body' : type
+  }
+  const kind = kindOf(placeholder)
   const index = placeholder.getAttribute('idx')
   const shapes = Array.from(design.getElementsByTagName('p:sp')).flatMap(shape => {
     const own = shape.getElementsByTagName('p:ph')[0]
-    return own === undefined ? [] : [{ shape, own }]
+    return own === undefined || kindOf(own) !== kind ? [] : [{ shape, own }]
   })
-  const match = shapes.find(({ own }) => index !== null && own.getAttribute('idx') === index)
-    ?? shapes.find(({ own }) => typeOf(own) === type || (type === 'obj' && typeOf(own) === 'body'))
+  const match = shapes.find(({ own }) => index !== null && own.getAttribute('idx') === index) ?? shapes[0]
   return match?.shape
 }
 

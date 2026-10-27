@@ -234,6 +234,29 @@ describe('.pptx placeholder bullets', () => {
   })
 })
 
+describe('.pptx placeholder types', () => {
+  it('takes a body placeholder\'s bullets from the master\'s body, not from its title that shares the layout\'s index', async () => {
+    const box: SlideElement = { ...title, paragraphs: [paragraphOf('Bulleted')] }
+    const parts = unzipSync(await writePptx({ ...presentation, slides: [{ id: newId(), background: '#ffffff', elements: [box], notes: '' }] }))
+    parts['ppt/slides/slide1.xml'] = strToU8(strFromU8(parts['ppt/slides/slide1.xml'] ?? new Uint8Array())
+      .replace('<p:nvPr></p:nvPr>', '<p:nvPr><p:ph idx="1"/></p:nvPr>')
+      .replace(/<a:buNone\/>/g, ''))
+    const placeholder = (id: number, type: string, idx: number, level: string): string => `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="${type} ${idx}"/><p:cNvSpPr/><p:nvPr><p:ph type="${type}" idx="${idx}"/></p:nvPr></p:nvSpPr>`
+      + `<p:spPr/><p:txBody><a:bodyPr/><a:lstStyle>${level}</a:lstStyle><a:p/></p:txBody></p:sp>`
+    const into = (name: string, shapes: string): void => {
+      parts[name] = strToU8(strFromU8(parts[name] ?? new Uint8Array()).replace('</p:spTree>', `${shapes}</p:spTree>`))
+    }
+    into('ppt/slideLayouts/slideLayout1.xml', placeholder(2, 'body', 1, ''))
+    // The master's title shares the layout body's index, and turns bullets off; its body has another index and bullets.
+    into('ppt/slideMasters/slideMaster1.xml', placeholder(2, 'title', 1, '<a:lvl1pPr><a:buNone/></a:lvl1pPr>') + placeholder(3, 'body', 2, '<a:lvl1pPr><a:buChar char="•"/></a:lvl1pPr>'))
+
+    const { presentation: reopened } = await readPptx(zipSync(parts))
+
+    const text = reopened.slides[0]?.elements[0]
+    expect(text?.kind === 'text' ? text.paragraphs[0]?.list : undefined).toBe('bullet')
+  })
+})
+
 describe('.pptx table text colour', () => {
   it('takes a two-row table\'s text colour from its body, so turning the header row off keeps the header readable', async () => {
     const small = newTable(2, 2, { width: 960, height: 540, theme: 'light' })
