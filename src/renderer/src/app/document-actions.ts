@@ -109,19 +109,36 @@ function flushTyping(id: string): void {
   if (document !== undefined) editorFor(document.kind)?.flush?.(id)
 }
 
+/**
+ * Saves a document and resolves the id its tab has afterwards, or undefined when it was not saved.
+ * A first save or a saved copy re-keys the tab to its new path, in the same position.
+ */
+async function saveForClose(id: string): Promise<string | undefined> {
+  const before = useDocumentsStore.getState().documents
+  const position = before.findIndex(candidate => candidate.id === id)
+  if (!(await saveDocument(id, false))) return undefined
+  const after = useDocumentsStore.getState().documents[position]
+  return after !== undefined && !before.some(candidate => candidate.id === after.id) ? after.id : id
+}
+
 /** Closes a tab, asking Save / Don't Save / Cancel first when it has unsaved changes. */
 export async function closeDocument(id: string): Promise<boolean> {
   flushTyping(id)
   const document = findDocument(id)
   if (document === undefined) return true
+  let closing = id
   if (document.dirty) {
     useDocumentsStore.getState().select(id)
     const choice = await platformClient.confirmClose(document.name)
     if (choice === 'cancel') return false
-    if (choice === 'save' && !(await saveDocument(id, false))) return false
+    if (choice === 'save') {
+      const saved = await saveForClose(id)
+      if (saved === undefined) return false
+      closing = saved
+    }
   }
-  editorFor(document.kind)?.release(id)
-  useDocumentsStore.getState().remove(id)
+  editorFor(document.kind)?.release(closing)
+  useDocumentsStore.getState().remove(closing)
   return true
 }
 
