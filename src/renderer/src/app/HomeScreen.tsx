@@ -10,7 +10,7 @@ import { combinePdfs, createPdfFromImages } from '../modules/pdf/workflows'
 import { AppIcon } from '../ui/AppIcon'
 import { icon } from '../ui/icons'
 import { commandShortcut, Tip } from '../ui/Tip'
-import { chooseAndOpenFiles, openFiles } from './document-actions'
+import { chooseAndOpenFiles, openRecent } from './document-actions'
 import { useDocumentsStore } from './documents-store'
 import { UpdateOffer } from './updates'
 
@@ -66,6 +66,7 @@ function AppearanceControl() {
   )
 }
 
+/** Opens through the file on disk, not the stored entry, whose size and date are from when it was last opened or saved here. */
 function RecentCard({ file }: { readonly file: RecentDocument }) {
   const application = applicationForExtension(file.extension)
   const kind = application === undefined ? file.extension.toUpperCase() : findApplication(application).name
@@ -75,7 +76,7 @@ function RecentCard({ file }: { readonly file: RecentDocument }) {
         render={<button type="button" />}
         className="recent-card"
         title={file.path}
-        onClick={() => void openFiles([file]).catch(reportFailure('Could not open the file'))}
+        onClick={() => void openRecent(file.path).catch(reportFailure('Could not open the file'))}
       >
         <span className={`recent-preview${file.preview === undefined ? ' is-placeholder' : ''}`}>
           {file.preview === undefined
@@ -90,7 +91,7 @@ function RecentCard({ file }: { readonly file: RecentDocument }) {
       <ContextMenu.Portal>
         <ContextMenu.Positioner>
           <ContextMenu.Popup className="menu-popup">
-            <ContextMenu.Item className="menu-item" onClick={() => void openFiles([file]).catch(reportFailure('Could not open the file'))}><span>Open</span></ContextMenu.Item>
+            <ContextMenu.Item className="menu-item" onClick={() => void openRecent(file.path).catch(reportFailure('Could not open the file'))}><span>Open</span></ContextMenu.Item>
             <ContextMenu.Item className="menu-item" onClick={() => void platformClient.revealInFinder(file.path)}><span>Show in Finder</span></ContextMenu.Item>
             <ContextMenu.Separator className="menu-separator" />
             <ContextMenu.Item className="menu-item" onClick={() => void forgetRecent(file.path)}><span>Remove from Recents</span></ContextMenu.Item>
