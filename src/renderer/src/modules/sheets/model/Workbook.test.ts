@@ -212,6 +212,20 @@ describe('Workbook', () => {
     expect(workbook.getCellValue(sheetId, [5, 0])).toBe(144_111)
   })
 
+  it('pastes 150,000 cells in well under the test timeout, leaving a skipped row as it was', () => {
+    const workbook = new Workbook()
+    const sheetId = workbook.sheets()[0]?.id ?? 0
+    workbook.setCellInput(sheetId, [0, 500], 'kept')
+    // Row 500 is left out, as a hidden row is: the rows around it still go in as blocks.
+    const cells = Array.from({ length: 75_000 }, (_, row) => row).filter(row => row !== 500)
+      .flatMap(row => [{ target: [0, row] as const, input: row }, { target: [1, row] as const, input: `=A${row + 1}*2` }])
+    workbook.pasteCells(sheetId, cells)
+
+    expect(workbook.getCellValue(sheetId, [0, 74_999])).toBe(74_999)
+    expect(workbook.getCellValue(sheetId, [1, 74_999])).toBe(149_998)
+    expect(workbook.getCellValue(sheetId, [0, 500])).toBe('kept')
+  })
+
   it('never writes the cells a merged cell covers', () => {
     const workbook = new Workbook()
     const sheetId = workbook.sheets()[0]?.id ?? 0

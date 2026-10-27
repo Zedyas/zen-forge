@@ -443,12 +443,15 @@ export class Workbook {
       }
       const styles = this.#sheetStyles(this.#sheetName(sheetId))
       const written = cells.filter(({ target }) => !this.isCovered(sheetId, target))
-      this.#engine.batch(() => written.forEach(({ target: [col, row], input, style, source }) => {
-        const moved = typeof input === 'string' && source !== undefined ? shiftFormula(input, col - source[0], row - source[1]) : input
-        this.#engine.setCellContents({ sheet: sheetId, col, row }, [[moved]])
+      this.#engine.batch(() => this.#writeCells(sheetId, written.map(({ target: [col, row], input, source }) => ({
+        col,
+        row,
+        input: typeof input === 'string' && source !== undefined ? shiftFormula(input, col - source[0], row - source[1]) : input,
+      }))))
+      written.forEach(({ target: [col, row], style }) => {
         if (style === undefined || isDefaultStyle(style)) styles.delete(styleKey(col, row))
         else styles.set(styleKey(col, row), style)
-      }))
+      })
     })
   }
 
@@ -517,6 +520,38 @@ export class Workbook {
     })
   }
 
+  /**
+   * Writes cells to one sheet in as few rectangular blocks as they form: neighbouring cells in a row make
+   * a run, and runs over the same columns in consecutive rows make one block. The engine slows with every
+   * separate write in a batch, so a large paste written cell by cell would freeze the app.
+   */
+  #writeCells(sheetId: number, cells: readonly { readonly col: number; readonly row: number; readonly input: RawCellContent }[]): void {
+    const byRow = new Map<number, Map<number, RawCellContent>>()
+    cells.forEach(({ col, row, input }) => byRow.set(row, (byRow.get(row) ?? new Map<number, RawCellContent>()).set(col, input)))
+    const blocks: Array<{ readonly col: number; readonly row: number; readonly rows: RawCellContent[][] }> = []
+    const open = new Map<string, (typeof blocks)[number]>()
+    ;[...byRow.keys()].sort((a, b) => a - b).forEach(row => {
+      const cols = byRow.get(row) ?? new Map<number, RawCellContent>()
+      const runs: Array<{ readonly col: number; readonly values: RawCellContent[] }> = []
+      ;[...cols.keys()].sort((a, b) => a - b).forEach(col => {
+        const last = runs.at(-1)
+        if (last !== undefined && last.col + last.values.length === col) last.values.push(cols.get(col) ?? null)
+        else runs.push({ col, values: [cols.get(col) ?? null] })
+      })
+      runs.forEach(run => {
+        const key = `${run.col}:${run.values.length}`
+        const block = open.get(key)
+        if (block !== undefined && block.row + block.rows.length === row) block.rows.push(run.values)
+        else {
+          const created = { col: run.col, row, rows: [run.values] }
+          blocks.push(created)
+          open.set(key, created)
+        }
+      })
+    })
+    blocks.forEach(block => this.#engine.setCellContents({ sheet: sheetId, col: block.col, row: block.row }, block.rows))
+  }
+
   #clearValues(sheetId: number, areas: readonly CellRange[]): void {
     this.#engine.batch(() => areas.forEach(area => this.#engine.setCellContents(
       { sheet: sheetId, col: area.x, row: area.y },
@@ -551,13 +586,16 @@ export class Workbook {
     if (writes.length === 0) return true
     this.#commit(() => {
       const styles = this.#sheetStyles(this.#sheetName(sheetId))
-      this.#engine.batch(() => writes.forEach(({ target: [col, row], source, input }) => {
-        const moved = typeof input === 'string' ? shiftFormula(input, col - source[0], row - source[1]) : input
-        this.#engine.setCellContents({ sheet: sheetId, col, row }, [[moved]])
+      this.#engine.batch(() => this.#writeCells(sheetId, writes.map(({ target: [col, row], source, input }) => ({
+        col,
+        row,
+        input: typeof input === 'string' ? shiftFormula(input, col - source[0], row - source[1]) : input,
+      }))))
+      writes.forEach(({ target: [col, row], source }) => {
         const style = styles.get(styleKey(source[0], source[1]))
         if (style === undefined) styles.delete(styleKey(col, row))
         else styles.set(styleKey(col, row), style)
-      }))
+      })
     })
     return true
   }
@@ -818,14 +856,13 @@ export class Workbook {
     if (matches.length === 0) return 0
     const pattern = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), caseSensitive ? 'g' : 'gi')
     this.#commit(() => {
-      this.#engine.batch(() => matches.forEach(match => {
+      const bySheet = new Map<number, Array<{ readonly col: number; readonly row: number; readonly input: RawCellContent }>>()
+      matches.forEach(match => {
         // A replacer function inserts the text literally; a replacement string would expand "$&" and "$1".
-        const next = match.input.replace(pattern, () => replacement)
-        this.#engine.setCellContents(
-          { sheet: match.sheetId, col: match.cell[0], row: match.cell[1] },
-          [[next]],
-        )
-      }))
+        const write = { col: match.cell[0], row: match.cell[1], input: match.input.replace(pattern, () => replacement) }
+        bySheet.set(match.sheetId, [...bySheet.get(match.sheetId) ?? [], write])
+      })
+      this.#engine.batch(() => bySheet.forEach((writes, sheetId) => this.#writeCells(sheetId, writes)))
     })
     return matches.length
   }
