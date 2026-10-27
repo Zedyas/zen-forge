@@ -305,6 +305,17 @@ describe('docx from Word', () => {
     expect(open('<w:ind w:end="360"/>')).toEqual(['Right indents'])
   })
 
+  it('reports table alignment, row heights and cell alignment, which it does not keep', () => {
+    const open = (tblPr: string, trPr: string, tcPr: string): readonly string[] => {
+      const body = `<w:tbl><w:tblPr>${tblPr}</w:tblPr><w:tblGrid><w:gridCol w:w="4000"/></w:tblGrid><w:tr><w:trPr>${trPr}</w:trPr><w:tc><w:tcPr>${tcPr}</w:tcPr>${para(run('Cell'))}</w:tc></w:tr></w:tbl>`
+      return readDocx(packageOf(body)).findings.map(finding => finding.construct)
+    }
+    expect(open('<w:jc w:val="left"/>', '', '<w:vAlign w:val="top"/>')).toEqual([])
+    for (const changed of [open('<w:jc w:val="center"/>', '', ''), open('', '<w:trHeight w:val="900"/>', ''), open('', '', '<w:vAlign w:val="center"/>')]) {
+      expect(changed).toEqual(['Table layout'])
+    }
+  })
+
   it('reports what it does not keep, so saving over the file asks first', () => {
     const footer = '<?xml version="1.0"?><w:ftr NS><w:p><w:fldSimple w:instr=" DATE "><w:r><w:t>25 September 2026</w:t></w:r></w:fldSimple></w:p></w:ftr>'
     const header = `<?xml version="1.0"?><w:hdr NS>${para(run('Confidential draft'))}</w:hdr>`

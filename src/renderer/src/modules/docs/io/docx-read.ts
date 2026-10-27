@@ -986,6 +986,10 @@ function table(element: Element, context: Context): JSONContent {
   const columnWidth = contentWidthPixels(context.page) / Math.max(1, grid.length)
   const plain = grid.length > 0 && grid.every(width => Math.abs(width - columnWidth) <= 1)
   if (tableBorders(element)) context.findings.add('Table borders and styles', 'degraded', { alternative: 'Shown with a thin border around every cell, and saved that way.' })
+  if (!['left', 'start', undefined].includes(val(kid(element, 'w:tblPr'), 'w:jc'))
+    || all(element, 'w:trHeight').length > 0 || all(element, 'w:vAlign').some(align => attr(align, 'w:val') !== 'top')) {
+    context.findings.add('Table layout', 'degraded', { alternative: 'Table alignment, row heights and vertical alignment in cells are not kept; shown and saved without them.' })
+  }
   // Cells merged down (vMerge) grow the cell that starts the merge, by column.
   const merging = new Map<number, CellBuild>()
   const rows: CellBuild[][] = []
