@@ -298,6 +298,13 @@ describe('docx from Word', () => {
     }
   })
 
+  it('reports right indents, which it does not keep', () => {
+    const open = (pPr: string): readonly string[] => readDocx(packageOf(para(run('Indented'), pPr))).findings.map(finding => finding.construct)
+    expect(open('<w:ind w:left="720" w:right="0"/>')).toEqual([])
+    expect(open('<w:ind w:left="720" w:right="720"/>')).toEqual(['Right indents'])
+    expect(open('<w:ind w:end="360"/>')).toEqual(['Right indents'])
+  })
+
   it('reports what it does not keep, so saving over the file asks first', () => {
     const footer = '<?xml version="1.0"?><w:ftr NS><w:p><w:fldSimple w:instr=" DATE "><w:r><w:t>25 September 2026</w:t></w:r></w:fldSimple></w:p></w:ftr>'
     const header = `<?xml version="1.0"?><w:hdr NS>${para(run('Confidential draft'))}</w:hdr>`

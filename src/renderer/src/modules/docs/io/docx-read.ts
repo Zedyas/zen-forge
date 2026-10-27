@@ -165,6 +165,8 @@ interface ParagraphProps {
   lineExact?: number
   indentLeft?: number
   indentFirstLine?: number
+  /** Not kept; read so that a paragraph with one is reported. */
+  indentRight?: number
   pageBreakBefore?: boolean
   numId?: string
   level?: number
@@ -222,6 +224,7 @@ function readParagraphProps(pPr: Element | undefined): ParagraphProps {
   const before = number(attr(spacing, 'w:before'))
   const after = number(attr(spacing, 'w:after'))
   const left = number(attr(indent, 'w:left') ?? attr(indent, 'w:start'))
+  const right = number(attr(indent, 'w:right') ?? attr(indent, 'w:end'))
   const props: ParagraphProps = {}
   assign(props, 'align', align === undefined ? undefined : alignments[align])
   assign(props, 'spaceBefore', before === undefined ? undefined : before / 20)
@@ -230,6 +233,7 @@ function readParagraphProps(pPr: Element | undefined): ParagraphProps {
   assign(props, 'lineExact', line !== undefined && rule !== 'auto' ? line / 20 : undefined)
   assign(props, 'indentLeft', left === undefined ? undefined : left / 20)
   assign(props, 'indentFirstLine', hanging !== undefined ? -hanging / 20 : firstLine === undefined ? undefined : firstLine / 20)
+  assign(props, 'indentRight', right === undefined ? undefined : right / 20)
   assign(props, 'pageBreakBefore', toggle(pPr, 'w:pageBreakBefore'))
   assign(props, 'numId', val(numPr, 'w:numId'))
   assign(props, 'level', number(val(numPr, 'w:ilvl')))
@@ -878,6 +882,7 @@ function paragraphItems(paragraph: Element, context: Context): Item[] {
     context.findings.add('Paragraph borders and shading', 'degraded', { alternative: 'Shown without them, and saved that way.' })
   }
   if (resolved.rightToLeft === true) context.findings.add('Right-to-left paragraphs', 'degraded', { alternative: 'Shown left to right, and saved that way.' })
+  if ((resolved.indentRight ?? 0) !== 0) context.findings.add('Right indents', 'degraded', { alternative: 'Shown without them, and saved that way.' })
   const themeStyle: StyleName = kind === 'code' || kind === 'rule' || kind === 'checklist' || kind === 'continue' || kind === 'cell' ? 'normal' : kind
   const base = context.theme[themeStyle]
   const extra = otherStyle ? styleDifference(style, base) : { paragraph: {}, run: {} }
