@@ -1,18 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { FileReference } from '@shared/shell'
+import type { CloseChoice, FileReference } from '@shared/shell'
 
-const { describeFile, forgetRecent, recordRecent } = vi.hoisted(() => ({
+const { describeFile, forgetRecent, recordRecent, confirmClose, resolveClose } = vi.hoisted(() => ({
   describeFile: vi.fn<(path: string) => Promise<FileReference>>(),
   forgetRecent: vi.fn<(path: string) => Promise<void>>(async () => undefined),
   recordRecent: vi.fn<(file: FileReference) => Promise<void>>(async () => undefined),
+  confirmClose: vi.fn<(name: string) => Promise<CloseChoice>>(),
+  resolveClose: vi.fn<(approved: boolean) => Promise<void>>(async () => undefined),
 }))
 vi.mock('../services/file/IpcFileService', () => ({ fileService: { describe: describeFile } }))
 vi.mock('../services/index/document-index', () => ({ forgetRecent, recordRecent }))
-vi.mock('../services/platform/client', () => ({ platformClient: {} }))
+vi.mock('../services/platform/client', () => ({ platformClient: { confirmClose, resolveClose } }))
 vi.mock('../ui/ConfirmDialog', () => ({ askConfirm: async () => ({ value: 'cancel' }) }))
 vi.mock('./editors', () => ({ editorFor: () => undefined }))
 
-import { openRecent } from './document-actions'
+import { openRecent, resolveWindowClose } from './document-actions'
 import { homeTabId, useDocumentsStore } from './documents-store'
 
 const report: FileReference = { path: '/files/report.docx', name: 'report', extension: 'docx', size: 1, lastModified: 0 }
@@ -36,5 +38,25 @@ describe('opening a recent file', () => {
     await expect(openRecent(report.path)).rejects.toThrow('“report.docx” was moved or deleted.')
     expect(forgetRecent).toHaveBeenCalledWith(report.path)
     expect(useDocumentsStore.getState().documents).toEqual([])
+  })
+})
+
+describe('closing the window', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useDocumentsStore.setState({ documents: [{ id: report.path, name: 'report', extension: 'docx', kind: 'docs', path: report.path, dirty: true }], activeId: homeTabId })
+  })
+
+  it('asks once about each unsaved document when a second close request arrives while it is asking', async () => {
+    let answer: (choice: CloseChoice) => void = () => undefined
+    confirmClose.mockReturnValue(new Promise(resolve => { answer = resolve }))
+    // A quit re-sends the close request to every window still open whenever another window closes.
+    const first = resolveWindowClose()
+    const second = resolveWindowClose()
+    await vi.waitFor(() => expect(confirmClose).toHaveBeenCalledTimes(1))
+    answer('discard')
+    await Promise.all([first, second])
+    expect(confirmClose).toHaveBeenCalledTimes(1)
+    expect(resolveClose.mock.calls).toEqual([[true]])
   })
 })

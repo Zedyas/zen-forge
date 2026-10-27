@@ -137,15 +137,27 @@ export async function moveToNewWindow(id: string): Promise<void> {
   useDocumentsStore.getState().remove(id)
 }
 
+/**
+ * True while the window is asking about its unsaved documents. A quit sends the close request
+ * again whenever another window closes; asking twice would show each question twice.
+ */
+let resolvingClose = false
+
 /** Resolves every unsaved document before the window closes or the app quits. */
 export async function resolveWindowClose(): Promise<void> {
-  useDocumentsStore.getState().documents.forEach(document => flushTyping(document.id))
-  const unsaved = useDocumentsStore.getState().documents.filter(document => document.dirty)
-  for (const document of unsaved) {
-    if (!(await closeDocument(document.id))) {
-      await platformClient.resolveClose(false)
-      return
+  if (resolvingClose) return
+  resolvingClose = true
+  try {
+    useDocumentsStore.getState().documents.forEach(document => flushTyping(document.id))
+    const unsaved = useDocumentsStore.getState().documents.filter(document => document.dirty)
+    for (const document of unsaved) {
+      if (!(await closeDocument(document.id))) {
+        await platformClient.resolveClose(false)
+        return
+      }
     }
+    await platformClient.resolveClose(true)
+  } finally {
+    resolvingClose = false
   }
-  await platformClient.resolveClose(true)
 }
