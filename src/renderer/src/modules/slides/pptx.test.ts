@@ -3,9 +3,10 @@ import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 import PptxGenJS from 'pptxgenjs'
 import { describe, expect, it } from 'vitest'
 import { createImportReport } from '@shared/fidelity'
-import { createSlide, lineEnds, newId, newTable, paragraphOf, textRun, updateCell, type Paragraph, type Presentation, type SlideElement } from './model'
+import { createSlide, lineEnds, newId, newTable, paragraphOf, textRun, updateCell, withHeaderRow, type Paragraph, type Presentation, type SlideElement } from './model'
 import { writePptx } from './pptx-export'
 import { readPptx } from './pptx-import'
+import { findTheme } from './themes'
 
 /** A 2 × 2 red PNG. */
 const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg=='
@@ -213,6 +214,21 @@ describe('.pptx placeholder bullets', () => {
 
     const lists = reopened.slides[0]?.elements.map(element => element.kind === 'text' ? [element.paragraphs[0]?.runs[0]?.text, element.paragraphs[0]?.list] : [])
     expect(lists).toEqual([['Plain', 'none'], ['Bulleted', 'bullet']])
+  })
+})
+
+describe('.pptx table text colour', () => {
+  it('takes a two-row table\'s text colour from its body, so turning the header row off keeps the header readable', async () => {
+    const small = newTable(2, 2, { width: 960, height: 540, theme: 'light' })
+    const deck: Presentation = { ...presentation, slides: [{ id: newId(), background: '#ffffff', elements: [small], notes: '' }] }
+
+    const { presentation: reopened } = await readPptx(await writePptx(deck))
+
+    const table = reopened.slides[0]?.elements[0]
+    if (table?.kind !== 'table') throw new Error('The table did not come back')
+    expect(table.color).toBe(small.color)
+    expect(table.rows[0]?.cells[0]).toMatchObject({ color: '#ffffff', bold: true })
+    expect(withHeaderRow(table, false, findTheme('light')).rows[0]?.cells[0]?.color ?? table.color).toBe(small.color)
   })
 })
 

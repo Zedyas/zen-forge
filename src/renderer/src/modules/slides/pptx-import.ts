@@ -701,7 +701,9 @@ function tableOf(source: SourceTable, context: ElementContext): TableElement {
   const edges = source.data.flatMap(row => row.flatMap(cell => [cell.borders.top, cell.borders.bottom, cell.borders.left, cell.borders.right]))
   if (edges.some(cellEdge => cellEdge !== undefined && !sameEdge(cellEdge, edge))) context.findings.add('tableBorders', context.slide)
   const firstEnd = xml?.ends.flat().find(style => style.size !== undefined)
-  const color = commonColor(read.flatMap(row => row.map(cell => cell.cell.color))) ?? defaultTheme.text
+  // Counted below the first row, which may be a header in its own colour: the table's colour is what a row shows without one.
+  const body = read.length > 1 ? read.slice(1) : read
+  const color = commonColor(body.flatMap(row => row.map(cell => cell.cell.color))) ?? commonColor(read.flatMap(row => row.map(cell => cell.cell.color))) ?? defaultTheme.text
   const rows = read.map((row, index) => ({
     height: source.rowHeights[index] ?? 32,
     cells: columns.map((_, column) => {
