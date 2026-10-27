@@ -422,8 +422,8 @@ interface Context {
   readonly findings: Findings
   /** Open complex fields (`w:fldChar`); they can span runs and paragraphs. */
   readonly fields: Field[]
-  /** Items numbered so far per counter and level, so a list that continues after a break keeps counting. */
-  readonly listCounts: Map<string, number[]>
+  /** Items numbered so far per counter and level (`counter:level`), so a list that continues after a break keeps counting. */
+  readonly listCounts: Map<string, number>
   /** A header or footer reads its page number fields as fields; the body keeps their text. */
   readonly part: 'body' | 'header'
 }
@@ -826,13 +826,18 @@ type Item =
 
 const listFormats = ['decimal', 'lowerLetter', 'lowerRoman']
 
-/** Counts an item in its list and level, clearing deeper levels as Word does; resolves the count before it. */
-function countItem(context: Context, counter: string, level: number): number {
-  const counts = context.listCounts.get(counter) ?? []
-  const before = counts[level] ?? 0
-  counts[level] = before + 1
-  counts.length = level + 1
-  context.listCounts.set(counter, counts)
+/**
+ * Counts an item in its level's counter, and clears the counters of the list's deeper levels, as
+ * Word does: a list that restarts only its first level still restarts its sub-lists under each item.
+ * Resolves the count before it.
+ */
+function countItem(context: Context, levels: ReadonlyMap<number, ListLevel>, level: number): number {
+  const key = (index: number, entry: ListLevel): string => `${entry.counter}:${index}`
+  const own = levels.get(level)
+  if (own === undefined) return 0
+  const before = context.listCounts.get(key(level, own)) ?? 0
+  context.listCounts.set(key(level, own), before + 1)
+  for (const [index, entry] of levels) if (index > level) context.listCounts.delete(key(index, entry))
   return before
 }
 
@@ -864,9 +869,9 @@ function paragraphItems(paragraph: Element, context: Context): Item[] {
     context.findings.add('Tab stops', 'degraded', { alternative: 'Tabs line up at the default positions, and save that way.' })
   }
 
-  const levels = resolved.numId === undefined || resolved.numId === '0' ? undefined : context.numbering.get(resolved.numId)
+  const levels: ReadonlyMap<number, ListLevel> = (resolved.numId === undefined || resolved.numId === '0' ? undefined : context.numbering.get(resolved.numId)) ?? new Map()
   const level = resolved.level ?? 0
-  const listLevel = levels?.get(level)
+  const listLevel = levels.get(level)
   const marker = listLevel?.format === 'none'
   const isList = listLevel !== undefined && !marker && (kind === 'normal' || kind === 'continue' || kind === 'quote')
   if (listLevel !== undefined && !marker && kind.startsWith('heading')) {
@@ -895,7 +900,7 @@ function paragraphItems(paragraph: Element, context: Context): Item[] {
       if (listLevel.format !== (listLevel.format === 'bullet' ? 'bullet' : listFormats[level % 3])) {
         context.findings.add('List numbering styles', 'degraded', { alternative: 'Shown as 1., a., i. and bullets, and saved that way.' })
       }
-      const before = countItem(context, listLevel.counter, level)
+      const before = countItem(context, levels, level)
       items.push({
         kind: 'item', list: listLevel.format === 'bullet' ? 'bulletList' : 'orderedList', level, key: resolved.numId ?? '',
         start: listLevel.start + before, checked: false, node: node('paragraph'), quote: kind === 'quote',

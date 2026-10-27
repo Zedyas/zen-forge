@@ -221,6 +221,21 @@ describe('docx from Word', () => {
     expect(content.content?.slice(2).map(node => [node.type, node.content?.length])).toEqual([['orderedList', 1], ['orderedList', 1], ['orderedList', 2]])
   })
 
+  it('restarts a sub-list under each item of a list that restarts its numbering', () => {
+    const numbering = `<?xml version="1.0"?><w:numbering NS>
+      <w:abstractNum w:abstractNumId="1"><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/></w:lvl><w:lvl w:ilvl="1"><w:start w:val="1"/><w:numFmt w:val="lowerLetter"/></w:lvl></w:abstractNum>
+      <w:num w:numId="1"><w:abstractNumId w:val="1"/></w:num>
+      <w:num w:numId="2"><w:abstractNumId w:val="1"/><w:lvlOverride w:ilvl="0"><w:startOverride w:val="1"/></w:lvlOverride></w:num></w:numbering>`
+    const at = (value: string, numId: string, level: number): string => para(run(value), `<w:numPr><w:ilvl w:val="${level}"/><w:numId w:val="${numId}"/></w:numPr>`)
+    const body = at('One', '1', 0) + at('Sub a', '1', 1) + at('Sub b', '1', 1) + para(run('Between')) + at('Restarted', '2', 0) + at('Sub again', '2', 1)
+    const { content } = readDocx(packageOf(body, { 'word/numbering.xml': numbering }))
+
+    const restarted = content.content?.[2]
+    expect(restarted?.attrs).toBeUndefined()
+    expect(restarted?.content?.[0]?.content?.[1]).toMatchObject({ type: 'orderedList', content: [{ content: [{ content: [{ text: 'Sub again' }] }] }] })
+    expect(restarted?.content?.[0]?.content?.[1]?.attrs).toBeUndefined()
+  })
+
   it('reports what it does not keep, so saving over the file asks first', () => {
     const footer = '<?xml version="1.0"?><w:ftr NS><w:p><w:fldSimple w:instr=" DATE "><w:r><w:t>25 September 2026</w:t></w:r></w:fldSimple></w:p></w:ftr>'
     const header = `<?xml version="1.0"?><w:hdr NS>${para(run('Confidential draft'))}</w:hdr>`
