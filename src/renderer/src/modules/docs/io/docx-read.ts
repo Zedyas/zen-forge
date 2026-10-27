@@ -541,6 +541,13 @@ function imageTargets(relationships: ReadonlyMap<string, Relationship>): Set<str
   return new Set([...relationships.values()].filter(relationship => !relationship.external && /\.(png|jpe?g|gif|bmp)$/i.test(relationship.target)).map(relationship => relationship.target))
 }
 
+/** A VML crop as a fraction of the picture: a plain fraction, a percentage, or fixed point such as `6554f` (6554/65536). */
+function vmlFraction(value: string | undefined): number {
+  const text = value?.trim() ?? ''
+  const parsed = number(text.replace(/[f%]$/, '')) ?? 0
+  return text.endsWith('f') ? parsed / 65536 : text.endsWith('%') ? parsed / 100 : parsed
+}
+
 function imageFromDrawing(drawing: Element, context: Context): JSONContent | undefined {
   const blips = [...all(drawing, 'a:blip'), ...all(drawing, 'v:imagedata')]
   const shapes = all(drawing, 'w:txbxContent').length + all(drawing, 'wps:wsp').length + all(drawing, 'wpg:wgp').length
@@ -575,7 +582,7 @@ function imageFromDrawing(drawing: Element, context: Context): JSONContent | und
   }
   const flag = (value: string | undefined): boolean => value === '1' || value === 'true'
   const cropped = all(drawing, 'a:srcRect').some(rect => ['l', 't', 'r', 'b'].some(side => (number(attr(rect, side)) ?? 0) !== 0))
-    || all(drawing, 'v:imagedata').some(data => ['croptop', 'cropbottom', 'cropleft', 'cropright'].some(side => (number(attr(data, side)) ?? 0) !== 0))
+    || all(drawing, 'v:imagedata').some(data => ['croptop', 'cropbottom', 'cropleft', 'cropright'].some(side => vmlFraction(attr(data, side)) !== 0))
   const turned = all(drawing, 'a:xfrm').some(xfrm => (number(attr(xfrm, 'rot')) ?? 0) % 21_600_000 !== 0 || flag(attr(xfrm, 'flipH')) || flag(attr(xfrm, 'flipV')))
   if (cropped || turned) context.findings.add('Picture cropping and rotation', 'degraded', { alternative: 'Shown whole and upright, and saved that way.' })
   const extent = all(drawing, 'wp:extent')[0]

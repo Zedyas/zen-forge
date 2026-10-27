@@ -301,6 +301,21 @@ describe('docx from Word', () => {
     }
   })
 
+  it('reports a picture cropped in VML, whether the crop is a fixed-point number, a fraction or a percentage', () => {
+    const rels = relationships('<Relationship Id="rId1" Type="image" Target="media/image1.png"/>')
+    const picture = (crop: string): string => `<w:r><w:pict><v:shape xmlns:v="v" style="width:30pt;height:15pt"><v:imagedata r:id="rId1"${crop}/></v:shape></w:pict></w:r>`
+    const media = Uint8Array.from(atob(png.split(',')[1] ?? ''), character => character.charCodeAt(0))
+    const open = (crop: string): readonly string[] => {
+      const bytes = unzipSync(packageOf(para(picture(crop)), { 'word/_rels/document.xml.rels': rels }))
+      return readDocx(zipSync({ ...bytes, 'word/media/image1.png': media })).findings.map(finding => finding.construct)
+    }
+
+    for (const whole of ['', ' cropleft="0"', ' cropleft="0f"', ' croptop="0%"']) expect(open(whole)).toEqual([])
+    for (const cropped of [' cropleft="6554f"', ' cropbottom="-6554f"', ' cropright="0.1"', ' croptop="10%"']) {
+      expect(open(cropped)).toEqual(['Picture cropping and rotation'])
+    }
+  })
+
   it('keeps the link Word stores on a picture itself, and reports one it cannot keep', () => {
     const rels = relationships(
       '<Relationship Id="rId1" Type="image" Target="media/image1.png"/>',
