@@ -1,3 +1,4 @@
+import type { Item } from '@glideapps/glide-data-grid'
 import type { Paper } from '@shared/print'
 import { pageSetup, printableArea, type PageSetup, type Printout } from '../../services/print/print'
 import { fontPixels } from './cell-text'
@@ -39,18 +40,23 @@ export function sheetPrintTable(workbook: Workbook, sheetId: number): SheetPrint
   const { width, height } = printedSize(workbook, sheetId)
   const rows = workbook.visibleRows(sheetId).filter(row => row < height)
   const columns = workbook.visibleColumns(sheetId).filter(column => column < width)
-  const blocks = workbook.merges(sheetId).flatMap(merge => viewRange(merge, columns, rows) ?? [])
+  const blocks = workbook.merges(sheetId).flatMap(merge => {
+    const block = viewRange(merge, columns, rows)
+    return block === undefined ? [] : [{ merge, block }]
+  })
   const cells = rows.map((row, rowIndex) => columns.map((column, columnIndex): PrintCell => {
-    const value = workbook.getCellValue(sheetId, [column, row])
-    const style = workbook.getStyle(sheetId, [column, row])
+    const found = blocks.find(({ block }) => columnIndex >= block.x && columnIndex < block.x + block.width
+      && rowIndex >= block.y && rowIndex < block.y + block.height)
+    // A merged block prints one cell, from the merge's upper-left cell even when that cell is hidden or on another page.
+    const source: Item = found === undefined ? [column, row] : [found.merge.x, found.merge.y]
+    const value = workbook.getCellValue(sheetId, source)
+    const style = workbook.getStyle(sheetId, source)
     const color = formatColor(value, style)
-    const block = blocks.find(candidate => columnIndex >= candidate.x && columnIndex < candidate.x + candidate.width
-      && rowIndex >= candidate.y && rowIndex < candidate.y + candidate.height)
     return {
       text: formatCellValue(value, style),
       style: color === undefined ? style : { ...style, textColor: color },
       align: style.align ?? (typeof value === 'number' ? 'right' : 'left'),
-      ...(block === undefined ? {} : { block }),
+      ...(found === undefined ? {} : { block: found.block }),
     }
   }))
   if (cells.every(row => row.every(cell => cell.text === ''))) return undefined

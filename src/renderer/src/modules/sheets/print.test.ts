@@ -87,6 +87,29 @@ describe('sheetPrintTable', () => {
     expect(table?.bodyRows[0]?.[0]?.block).toEqual({ x: 0, y: 0, width: 3, height: 2 })
   })
 
+  it('prints a merged title from its upper-left cell when that column is hidden', () => {
+    const { workbook, sheetId } = workbookWith([['Title', '', ''], ['', '', 5]])
+    workbook.updateStyle(sheetId, [{ x: 0, y: 0, width: 1, height: 1 }], { bold: true })
+    workbook.mergeCells(sheetId, { x: 0, y: 0, width: 2, height: 1 }, false)
+    workbook.hideColumns(sheetId, 0)
+
+    const table = sheetPrintTable(workbook, sheetId)
+
+    expect(table?.bodyRows[0]?.[0]).toMatchObject({ text: 'Title', style: { bold: true }, block: { x: 0, y: 0, width: 1, height: 1 } })
+  })
+
+  it('prints a merged title at the start of each page across', () => {
+    const { workbook, sheetId } = workbookWith([['Title', ...Array.from({ length: 29 }, () => '')], Array.from({ length: 30 }, (_, index) => index)])
+    workbook.mergeCells(sheetId, { x: 0, y: 0, width: 30, height: 1 }, false)
+
+    const table = sheetPrintTable(workbook, sheetId)
+    const content = table === undefined ? undefined : sheetPrintout(table, letterPaper).content
+    const titles = [...content instanceof HTMLElement ? content.querySelectorAll('table') : []].map(printed => printed.rows[0]?.cells[0]?.textContent)
+
+    expect(titles.length).toBeGreaterThan(1)
+    expect(titles.every(title => title === 'Title')).toBe(true)
+  })
+
   it('has nothing to print when the visible cells are empty', () => {
     const empty = workbookWith([])
     expect(sheetPrintTable(empty.workbook, empty.sheetId)).toBeUndefined()
