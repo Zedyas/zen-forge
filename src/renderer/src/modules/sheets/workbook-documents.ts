@@ -175,6 +175,8 @@ export async function saveWorkbook(documentId: string, saveAs: boolean): Promise
     cache.set(newId, cached)
     emit()
   }
+  // setSaved marks the tab saved; an edit made while the file was being written keeps it unsaved.
+  useDocumentsStore.getState().setDirty(newId, workbook.isDirty())
   // A file this app just wrote has nothing unrepresented in it, so later saves need no question.
   if (report !== undefined) {
     useFidelityStore.getState().forget(documentId)
