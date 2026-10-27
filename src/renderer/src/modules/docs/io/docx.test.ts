@@ -247,6 +247,16 @@ describe('docx from Word', () => {
     expect(restarted?.content?.[0]?.content?.[1]?.attrs).toBeUndefined()
   })
 
+  it('keeps the spacing and indent of No Spacing and List Paragraph paragraphs', () => {
+    const style = (id: string, name: string, pPr: string): string => `<w:style w:type="paragraph" w:styleId="${id}"><w:name w:val="${name}"/><w:basedOn w:val="Normal"/><w:pPr>${pPr}</w:pPr></w:style>`
+    const styles = `<?xml version="1.0"?><w:styles NS><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:pPr><w:spacing w:after="160" w:line="259" w:lineRule="auto"/></w:pPr></w:style>`
+      + style('NoSpacing', 'No Spacing', '<w:spacing w:after="0" w:line="240" w:lineRule="auto"/>') + style('ListParagraph', 'List Paragraph', '<w:ind w:left="720"/>') + '</w:styles>'
+    const { content, findings } = readDocx(packageOf(para(run('Address line'), '<w:pStyle w:val="NoSpacing"/>') + para(run('Indented'), '<w:pStyle w:val="ListParagraph"/>'), { 'word/styles.xml': styles }))
+
+    expect(findings).toEqual([])
+    expect(content.content?.map(node => node.attrs)).toEqual([{ spaceAfter: 0, lineHeight: 1 }, { indentLeft: 36 }])
+  })
+
   it('reports what it does not keep, so saving over the file asks first', () => {
     const footer = '<?xml version="1.0"?><w:ftr NS><w:p><w:fldSimple w:instr=" DATE "><w:r><w:t>25 September 2026</w:t></w:r></w:fldSimple></w:p></w:ftr>'
     const header = `<?xml version="1.0"?><w:hdr NS>${para(run('Confidential draft'))}</w:hdr>`

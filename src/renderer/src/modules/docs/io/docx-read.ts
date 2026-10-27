@@ -445,9 +445,10 @@ const kindsByStyleName: Readonly<Record<string, BlockKind>> = {
   [docxStyleNames.Checklist.toLowerCase()]: 'checklist',
   [docxStyleNames.ListContinue.toLowerCase()]: 'continue',
   [docxStyleNames.TableText.toLowerCase()]: 'cell',
-  'list paragraph': 'normal',
-  'no spacing': 'normal',
 }
+
+/** Word's everyday styles over Normal, shown as Normal with their spacing and indents kept on each paragraph, without a report. */
+const normalVariants = new Set(['list paragraph', 'no spacing'])
 
 const deeperHeading = /^heading [7-9]$/
 
@@ -750,8 +751,8 @@ function inlineContent(paragraph: Element, styleRun: RunProps, context: Context)
 function blockKind(name: string, resolved: ParagraphProps, context: Context): { readonly kind: BlockKind; readonly otherStyle: boolean } {
   const kind = kindsByStyleName[name]
   if (kind !== undefined) return { kind, otherStyle: false }
-  // Word's own styles for headers and footers; their formatting is kept on the text.
-  if (context.part === 'header' && (name === 'header' || name === 'footer')) return { kind: 'normal', otherStyle: true }
+  // Normal's everyday variants, and Word's own styles for headers and footers: their formatting is kept on the text.
+  if (normalVariants.has(name) || (context.part === 'header' && (name === 'header' || name === 'footer'))) return { kind: 'normal', otherStyle: true }
   const level = deeperHeading.test(name) ? 6 : resolved.outlineLevel
   if (level !== undefined && level < 9) {
     if (level >= 6) context.findings.add('Headings below level 6', 'degraded', { alternative: 'Shown as Heading 6, and saved that way.' })
