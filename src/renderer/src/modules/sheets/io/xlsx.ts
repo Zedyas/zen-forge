@@ -22,6 +22,7 @@ import {
   type SheetData,
   type WorkbookData,
 } from '../model/workbook-data'
+import { engineFormula, fileFormula } from './excel-functions'
 import { aggregateFindings, type FindingEvent } from './findings'
 import { numberFormatPattern, numberFormatStyle } from './number-format'
 import { assertZipFitsInMemory } from '../../../services/zip'
@@ -210,7 +211,7 @@ function readCellValue(cell: ExcelJS.Cell, context: CellContext): ImportedCell |
       }
       const formula = cell.formula
       if (typeof formula !== 'string' || formula === '') return undefined
-      return { input: `=${formula}`, value: isFormula(value) ? cachedValue(value.result) : null }
+      return { input: `=${engineFormula(formula)}`, value: isFormula(value) ? cachedValue(value.result) : null }
     }
 
     default:
@@ -562,7 +563,7 @@ function writeCellValue(
   if (typeof input === 'string' && input.startsWith('=')) {
     // A cached result lets Excel, Numbers and Google Sheets show values before they recalculate.
     const result = style?.numberFormat === 'date' && typeof cached === 'number' ? serialToDate(cached) : cached
-    cell.value = { formula: input.slice(1), result: result === null ? undefined : result }
+    cell.value = { formula: fileFormula(input.slice(1)), result: result === null ? undefined : result }
     return
   }
 

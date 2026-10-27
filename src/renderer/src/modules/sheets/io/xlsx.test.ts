@@ -126,6 +126,31 @@ describe('xlsx', () => {
     expect(data.sheets[0]?.values?.map(row => row[1])).toEqual([2, 4, 6])
   })
 
+  it('calculates functions Excel saves with a _xlfn. prefix, and writes the prefix back for Excel', async () => {
+    const source = new ExcelJS.Workbook()
+    const sheet = source.addWorksheet('Sheet1')
+    sheet.getCell('A1').value = 5
+    sheet.getCell('A2').value = 7
+    sheet.getCell('B1').value = { formula: '_xlfn.IFS(A1>6,"big",TRUE,"_xlfn.IFS(")', result: '_xlfn.IFS(' }
+    sheet.getCell('B2').value = { formula: '_xlfn.STDEV.S(A1:A2)+_xlfn.CONCAT("a")', result: 0 }
+    const opened = new Workbook((await readXlsx(new Uint8Array(await source.xlsx.writeBuffer()))).data)
+    const sheetId = opened.sheets()[0]?.id ?? 0
+
+    expect(opened.getCellInput(sheetId, [1, 0])).toBe('=IFS(A1>6,"big",TRUE,"_xlfn.IFS(")')
+    expect(opened.getCellValue(sheetId, [1, 0])).toBe('_xlfn.IFS(')
+    // CONCAT is not one the engine has, so it keeps its prefix, unchanged for Excel.
+    expect(opened.getCellInput(sheetId, [1, 1])).toBe('=STDEV.S(A1:A2)+_xlfn.CONCAT("a")')
+    opened.setCellInput(sheetId, [1, 2], '=maxifs(A1:A2,A1:A2,">0")')
+
+    const sheetXml = new TextDecoder().decode(unzipSync(await writeXlsx(opened.toData()))['xl/worksheets/sheet1.xml'])
+    const formulas = [...sheetXml.matchAll(/<f>([^<]*)<\/f>/g)].map(match => match[1]?.replaceAll('&quot;', '"').replaceAll('&gt;', '>'))
+    expect(formulas).toEqual([
+      '_xlfn.IFS(A1>6,"big",TRUE,"_xlfn.IFS(")',
+      '_xlfn.STDEV.S(A1:A2)+_xlfn.CONCAT("a")',
+      '_xlfn.MAXIFS(A1:A2,A1:A2,">0")',
+    ])
+  })
+
   it('keeps every text cell text, whatever the engine would read it as, without showing the mark', async () => {
     const source = new ExcelJS.Workbook()
     const sheet = source.addWorksheet('Sheet1')
