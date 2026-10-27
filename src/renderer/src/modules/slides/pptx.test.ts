@@ -135,18 +135,23 @@ describe('.pptx font names', () => {
 })
 
 describe('.pptx control characters', () => {
-  it('saves pasted text holding PowerPoint\'s vertical-tab line breaks without them, so the file stays valid XML', async () => {
-    const pasted = 'one\u000btwo'
+  it('saves pasted vertical tabs as line breaks in text and cells and as new lines in notes, and drops other control characters', async () => {
+    const pasted = 'one\u000btwo\u0001'
     const box: SlideElement = { ...title, paragraphs: [paragraphOf(pasted)] }
     const table = updateCell(newTable(1, 1, { width: 960, height: 540, theme: 'light' }), 0, 0, { text: pasted })
     const deck: Presentation = { ...presentation, slides: [{ id: newId(), background: '#ffffff', elements: [box, table], notes: pasted }] }
 
     const parts = unzipSync(await writePptx(deck))
 
-    for (const name of ['ppt/slides/slide1.xml', 'ppt/notesSlides/notesSlide1.xml']) {
-      const xml = strFromU8(parts[name] ?? new Uint8Array())
-      expect(xml).toContain('onetwo')
+    const slideXml = strFromU8(parts['ppt/slides/slide1.xml'] ?? new Uint8Array())
+    // One line break in the text box and one in the cell, each between the two words.
+    expect(slideXml.match(/<a:t>one<\/a:t><\/a:r><a:br\/><a:r>.*?<a:t>two<\/a:t>/g)).toHaveLength(2)
+    const notesXml = strFromU8(parts['ppt/notesSlides/notesSlide1.xml'] ?? new Uint8Array())
+    expect(notesXml).toMatch(/<a:t>one\r?\ntwo<\/a:t>/)
+    for (const xml of [slideXml, notesXml]) {
+      expect(xml).not.toContain('onetwo')
       expect(xml).not.toContain('\u000b')
+      expect(xml).not.toContain('\u0001')
     }
   })
 })
