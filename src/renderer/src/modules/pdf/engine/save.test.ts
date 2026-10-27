@@ -71,6 +71,23 @@ describe('deleted content', () => {
     expect(await extractPageTexts(output)).toEqual(['ALPHA'])
     expect(await fileContainsText(output, 'SALARYTABLE')).toBe(false)
   })
+
+  it('removes the form fields of a deleted page, values included, and keeps the others', async () => {
+    const doc = await PDFDocument.create()
+    const [first, second] = [doc.addPage([400, 600]), doc.addPage([400, 600])]
+    const form = doc.getForm()
+    const fields = [['name', 'KEEPNAME', first], ['salary', 'SALARYVALUE', second]] as const
+    for (const [name, value, page] of fields) {
+      const field = form.createTextField(name)
+      field.setText(value)
+      field.addToPage(page, { x: 40, y: 500, width: 150, height: 20 })
+    }
+
+    const output = await savePdf({ sources: [await doc.save()], pages: [{ source: 0, index: 0, rotation: 0, edits: [] }] })
+
+    expect(await fileContainsText(output, 'SALARYVALUE')).toBe(false)
+    expect((await PDFDocument.load(output)).getForm().getFields().map(field => field.getName())).toEqual(['name'])
+  })
 })
 
 describe('text edits', () => {

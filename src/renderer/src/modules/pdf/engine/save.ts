@@ -1,6 +1,6 @@
 import { degrees, PDFDocument, PDFName, PDFPageLeaf, type PDFPage } from '@cantoo/pdf-lib'
 import { applyEdits, textFontProvider } from './draw'
-import { applyFormValues } from './forms'
+import { applyFormValues, removeWidgets } from './forms'
 import { pageGeometry } from './geometry'
 import { loadDocument } from './inspect'
 import { dropUnreachable } from './prune'
@@ -84,6 +84,8 @@ export async function savePdf(input: SavePdfInput): Promise<Uint8Array> {
     }
   }
 
+  // A deleted page's form fields would stay in the form, values included, with nowhere to show.
+  removeWidgets(doc, (_, page) => page !== undefined && !kept.has(page))
   for (let index = originals.length - 1; index >= 0; index -= 1) doc.removePage(index)
   // `removePage` unregisters the page object; put back the ones we are reusing
   // so that every reference to them (annotations, outlines) stays valid.
