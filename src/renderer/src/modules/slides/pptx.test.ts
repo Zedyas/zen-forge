@@ -290,6 +290,22 @@ describe('.pptx line breaks', () => {
     expect(box?.kind === 'shape' ? box.paragraphs[0]?.runs.map(run => [run.text, run.bold]) : undefined).toEqual([['one two ', false], ['three', true], [' four', false]])
     expect(findings.map(finding => finding.construct)).toEqual(['Line breaks inside paragraphs'])
   })
+
+  it('keeps a tab and the line breaks together in one paragraph', async () => {
+    const pptx = new PptxGenJS()
+    pptx.addSlide().addText([
+      { text: 'one\ttwo' },
+      { text: 'three', options: { softBreakBefore: true, bold: true } },
+      { text: 'four', options: { softBreakBefore: true } },
+    ], { x: 0.5, y: 0.5, w: 6, h: 2 })
+    const written = await pptx.write({ outputType: 'uint8array' })
+    if (!(written instanceof Uint8Array)) throw new Error('pptxgenjs did not write bytes')
+
+    const { presentation: imported } = await readPptx(written)
+
+    const box = imported.slides[0]?.elements[0]
+    expect(box?.kind === 'shape' ? box.paragraphs[0]?.runs.map(run => run.text).join('') : undefined).toBe('one\ttwo three four')
+  })
 })
 
 describe('.pptx import report', () => {

@@ -387,19 +387,25 @@ function readRun(span: Element, context: TextContext): TextRun {
 }
 
 /**
- * pptxtojson writes a tab as four spaces. Where the XML has a tab and the runs have those spaces,
- * the tab comes back; if the two texts do not line up, the runs stay as they are.
+ * pptxtojson writes a tab as four spaces, and drops the first of several line breaks in a paragraph,
+ * which joins the words on either side. Walking the runs against the XML's text in one pass, a tab
+ * comes back where the XML has one and the runs have its four spaces, and the dropped break comes
+ * back as a space where the XML has one. If the two texts still do not line up, the runs stay as they are.
  */
-function withTabs(runs: readonly TextRun[], stretches: readonly Stretch[] | undefined): readonly TextRun[] {
+function withXmlText(runs: readonly TextRun[], stretches: readonly Stretch[] | undefined): readonly TextRun[] {
   const xml = stretches?.map(stretch => stretch.text).join('') ?? ''
-  if (!xml.includes('\t')) return runs
+  if (!xml.includes('\t') && xml.length !== runs.reduce((total, run) => total + run.text.length, 0) + 1) return runs
   let at = 0
+  let restoredSpace = false
   const restored = runs.map(run => {
     let text = ''
     for (let index = 0; index < run.text.length;) {
       if (xml[at] === '\t' && run.text.startsWith('    ', index)) {
         text += '\t'
         index += 4
+      } else if (!restoredSpace && xml[at] === ' ' && run.text[index] !== ' ') {
+        text += ' '
+        restoredSpace = true
       } else {
         text += run.text[index]
         index += 1
@@ -408,32 +414,8 @@ function withTabs(runs: readonly TextRun[], stretches: readonly Stretch[] | unde
     }
     return { ...run, text }
   })
-  return at === xml.length ? restored : runs
-}
-
-/**
- * pptxtojson drops the first of several line breaks in a paragraph, which joins the words on either
- * side. When the runs hold the XML's text short of one space, the space comes back where the XML has it.
- */
-function withBreaks(runs: readonly TextRun[], stretches: readonly Stretch[] | undefined): readonly TextRun[] {
-  const xml = stretches?.map(stretch => stretch.text).join('') ?? ''
-  if (xml.length !== runs.reduce((total, run) => total + run.text.length, 0) + 1) return runs
-  let at = 0
-  let restoredSpace = false
-  const restored = runs.map(run => {
-    let text = ''
-    for (let index = 0; index < run.text.length; index += 1) {
-      if (!restoredSpace && xml[at] === ' ' && run.text[index] !== ' ') {
-        text += ' '
-        at += 1
-        restoredSpace = true
-      }
-      text += run.text[index]
-      at += 1
-    }
-    return { ...run, text }
-  })
-  return restored.map(run => run.text).join('') === xml ? restored : runs
+  const agrees = restoredSpace ? restored.map(run => run.text).join('') === xml : at === xml.length
+  return agrees ? restored : runs
 }
 
 /** Splits runs where the XML's highlight changes, when the two agree on the paragraph's text. */
@@ -487,7 +469,7 @@ function readParagraphs(html: string, infos: readonly ParagraphInfo[] | undefine
       ? [textRun('', { size: 18, ...endStyle })]
       : empty
         ? read.map(run => ({ ...run, ...endStyle, text: '' }))
-        : withHighlight(withTabs(withBreaks(read, info?.stretches), info?.stretches), info?.stretches, context)
+        : withHighlight(withXmlText(read, info?.stretches), info?.stretches, context)
     const htmlList: ListStyle = element.closest('ol') !== null ? 'number' : element.closest('li') !== null ? 'bullet' : 'none'
     return {
       runs,
