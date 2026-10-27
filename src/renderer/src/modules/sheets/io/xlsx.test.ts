@@ -176,6 +176,19 @@ describe('xlsx', () => {
     expect(reopened.getCellValue(sheetId, [1, 0])).toBe(true)
   })
 
+  it('saves a formula result as an error only when the formula calculates an error, not text that looks like one', async () => {
+    const saved = new Workbook()
+    const sheetId = saved.sheets()[0]?.id ?? 0
+    saved.setCellInput(sheetId, [0, 0], '="#N/A"')
+    saved.setCellInput(sheetId, [1, 0], '=NA()')
+
+    const part = unzipSync(await writeXlsx(saved.toData()))['xl/worksheets/sheet1.xml']
+    const xml = new TextDecoder().decode(part)
+
+    expect(xml).toMatch(/<c r="A1"[^>]*t="str"[^>]*><f>&quot;#N\/A&quot;<\/f><v>#N\/A<\/v>/)
+    expect(xml).toMatch(/<c r="B1"[^>]*t="e"[^>]*><f>NA\(\)<\/f><v>#N\/A<\/v>/)
+  })
+
   it('keeps links to places in the workbook as places, not as links to files', async () => {
     const source = new ExcelJS.Workbook()
     const sheet = source.addWorksheet('Sheet1')

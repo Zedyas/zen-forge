@@ -1,5 +1,6 @@
 import type { Item } from '@glideapps/glide-data-grid'
 import {
+  DetailedCellError,
   HyperFormula,
   type CellValue,
   type FunctionDetails,
@@ -17,6 +18,7 @@ import {
   defaultRowCount,
   defaultRowHeight,
   isDefaultStyle,
+  type CachedValue,
   type CellInput,
   type CellRange,
   type CellStyle,
@@ -155,6 +157,10 @@ function shownCellInput(serialized: RawCellContent): string {
 function plainValue(value: CellValue): string | number | boolean | null {
   if (value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value
   return value.toString()
+}
+
+function cachedValue(value: CellValue): CachedValue {
+  return value instanceof DetailedCellError ? { error: value.value } : value
 }
 
 /** Numbers sort before text, empty cells always last; text compares naturally ("Item 2" < "Item 10"). */
@@ -1182,7 +1188,7 @@ export class Workbook {
         return {
           name,
           cells: this.#engine.getSheetSerialized(id).map(row => row.map(serializedInput)),
-          values: withValues ? this.#engine.getSheetValues(id).map(row => row.map(plainValue)) : undefined,
+          values: withValues ? this.#engine.getSheetValues(id).map(row => row.map(cachedValue)) : undefined,
           styles: [...(this.#styles.get(name)?.entries() ?? [])].map(([key, style]) => {
             const [col, row] = parseStyleKey(key)
             return [col, row, style] as const

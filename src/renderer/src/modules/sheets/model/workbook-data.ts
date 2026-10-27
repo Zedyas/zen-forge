@@ -1,6 +1,8 @@
 /** Plain, serializable workbook contents: the one shape shared by the live Workbook and file formats. */
 
 export type CellInput = string | number | boolean | null
+/** A computed value. An error the engine calculated stays apart from text that looks like one (`="#N/A"`). */
+export type CachedValue = CellInput | { readonly error: string }
 export type NumberFormat = 'general' | 'number' | 'currency' | 'percent' | 'date'
 export type HorizontalAlign = 'left' | 'center' | 'right'
 
@@ -91,7 +93,7 @@ export interface SheetData {
    * Row-major computed values, same shape as `cells`. Exporters write these as cached formula
    * results so a file opens with numbers visible before recalculation. Importers may omit it.
    */
-  readonly values?: readonly (readonly (string | number | boolean | null)[])[]
+  readonly values?: readonly (readonly CachedValue[])[]
   /** [column, row, style] for every cell whose style differs from `defaultCellStyle`. */
   readonly styles: readonly (readonly [number, number, CellStyle])[]
   readonly layout: SheetLayoutData

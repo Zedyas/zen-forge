@@ -15,6 +15,7 @@ import {
   defaultColumnCount,
   defaultRowCount,
   isDefaultStyle,
+  type CachedValue,
   type CellInput,
   type CellRange,
   type CellStyle,
@@ -560,18 +561,24 @@ function errorValue(input: CellInput): ExcelJS.CellErrorValue | undefined {
   return error === undefined ? undefined : { error }
 }
 
+/** A formula's cached result; only an error the engine calculated is stored as an error. */
+function cachedResult(cached: CachedValue): ExcelJS.CellFormulaValue['result'] {
+  if (cached === null) return undefined
+  return typeof cached === 'object' ? errorValue(cached.error) ?? cached.error : cached
+}
+
 function writeCellValue(
   cell: ExcelJS.Cell,
   input: CellInput,
-  cached: string | number | boolean | null,
+  cached: CachedValue,
   style: CellStyle | undefined,
 ): void {
   if (input === null || input === '') return
 
   if (typeof input === 'string' && input.startsWith('=')) {
     // A cached result lets Excel, Numbers and Google Sheets show values before they recalculate.
-    const result = style?.numberFormat === 'date' && typeof cached === 'number' ? serialToDate(cached) : errorValue(cached) ?? cached
-    cell.value = { formula: fileFormula(input.slice(1)), result: result === null ? undefined : result }
+    const result = style?.numberFormat === 'date' && typeof cached === 'number' ? serialToDate(cached) : cachedResult(cached)
+    cell.value = { formula: fileFormula(input.slice(1)), result }
     return
   }
 
