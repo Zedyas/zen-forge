@@ -102,6 +102,18 @@ describe('.pptx round trip', () => {
   })
 })
 
+describe('.pptx table borders', () => {
+  it('saves a table whose border is invisible without visible borders', async () => {
+    const invisible = { ...newTable(2, 2, { width: 960, height: 540, theme: 'light' }), border: { color: '#00000000', width: 1.5 } }
+    const deck: Presentation = { ...presentation, slides: [{ id: newId(), background: '#ffffff', elements: [invisible], notes: '' }] }
+
+    const { presentation: reopened } = await readPptx(await writePptx(deck))
+
+    const table = reopened.slides[0]?.elements[0]
+    expect(table).toMatchObject({ kind: 'table', border: { width: 0 } })
+  })
+})
+
 describe('.pptx import report', () => {
   it('reports charts as lost on save, and keeps tables', async () => {
     const pptx = new PptxGenJS()

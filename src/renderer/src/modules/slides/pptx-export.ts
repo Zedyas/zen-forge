@@ -67,9 +67,13 @@ function hex(color: string): string | undefined {
   return opaqueHex(color)?.slice(1)
 }
 
-/** A table with its column widths, row heights and each cell's look; every cell edge takes the table's border. */
+/**
+ * A table with its column widths, row heights and each cell's look; every cell edge takes the table's
+ * border. pptxgenjs writes no border transparency, so an invisible border is written as none.
+ */
 function addTable(slide: PptxGenJS.Slide, table: TableElement): void {
-  const edge: PptxGenJS.BorderProps = { type: 'solid', pt: table.border.width, color: hex(table.border.color) }
+  const visible = table.border.width > 0 && transparency(table.border.color) < 100
+  const edge: PptxGenJS.BorderProps = visible ? { type: 'solid', pt: table.border.width, color: hex(table.border.color) } : { type: 'none' }
   const rows: PptxGenJS.TableRow[] = table.rows.map(row => row.cells.map((cell): PptxGenJS.TableCell => ({
     text: cell.text,
     options: {
