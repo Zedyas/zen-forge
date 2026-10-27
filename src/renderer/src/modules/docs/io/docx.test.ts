@@ -179,6 +179,15 @@ describe('docx', () => {
     expect(sameDocument(schema, readDocx((await writeDocx(linked)).bytes).content, linked)).toBe(true)
   })
 
+  it('writes the tabs in a code block as Word tabs, which show as tabs in Word', async () => {
+    const code: JSONContent = { type: 'doc', content: [{ type: 'codeBlock', content: [text('build:\n\tgo build')] }] }
+    const { bytes } = await writeDocx(code)
+    const xml = strFromU8(unzipSync(bytes)['word/document.xml'] ?? new Uint8Array())
+    expect(xml).toContain('<w:tab/>')
+    expect(xml).not.toMatch(/<w:t[^>]*>[^<]*\t/)
+    expect(sameDocument(schema, readDocx(bytes).content, code)).toBe(true)
+  })
+
   it('writes a file that opens when the text holds control characters', async () => {
     const { bytes } = await writeDocx({ type: 'doc', content: [paragraph(text('Page one\fPage two\u000bthree\u0007'))] })
     const xml = strFromU8(unzipSync(bytes)['word/document.xml'] ?? new Uint8Array())

@@ -202,16 +202,19 @@ function runOptions(node: JSONContent, inLink: boolean): IRunOptions {
   }
 }
 
+/** One line of text as a run's children. Tabs are their own element in Word; inside w:t they show as a space. */
+function tabbed(line: string): Array<Tab | string> {
+  return xmlText(line).split('\t').flatMap((part, index) => [...(index > 0 ? [new Tab()] : []), ...(part === '' ? [] : [part])])
+}
+
 /**
- * A text node as runs. Tabs are their own element in Word (inside w:t they show as a space); a
- * vertical tab or line end pasted into the text becomes a line break, a form feed a page break.
+ * A text node as runs. A vertical tab or line end pasted into the text becomes a line break, a
+ * form feed a page break.
  */
 function textRuns(node: JSONContent, text: string, inLink: boolean): Array<TextRun | PageBreak> {
   return text.split('\f').flatMap((page, pageIndex) => {
-    const lines = page.split(/\r\n|[\v\n\r]/).map((line, lineIndex) => {
-      const children = xmlText(line).split('\t').flatMap((part, index) => [...(index > 0 ? [new Tab()] : []), ...(part === '' ? [] : [part])])
-      return new TextRun({ ...runOptions(node, inLink), ...(lineIndex > 0 ? { break: 1 } : {}), children })
-    })
+    const lines = page.split(/\r\n|[\v\n\r]/).map((line, lineIndex) =>
+      new TextRun({ ...runOptions(node, inLink), ...(lineIndex > 0 ? { break: 1 } : {}), children: tabbed(line) }))
     return pageIndex > 0 ? [new PageBreak(), ...lines] : lines
   })
 }
@@ -364,7 +367,7 @@ function continuation(node: JSONContent, context: ExportContext, level: number, 
   if (node.type === 'paragraph') {
     return [new Paragraph({ ...paragraphOptions(node, false), style: style ?? 'ListContinue', numbering, children: runs(node.content ?? [], context) })]
   }
-  if (node.type === 'codeBlock') return codeLines(node).map(line => new Paragraph({ style: 'Code', numbering, children: line === '' ? [] : [new TextRun(line)] }))
+  if (node.type === 'codeBlock') return codeLines(node).map(line => new Paragraph({ style: 'Code', numbering, children: codeRuns(line) }))
   if (node.type === 'bulletList' || node.type === 'orderedList') return listBlocks(node, context, level + 1, style)
   if (node.type === 'taskList') return checklistBlocks(node, context, level + 1)
   return blocks([node], context, style)
@@ -397,6 +400,10 @@ function checklistBlocks(list: JSONContent, context: ExportContext, level: numbe
 
 function codeLines(node: JSONContent): string[] {
   return xmlText((node.content ?? []).map(child => child.text ?? '').join('').replace(/\r\n|[\v\r\f]/g, '\n')).split('\n')
+}
+
+function codeRuns(line: string): TextRun[] {
+  return line === '' ? [] : [new TextRun({ children: tabbed(line) })]
 }
 
 /** Column widths in twips: the widths the first row's cells were given, the rest sharing what is left of the text width. */
@@ -467,7 +474,7 @@ function blocks(nodes: readonly JSONContent[], context: ExportContext, style?: D
         return blocks(node.content ?? [], context, 'Quote')
       case 'codeBlock':
         // One paragraph per line; the reader joins them back.
-        return codeLines(node).map(line => new Paragraph({ style: 'Code', children: line === '' ? [] : [new TextRun(line)] }))
+        return codeLines(node).map(line => new Paragraph({ style: 'Code', children: codeRuns(line) }))
       case 'horizontalRule':
         return [new Paragraph({ style: 'HorizontalLine' })]
       case 'pageBreak':
