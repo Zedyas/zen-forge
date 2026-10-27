@@ -3,6 +3,7 @@ import {
   PDFCheckBox,
   PDFDocument,
   PDFDropdown,
+  PDFName,
   PDFOptionList,
   PDFRadioGroup,
   PDFRef,
@@ -142,6 +143,10 @@ export function removeWidgets(doc: PDFDocument, doomed: (widget: PDFWidgetAnnota
       form.removeField(field)
       continue
     }
+    // A choice is shown only by the button chosen; with that button gone, the choice goes too.
+    const chosenGoes = widgets.some((widget, index) => marked[index] && (widget.getAppearanceState() ?? PDFName.of('Off')) !== PDFName.of('Off'))
+    if (chosenGoes && field instanceof PDFRadioGroup) field.clear()
+    if (chosenGoes && field instanceof PDFCheckBox) field.uncheck()
     for (let index = widgets.length - 1; index >= 0; index -= 1) {
       const ref = refs[index]
       if (!marked[index] || ref === undefined) continue

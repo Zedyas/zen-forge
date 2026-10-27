@@ -61,6 +61,27 @@ describe('redactPages', () => {
     expect(fields).toEqual(['name'])
   })
 
+  it('clears a choice whose chosen button is under a box, and keeps the other buttons', async () => {
+    const { doc, page, box, shown } = await statement()
+    const form = doc.getForm()
+    const plan = form.createRadioGroup('plan')
+    plan.addOptionToPage('Covered', page, { x: 220, y: 498, width: 15, height: 15 })
+    plan.addOptionToPage('Basic', page, { x: 220, y: 300, width: 15, height: 15 })
+    plan.addOptionToPage('Premium', page, { x: 220, y: 200, width: 15, height: 15 })
+    plan.select('Covered')
+    const consent = form.createCheckBox('consent')
+    consent.addToPage(page, { x: 250, y: 498, width: 15, height: 15 })
+    consent.addToPage(page, { x: 250, y: 300, width: 15, height: 15 })
+    consent.check()
+
+    const output = await redactPages(await doc.save(), [{ index: 0, shown, boxes: [{ ...box, width: 360 }] }], keepHidden)
+
+    const saved = (await PDFDocument.load(output)).getForm()
+    expect(saved.getRadioGroup('plan').getSelected()).toBeUndefined()
+    expect(saved.getRadioGroup('plan').acroField.getWidgets()).toHaveLength(2)
+    expect(saved.getCheckBox('consent').isChecked()).toBe(false)
+  })
+
   it('removes copies of the text outside the page content, and hidden information on request', async () => {
     const build = async () => {
       const { doc, page, box, shown } = await statement()
