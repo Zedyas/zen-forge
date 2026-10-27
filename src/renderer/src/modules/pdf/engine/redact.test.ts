@@ -99,6 +99,23 @@ describe('redactPages', () => {
     expect(text).toContain('KEEP ME')
   })
 
+  it('removes text quoted by marked content on a redacted page, inline, named or in a form', async () => {
+    const box = { x: 36, y: 82, width: 170, height: 24 }
+    const { doc, page } = await layeredPdf([
+      '/Span <</MCID 0 /ActualText (SECRET-INLINE)>> BDC BT /F1 14 Tf 40 500 Td (XXXX) Tj ET EMC',
+      '/Span /Quoted BDC BT /F1 14 Tf 120 500 Td (YYYY) Tj ET EMC',
+      '/Quoting Do BT /F1 14 Tf 40 300 Td (KEEP ME) Tj ET',
+    ].join('\n'), { Quoting: { content: '/Figure <</Alt (SECRET-FORM)>> BDC BT /F1 14 Tf 40 505 Td (ZZZZ) Tj ET EMC' } })
+    page.node.Resources()?.lookup(PDFName.of('Properties'), PDFDict).set(PDFName.of('Quoted'), doc.context.obj({ ActualText: PDFString.of('SECRET-NAMED') }))
+    const bytes = await doc.save({ useObjectStreams: false })
+
+    const output = await redactPages(bytes, [{ index: 0, shown: plainPage, boxes: [box] }], keepHidden)
+    for (const secret of ['SECRET-INLINE', 'SECRET-NAMED', 'SECRET-FORM']) expect(await fileContainsText(output, secret)).toBe(false)
+    expect(await fileContainsText(output, '/MCID 0')).toBe(true)
+    const [text] = await extractPageTexts(output)
+    expect(text).toContain('KEEP ME')
+  })
+
   it('removes covered text in a hidden layer, marked in the page content or on a form XObject', async () => {
     // The box covers the line at y = 500 (82pt from the top as displayed).
     const box = { x: 36, y: 82, width: 170, height: 24 }

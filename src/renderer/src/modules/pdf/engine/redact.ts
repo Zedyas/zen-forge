@@ -1,17 +1,22 @@
 import {
+  decodePDFRawStream,
   PDFArray,
   PDFDict,
   PDFName,
   PDFNumber,
+  PDFObjectParser,
+  PDFRawStream,
   PDFRef,
   type PDFDocument,
   type PDFObject,
   type PDFPage,
 } from '@cantoo/pdf-lib'
+import { zlibSync } from 'fflate'
+import { scanContent } from './content-stream'
 import { removeWidgets } from './forms'
 import { pageGeometry, rectToUserSpace, sameGeometry, type Rect } from './geometry'
 import { loadDocument } from './inspect'
-import { removeHiddenLayers } from './layers'
+import { applyEdits, removeHiddenLayers, type Edit } from './layers'
 import { dropUnreachable } from './prune'
 import type { RedactionRequest, RedactOptions } from './types'
 
@@ -144,6 +149,64 @@ function removeTagText(doc: PDFDocument, redactedPages: ReadonlySet<string>): vo
   visit(root.get(PDFName.of('K')), undefined)
 }
 
+/** Property-list entries that can quote what marked content marks: replacement text, alternate description and expansion. */
+const quotingKeys = ['ActualText', 'Alt', 'E'].map(key => PDFName.of(key))
+
+/** Deletes the quoting entries of a property list; says whether it had any. */
+function dropQuotes(properties: PDFDict): boolean {
+  const quoted = quotingKeys.filter(key => properties.has(key))
+  quoted.forEach(key => properties.delete(key))
+  return quoted.length > 0
+}
+
+/** A content stream's property lists written inline (`/Span <</ActualText (…)>> BDC`) without their quoting entries, or undefined when none had any. */
+function contentWithoutQuotes(doc: PDFDocument, content: Uint8Array): Uint8Array | undefined {
+  // Without `<<` there is no inline property list, and nothing to scan for.
+  if (!new TextDecoder('latin1').decode(content).includes('<<')) return undefined
+  const edits: Edit[] = scanContent(content).flatMap(({ operator, operands: [tag, list], start, end }) => {
+    if ((operator !== 'BDC' && operator !== 'DP') || tag?.startsWith('/') !== true || list?.startsWith('<<') !== true) return []
+    const properties = PDFObjectParser.forBytes(Uint8Array.from(list, character => character.charCodeAt(0)), doc.context).parseObject()
+    if (!(properties instanceof PDFDict) || !dropQuotes(properties)) return []
+    return [{ start, end, replacement: `${PDFName.of(tag.slice(1)).toString()} ${properties.toString()} ${operator}` }]
+  })
+  return edits.length === 0 ? undefined : applyEdits(content, edits)
+}
+
+function withoutQuotes(doc: PDFDocument, stream: PDFObject | undefined): void {
+  if (!(stream instanceof PDFRawStream)) return
+  const cleaned = contentWithoutQuotes(doc, decodePDFRawStream(stream).decode())
+  if (cleaned === undefined) return
+  stream.dict.delete(PDFName.of('DecodeParms'))
+  stream.dict.set(PDFName.of('Filter'), PDFName.of('FlateDecode'))
+  stream.updateContents(zlibSync(cleaned))
+}
+
+/**
+ * Marked content can quote the text it marks, as /ActualText or /Alt in its property list, and
+ * MuPDF keeps those lists when it removes the text. On a redacted page they lose these entries:
+ * inline in the content of the page and of the forms it draws, and named in their resources.
+ */
+function removeMarkedText(doc: PDFDocument, page: PDFPage): void {
+  const visited = new Set<string>()
+  const clean = (resources: PDFDict | undefined): void => {
+    for (const value of resources?.lookupMaybe(PDFName.of('Properties'), PDFDict)?.values() ?? []) {
+      const properties = doc.context.lookup(value)
+      if (properties instanceof PDFDict) dropQuotes(properties)
+    }
+    for (const value of resources?.lookupMaybe(PDFName.of('XObject'), PDFDict)?.values() ?? []) {
+      const form = doc.context.lookup(value)
+      if (!(value instanceof PDFRef) || visited.has(value.tag) || !(form instanceof PDFRawStream)) continue
+      visited.add(value.tag)
+      if (form.dict.lookupMaybe(PDFName.of('Subtype'), PDFName)?.decodeText() !== 'Form') continue
+      withoutQuotes(doc, form)
+      clean(form.dict.lookupMaybe(PDFName.of('Resources'), PDFDict) ?? resources)
+    }
+  }
+  const contents = doc.context.lookup(page.node.get(PDFName.of('Contents')))
+  for (const stream of contents instanceof PDFArray ? contents.asArray() : [contents]) withoutQuotes(doc, doc.context.lookup(stream))
+  clean(page.node.Resources())
+}
+
 /** Annotation types that are part of how the document works, not comments on it. */
 const functionalAnnotations = new Set(['Link', 'Widget'])
 
@@ -199,8 +262,9 @@ export async function redactPages(
 
   const doc = await loadDocument(applied)
   const pages = doc.getPages()
-  const redactedPages = new Set(requests.flatMap(request => pages[request.index]?.ref.tag ?? []))
-  removeTagText(doc, redactedPages)
+  const redacted = requests.flatMap(request => pages[request.index] ?? [])
+  redacted.forEach(page => removeMarkedText(doc, page))
+  removeTagText(doc, new Set(redacted.map(page => page.ref.tag)))
   if (options.removeHiddenInformation) removeHiddenInformation(doc)
   dropUnreachable(doc)
   return doc.save({ updateFieldAppearances: false })

@@ -114,18 +114,18 @@ function join(parts: readonly Uint8Array[]): Uint8Array {
 }
 
 /** Replaces a byte range; cut ranges become a space, so the tokens on either side stay apart. */
-interface Edit {
+export interface Edit {
   readonly start: number
   readonly end: number
   readonly replacement: string
 }
 
-/** Applies edits given in order and not overlapping. */
-function applyEdits(content: Uint8Array, edits: readonly Edit[]): Uint8Array {
+/** Applies edits given in order and not overlapping. A replacement is written a byte per character, as `scanContent` reads them. */
+export function applyEdits(content: Uint8Array, edits: readonly Edit[]): Uint8Array {
   const parts: Uint8Array[] = []
   let pos = 0
   for (const edit of edits) {
-    parts.push(content.subarray(pos, edit.start), new TextEncoder().encode(edit.replacement))
+    parts.push(content.subarray(pos, edit.start), Uint8Array.from(edit.replacement, character => character.charCodeAt(0)))
     pos = edit.end
   }
   parts.push(content.subarray(pos))
