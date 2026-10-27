@@ -103,13 +103,17 @@ export function moveFind(editor: Editor, step: 1 | -1): void {
   revealCurrent(editor)
 }
 
-/** Replaces the current match; the next match becomes current. Keeps the formatting of the replaced text. */
+/**
+ * Replaces the current match; the next match after the new text becomes current, so a replacement
+ * that holds the search text is not matched again. Keeps the formatting of the replaced text.
+ */
 export function replaceCurrent(editor: Editor, replacement: string): void {
   const state = findState(editor.state)
   const match = state?.matches[state.current]
-  if (match === undefined) return
+  if (state === undefined || match === undefined) return
   const transaction = replacement === '' ? editor.state.tr.delete(match.from, match.to) : editor.state.tr.insertText(replacement, match.from, match.to)
-  editor.view.dispatch(transaction)
+  const next = findMatches(transaction.doc, state.query, state.caseSensitive).findIndex(candidate => candidate.from >= match.from + replacement.length)
+  editor.view.dispatch(transaction.setMeta(findKey, { current: Math.max(next, 0) }))
   revealCurrent(editor)
 }
 
