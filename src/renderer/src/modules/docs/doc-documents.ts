@@ -268,6 +268,8 @@ export async function saveDoc(documentId: string, saveAs: boolean): Promise<bool
   // The document as encoded, read together with the content each encode gets, so typing during the
   // awaits below keeps the tab unsaved.
   let snapshot = editor.state.doc
+  // Set once the person has been told what the save changes, so a copy they chose is not asked about again.
+  let riskShown = false
   if (path !== undefined) {
     const shown = editor.getJSON()
     bytes = await encode(shown, extensionOf(path), cached.imageSources)
@@ -282,6 +284,7 @@ export async function saveDoc(documentId: string, saveAs: boolean): Promise<bool
       if (value === 'copy') {
         path = undefined
         bytes = undefined
+        riskShown = true
       } else cached.acceptedRisk = risk.signature
     }
   }
@@ -296,7 +299,18 @@ export async function saveDoc(documentId: string, saveAs: boolean): Promise<bool
   const format = extensionOf(path)
   if (bytes === undefined) {
     snapshot = editor.state.doc
-    bytes = await encode(editor.getJSON(), format, cached.imageSources)
+    const shown = editor.getJSON()
+    bytes = await encode(shown, format, cached.imageSources)
+    // A new Word file is read back too, so it never silently holds less than the editor shows. Markdown
+    // keeps text and structure only, which the note after saving says.
+    if (!riskShown && !isMarkdown(format) && await changesOnReopen(editor, shown, format, bytes, cached.imageSources) !== undefined) {
+      const { value } = await askConfirm({
+        title: 'Save with changes?',
+        message: 'Saving as a Word document would change parts of this document. Sumi shows them until you close it, but the saved file won’t have them.',
+        actions: [{ label: 'Save', value: 'save', primary: true }],
+      })
+      if (value === 'cancel') return false
+    }
   }
   await fileService.write(path, bytes)
   const file = await fileService.describe(path)
