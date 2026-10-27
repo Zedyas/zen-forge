@@ -162,6 +162,20 @@ describe('xlsx', () => {
     expect(data.sheets[0]?.cells.at(-1)).toEqual([130_000])
   }, 30_000)
 
+  it('keeps an error value an error, not text, through open and save', async () => {
+    const source = new ExcelJS.Workbook()
+    const sheet = source.addWorksheet('Sheet1')
+    sheet.getCell('A1').value = { error: ExcelJS.ErrorValue.NotApplicable }
+    sheet.getCell('B1').value = { formula: 'ISNA(A1)', result: true }
+    const opened = new Workbook((await readXlsx(new Uint8Array(await source.xlsx.writeBuffer()))).data)
+
+    const reopened = new Workbook((await readXlsx(await writeXlsx(opened.toData()))).data)
+    const sheetId = reopened.sheets()[0]?.id ?? 0
+
+    expect(reopened.getCellInput(sheetId, [0, 0])).toBe('#N/A')
+    expect(reopened.getCellValue(sheetId, [1, 0])).toBe(true)
+  })
+
   it('keeps every text cell text, whatever the engine would read it as, without showing the mark', async () => {
     const source = new ExcelJS.Workbook()
     const sheet = source.addWorksheet('Sheet1')

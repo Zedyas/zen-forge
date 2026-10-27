@@ -554,6 +554,12 @@ function writeCellStyle(cell: ExcelJS.Cell, style: CellStyle): void {
   if (style.note !== undefined) cell.note = style.note
 }
 
+/** An error value (`#N/A`) as the file stores one, so it stays an error rather than text. */
+function errorValue(input: CellInput): ExcelJS.CellErrorValue | undefined {
+  const error = Object.values(ExcelJS.ErrorValue).find(value => typeof input === 'string' && value === input.toUpperCase())
+  return error === undefined ? undefined : { error }
+}
+
 function writeCellValue(
   cell: ExcelJS.Cell,
   input: CellInput,
@@ -564,13 +570,19 @@ function writeCellValue(
 
   if (typeof input === 'string' && input.startsWith('=')) {
     // A cached result lets Excel, Numbers and Google Sheets show values before they recalculate.
-    const result = style?.numberFormat === 'date' && typeof cached === 'number' ? serialToDate(cached) : cached
+    const result = style?.numberFormat === 'date' && typeof cached === 'number' ? serialToDate(cached) : errorValue(cached) ?? cached
     cell.value = { formula: fileFormula(input.slice(1)), result: result === null ? undefined : result }
     return
   }
 
   if (style?.numberFormat === 'date' && typeof input === 'number') {
     cell.value = serialToDate(input)
+    return
+  }
+
+  const error = errorValue(input)
+  if (error !== undefined) {
+    cell.value = error
     return
   }
 
