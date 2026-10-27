@@ -726,9 +726,13 @@ export class Workbook {
     this.#commit(() => { layout.freezeRows = next })
   }
 
+  /** Named Sheet and the next number no sheet uses; the engine's own choice can be taken (Sheet1 and Sheet3 make Sheet3). */
   addSheet(): WorkbookSheet {
+    const taken = new Set(this.#sheetOrder.map(name => name.toLowerCase()))
+    let number = this.#sheetOrder.length + 1
+    while (taken.has(`sheet${number}`)) number += 1
     return this.#commit(() => {
-      const name = this.#engine.addSheet()
+      const name = this.#engine.addSheet(`Sheet${number}`)
       const id = this.#sheetId(name)
       this.#sheetOrder = [...this.#sheetOrder, name]
       this.#layouts.set(name, layoutFromData(blankLayout))

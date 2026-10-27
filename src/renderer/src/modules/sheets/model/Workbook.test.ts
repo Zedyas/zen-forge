@@ -82,6 +82,20 @@ describe('Workbook', () => {
     expect(workbook.getCellValue(sheetId, [1, 0])).toBe(1_250_025_000)
   })
 
+  it('adds a sheet under a free name when the next number is taken', () => {
+    const blank = blankWorkbookData()
+    const sheet = blank.sheets[0]
+    if (sheet === undefined) throw new Error('Blank workbook has no sheet.')
+    const workbook = new Workbook({ ...blank, sheets: [sheet, { ...sheet, name: 'Sheet3' }] })
+
+    workbook.addSheet()
+    const renamed = workbook.sheets()[0]?.id ?? 0
+    workbook.renameSheet(renamed, 'sheet5')
+    workbook.addSheet()
+
+    expect(workbook.sheets().map(candidate => candidate.name)).toEqual(['sheet5', 'Sheet3', 'Sheet4', 'Sheet6'])
+  })
+
   it('calculates references across added and renamed sheets', () => {
     const workbook = regionsWorkbook()
     const firstSheet = workbook.sheets()[0]
