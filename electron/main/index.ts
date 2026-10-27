@@ -8,7 +8,7 @@ import { attachSpellingMenu, registerLinkIpc } from './document-editing'
 import { registerFileIpc } from './file-ipc'
 import { NodeFileService } from './node-file-service'
 import { registerPrintIpc } from './print-ipc'
-import { applySecurity, appPageUrl, handle, registerAppScheme } from './security'
+import { applySecurity, handle, registerAppScheme, rendererUrl } from './security'
 import { applyStoredAppearance, copyZendoData, getAppearance, readSession, readSettings, setAppearance, setCheckForUpdates, writeSession } from './settings'
 import { currentUpdateStatus, registerUpdates, scheduleUpdateCheck } from './updates'
 
@@ -247,11 +247,6 @@ function refreshMenu(): void {
   Menu.setApplicationMenu(buildMenu(currentWindow()))
 }
 
-function loadRenderer(window: BrowserWindow): void {
-  const developmentUrl = process.env['ELECTRON_RENDERER_URL']
-  void window.loadURL(developmentUrl ?? appPageUrl)
-}
-
 function createWindow(restore?: WindowSession): WindowRecord {
   const window = new BrowserWindow({
     width: 1280,
@@ -283,7 +278,7 @@ function createWindow(restore?: WindowSession): WindowRecord {
   }
   records.push(record)
   attachSpellingMenu(window.webContents)
-  loadRenderer(window)
+  void window.loadURL(rendererUrl())
   const update = currentUpdateStatus()
   if (update.state !== 'none') send(record, 'update:status', update)
 

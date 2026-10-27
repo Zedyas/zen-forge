@@ -17,9 +17,22 @@ const rendererDir = join(__dirname, '../renderer')
 /** The production page. Development loads Vite's dev server instead. */
 export const appPageUrl = `${scheme}://${host}/index.html`
 
+/**
+ * Vite's dev server, which electron-vite names in an environment variable. A packaged app ignores
+ * it: otherwise anyone who can set the variable could load their own page with the file bridge.
+ */
+function developmentUrl(): string | undefined {
+  return app.isPackaged ? undefined : process.env['ELECTRON_RENDERER_URL']
+}
+
 function developmentOrigin(): string | undefined {
-  const url = process.env['ELECTRON_RENDERER_URL']
+  const url = developmentUrl()
   return url === undefined ? undefined : new URL(url).origin
+}
+
+/** The page every window loads. */
+export function rendererUrl(): string {
+  return developmentUrl() ?? appPageUrl
 }
 
 function isAppPage(url: string): boolean {
