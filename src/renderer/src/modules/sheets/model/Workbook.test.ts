@@ -40,6 +40,20 @@ describe('Workbook', () => {
     expect(workbook.getCellValue(sheetId, [1, 5])).toBe(152_010)
   })
 
+  it('reads TRUE and FALSE in formulas as Excel does, and keeps them out of the named ranges', () => {
+    const workbook = regionsWorkbook()
+    const sheetId = workbook.sheets()[0]?.id ?? 0
+
+    workbook.setCellInput(sheetId, [5, 0], '=VLOOKUP("South",A2:B5,2,FALSE)')
+    workbook.setCellInput(sheetId, [5, 1], '=IF(B2>0,TRUE,false)')
+
+    expect(workbook.getCellValue(sheetId, [5, 0])).toBe(38_750)
+    expect(workbook.getCellValue(sheetId, [5, 1])).toBe(true)
+    expect(workbook.getCellInput(sheetId, [5, 0])).toBe('=VLOOKUP("South",A2:B5,2,FALSE)')
+    expect(workbook.namedRanges()).toEqual([])
+    expect(workbook.toData().namedRanges).toEqual([])
+  })
+
   it('calculates references across added and renamed sheets', () => {
     const workbook = regionsWorkbook()
     const firstSheet = workbook.sheets()[0]

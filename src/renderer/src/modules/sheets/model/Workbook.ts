@@ -1160,6 +1160,9 @@ export class Workbook {
   #load(data: WorkbookData): void {
     const engine = HyperFormula.buildEmpty(workbookConfig)
     engine.batch(() => {
+      // Excel formulas write TRUE and FALSE as plain words (VLOOKUP(…, FALSE)); the engine knows only TRUE() and FALSE().
+      engine.addNamedExpression('TRUE', '=TRUE()')
+      engine.addNamedExpression('FALSE', '=FALSE()')
       data.sheets.forEach(sheet => engine.addSheet(sheet.name))
       data.namedRanges.forEach(namedRange => {
         const formula = namedRangeFormula(namedRange)
