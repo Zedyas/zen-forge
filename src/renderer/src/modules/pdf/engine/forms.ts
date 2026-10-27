@@ -1,7 +1,9 @@
 import {
   PDFAcroButton,
+  PDFArray,
   PDFButton,
   PDFCheckBox,
+  PDFDict,
   PDFDocument,
   PDFDropdown,
   PDFName,
@@ -11,6 +13,7 @@ import {
   PDFSignature,
   PDFTextField,
   type PDFField,
+  type PDFObject,
   type PDFPage,
   type PDFWidgetAnnotation,
 } from '@cantoo/pdf-lib'
@@ -160,6 +163,48 @@ export function removeWidgets(doc: PDFDocument, doomed: (widget: PDFWidgetAnnota
       if (acroField instanceof PDFAcroButton && index < (acroField.getExportValues()?.length ?? 0)) acroField.removeExportValue(index)
     }
   }
+}
+
+/**
+ * Removes the fields with no widget on `pages`, and the parents they leave empty, from the field
+ * trees those pages' widgets hang from. Pages copied from another file bring their widgets' whole
+ * trees, outside the AcroForm (so `removeWidgets` does not see them): a field of a page left
+ * behind would stay in the file through a shared parent, value and appearance included.
+ */
+export function removeFieldsOffPages(doc: PDFDocument, pages: readonly PDFPage[]): void {
+  const { context } = doc
+  const widgets = pages.flatMap(page => page.node.Annots()?.asArray() ?? []).filter(ref => ref instanceof PDFRef)
+  const shown = new Set(widgets.map(ref => ref.tag))
+  /** Whether a field node has a widget on the pages; drops its kid fields that have none. */
+  const keep = (node: PDFObject, visited: Set<PDFDict>): boolean => {
+    const dict = context.lookup(node)
+    if (!(dict instanceof PDFDict) || visited.has(dict)) return false
+    visited.add(dict)
+    const kids = dict.lookupMaybe(PDFName.of('Kids'), PDFArray)
+    if (kids === undefined) return node instanceof PDFRef && shown.has(node.tag)
+    let kept = false
+    for (let index = kids.size() - 1; index >= 0; index -= 1) {
+      const kid = kids.get(index)
+      const kidDict = context.lookup(kid)
+      if (keep(kid, visited)) kept = true
+      // Only whole fields go: a widget without its own name is one view of a field that stays.
+      else if (kidDict instanceof PDFDict && kidDict.has(PDFName.of('T'))) kids.remove(index)
+    }
+    return kept
+  }
+  const roots = new Set<PDFDict>()
+  for (const ref of widgets) {
+    let node = context.lookup(ref)
+    const climbed = new Set<PDFDict>()
+    while (node instanceof PDFDict && !climbed.has(node)) {
+      climbed.add(node)
+      const parent = node.lookup(PDFName.of('Parent'))
+      if (!(parent instanceof PDFDict)) break
+      node = parent
+    }
+    if (node instanceof PDFDict) roots.add(node)
+  }
+  for (const root of roots) keep(root, new Set())
 }
 
 export async function listFormFields(bytes: Uint8Array): Promise<FormField[]> {
