@@ -1,4 +1,6 @@
+import { getSchema } from '@tiptap/core'
 import { describe, expect, it } from 'vitest'
+import { documentExtensions } from '../schema'
 import { markdownLosses, readMarkdown, writeMarkdown } from './markdown'
 
 const source = `# Trip plan
@@ -20,6 +22,12 @@ Book the [train](https://example.com/trains) early.
 `
 
 describe('markdown', () => {
+  it('opens an empty numbered item as an item with an empty paragraph to type in', () => {
+    const { content } = readMarkdown('1. First\n2. \n3. Third\n')
+    expect(() => getSchema(documentExtensions).nodeFromJSON(content).check()).not.toThrow()
+    expect(content.content?.[0]?.content?.[1]).toEqual({ type: 'listItem', content: [{ type: 'paragraph' }] })
+  })
+
   it('keeps headings, lists, tables and links through a save and reopen', () => {
     const opened = readMarkdown(source)
     const saved = writeMarkdown(opened.content)

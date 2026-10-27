@@ -36,14 +36,19 @@ function safeLink(href: unknown): boolean {
   return scheme === undefined || scheme === 'http' || scheme === 'https' || scheme === 'mailto'
 }
 
+/** List items start with a paragraph. */
+const listItems = new Set(['listItem', 'taskItem'])
+
 /**
  * Fits parsed Markdown to the schema: TipTap's Markdown reader treats an image alone on a line as
- * a block, but Sumi's images are inline; unsafe links lose their link.
+ * a block, but Sumi's images are inline, and it reads an empty numbered item (`2. `) as an item
+ * without a paragraph; unsafe links lose their link.
  */
 function normalize(node: JSONContent): JSONContent {
   const marks = node.marks?.filter(mark => mark.type !== 'link' || safeLink(mark.attrs?.['href']))
-  const content = node.content?.map(child =>
+  const children = node.content?.map(child =>
     blockContainers.has(node.type ?? '') && child.type === 'image' ? { type: 'paragraph', content: [child] } : normalize(child))
+  const content = listItems.has(node.type ?? '') && children?.[0]?.type !== 'paragraph' ? [{ type: 'paragraph' }, ...children ?? []] : children
   return {
     ...node,
     ...(marks === undefined ? {} : { marks }),
