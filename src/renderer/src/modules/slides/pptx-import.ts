@@ -159,6 +159,8 @@ interface SlideXml {
   readonly paragraphs: ReadonlyMap<string, readonly ParagraphInfo[]>
   /** Tables by their graphic frame's `cNvPr` id. */
   readonly tables: ReadonlyMap<string, TableXml>
+  /** Where placeholders without a position of their own sit, from their layout or master, by `cNvPr` id. */
+  readonly frames: ReadonlyMap<string, Positioned>
   readonly animated: boolean
   readonly hidden: boolean
   readonly fields: boolean
@@ -195,8 +197,8 @@ function inheritedList(styles: readonly (Element | undefined)[], level: number):
   return undefined
 }
 
-/** The list styles a slide placeholder inherits, nearest first: its layout placeholder's, then its master placeholder's. */
-type PlaceholderStyles = (placeholder: Element) => readonly (Element | undefined)[]
+/** The shapes a slide placeholder takes its look from, nearest first: its layout's placeholder, then its master's. */
+type DesignPlaceholders = (placeholder: Element) => readonly (Element | undefined)[]
 
 /** The placeholder in a layout or master that a slide placeholder takes its look from: the same index, or else the same type. */
 function matchingPlaceholder(design: Document, placeholder: Element): Element | undefined {
@@ -215,6 +217,17 @@ function matchingPlaceholder(design: Document, placeholder: Element): Element | 
 function lstStyleOf(shape: Element | undefined): Element | undefined {
   const body = shape === undefined ? undefined : childNamed(shape, 'p:txBody')
   return body === undefined ? undefined : childNamed(body, 'a:lstStyle')
+}
+
+/** A shape's own position and size, in points, when its XML states them. */
+function xfrmOf(shape: Element | undefined): Positioned | undefined {
+  const properties = shape === undefined ? undefined : childNamed(shape, 'p:spPr')
+  const xfrm = properties === undefined ? undefined : childNamed(properties, 'a:xfrm')
+  const offset = xfrm === undefined ? undefined : childNamed(xfrm, 'a:off')
+  const extent = xfrm === undefined ? undefined : childNamed(xfrm, 'a:ext')
+  if (offset === undefined || extent === undefined) return undefined
+  const points = (element: Element, name: string): number => Number(element.getAttribute(name) ?? 0) / 12700
+  return { left: points(offset, 'x'), top: points(offset, 'y'), width: points(extent, 'cx'), height: points(extent, 'cy') }
 }
 
 /** The text of a paragraph's runs, fields and breaks in order, as pptxtojson writes them into its HTML. */
@@ -276,10 +289,11 @@ function parseXml(xml: string): Document {
   return new DOMParser().parseFromString(xml, 'application/xml')
 }
 
-function readSlideXml(xml: string, placeholderStyles: PlaceholderStyles): SlideXml {
+function readSlideXml(xml: string, designPlaceholders: DesignPlaceholders): SlideXml {
   const document = parseXml(xml)
   const paragraphs = new Map<string, ParagraphInfo[]>()
   const tables = new Map<string, TableXml>()
+  const frames = new Map<string, Positioned>()
   for (const frame of Array.from(document.getElementsByTagName('p:graphicFrame'))) {
     const id = frame.getElementsByTagName('p:cNvPr')[0]?.getAttribute('id')
     const table = readTableXml(frame)
@@ -287,13 +301,16 @@ function readSlideXml(xml: string, placeholderStyles: PlaceholderStyles): SlideX
   }
   for (const shape of Array.from(document.getElementsByTagName('p:sp'))) {
     const id = shape.getElementsByTagName('p:cNvPr')[0]?.getAttribute('id')
+    const placeholder = shape.getElementsByTagName('p:ph')[0]
+    const designs = placeholder === undefined ? [] : designPlaceholders(placeholder)
+    const inheritedFrame = xfrmOf(shape) === undefined ? designs.map(xfrmOf).find(frame => frame !== undefined) : undefined
+    if (id !== null && id !== undefined && inheritedFrame !== undefined) frames.set(id, inheritedFrame)
     const body = childNamed(shape, 'p:txBody')
     if (id === null || id === undefined || body === undefined) continue
     // A content placeholder (one with no type) takes bullets from the master's body style, unless
     // its own, its layout's or its master placeholder's list style says otherwise.
-    const placeholder = shape.getElementsByTagName('p:ph')[0]
     const bulletedPlaceholder = placeholder !== undefined && (placeholder.getAttribute('type') ?? 'obj') === 'obj'
-    const styles = [lstStyleOf(shape), ...(placeholder === undefined ? [] : placeholderStyles(placeholder))]
+    const styles = [lstStyleOf(shape), ...designs.map(lstStyleOf)]
     paragraphs.set(id, Array.from(body.children).filter(child => child.tagName === 'a:p').map(paragraph => {
       const properties = childNamed(paragraph, 'a:pPr')
       const read = Number(properties?.getAttribute('lvl') ?? 0)
@@ -310,6 +327,7 @@ function readSlideXml(xml: string, placeholderStyles: PlaceholderStyles): SlideX
   return {
     paragraphs,
     tables,
+    frames,
     animated: Array.from(document.getElementsByTagName('p:cTn')).some(node => node.hasAttribute('presetClass')),
     hidden: document.documentElement.getAttribute('show') === '0',
     fields: tagged('a:fld'),
@@ -475,10 +493,11 @@ interface ElementContext {
   readonly place: Placement
   readonly paragraphs: ReadonlyMap<string, readonly ParagraphInfo[]>
   readonly tables: ReadonlyMap<string, TableXml>
+  readonly frames: ReadonlyMap<string, Positioned>
 }
 
 /** Layout, master and SmartArt shapes come from other parts, whose XML is not read. */
-const noXml = { paragraphs: new Map<string, readonly ParagraphInfo[]>(), tables: new Map<string, TableXml>() }
+const noXml = { paragraphs: new Map<string, readonly ParagraphInfo[]>(), tables: new Map<string, TableXml>(), frames: new Map<string, Positioned>() }
 
 interface Positioned {
   readonly left: number
@@ -747,9 +766,12 @@ function convert(source: SourceElement, context: ElementContext): SlideElement[]
       const place: Placement = (child, rotation) => context.place({ x: source.left + child.x, y: source.top + child.y }, rotation)
       return ordered(source.elements).flatMap(child => convert(child, { ...context, ...noXml, place }))
     }
-    case 'math':
+    case 'math': {
       findings.add('equations', slide)
-      return source.picBase64 === '' ? [] : imageOf(source.picBase64, source, 0, context)
+      // An equation in a placeholder has no size of its own; it takes its layout's place.
+      const frame = source.width > 0 && source.height > 0 ? source : context.frames.get(source.id)
+      return source.picBase64 === '' || frame === undefined ? [] : imageOf(source.picBase64, frame, 0, context)
+    }
     case 'chart':
       findings.add('charts', slide)
       return []
@@ -805,8 +827,8 @@ function relatedPart(parts: Readonly<Record<string, Uint8Array>>, from: string, 
   return path.join('/')
 }
 
-/** Reads each slide's layout and master once, and finds the placeholders a slide placeholder inherits its list style from. */
-function placeholderStylesOf(parts: Readonly<Record<string, Uint8Array>>): (slideFile: string | undefined) => PlaceholderStyles {
+/** Reads each slide's layout and master once, and finds the placeholders a slide placeholder takes its look from. */
+function designPlaceholdersOf(parts: Readonly<Record<string, Uint8Array>>): (slideFile: string | undefined) => DesignPlaceholders {
   const documents = new Map<string, Document>()
   const documentOf = (name: string | undefined): Document | undefined => {
     const data = name === undefined ? undefined : parts[name]
@@ -819,7 +841,7 @@ function placeholderStylesOf(parts: Readonly<Record<string, Uint8Array>>): (slid
     const layout = slideFile === undefined ? undefined : relatedPart(parts, slideFile, 'slideLayout')
     const master = layout === undefined ? undefined : relatedPart(parts, layout, 'slideMaster')
     const designs = [documentOf(layout), documentOf(master)].filter(design => design !== undefined)
-    return placeholder => designs.map(design => lstStyleOf(matchingPlaceholder(design, placeholder)))
+    return placeholder => designs.map(design => matchingPlaceholder(design, placeholder))
   }
 }
 
@@ -865,7 +887,7 @@ export async function readPptx(bytes: Uint8Array): Promise<ImportedPresentation>
   }
   const slideFiles = listedSlideFiles(parts)
   const findings = new Findings()
-  const inheritedStyles = placeholderStylesOf(parts)
+  const designPlaceholders = designPlaceholdersOf(parts)
 
   // Pair each pptxtojson slide with its file, then put them in the presentation's own order.
   const order = presentationOrder(parts, slideFiles)
@@ -875,8 +897,8 @@ export async function readPptx(bytes: Uint8Array): Promise<ImportedPresentation>
   const slides = inOrder.flatMap(({ slide: sourceSlide, file }, index): Slide[] => {
     if (sourceSlide === undefined) return []
     const number = index + 1
-    const xml = readSlideXml(file === undefined ? '<p:sld/>' : strFromU8(parts[file] ?? new Uint8Array()), inheritedStyles(file))
-    const context: ElementContext = { findings, slide: number, place: onSlide, paragraphs: xml.paragraphs, tables: xml.tables }
+    const xml = readSlideXml(file === undefined ? '<p:sld/>' : strFromU8(parts[file] ?? new Uint8Array()), designPlaceholders(file))
+    const context: ElementContext = { findings, slide: number, place: onSlide, paragraphs: xml.paragraphs, tables: xml.tables, frames: xml.frames }
     if (xml.animated) findings.add('animations', number)
     if (sourceSlide.transition !== undefined && sourceSlide.transition !== null && sourceSlide.transition.type !== 'none') findings.add('transitions', number)
     if (xml.hidden) findings.add('hiddenSlides', number)

@@ -150,6 +150,30 @@ describe('.pptx control characters', () => {
   })
 })
 
+describe('.pptx equations', () => {
+  it('places the picture of an equation in a placeholder where its layout puts the placeholder', async () => {
+    const deck: Presentation = { ...presentation, slides: [{ id: newId(), background: '#ffffff', elements: [picture], notes: '' }] }
+    const parts = unzipSync(await writePptx(deck))
+    const slideXml = strFromU8(parts['ppt/slides/slide1.xml'] ?? new Uint8Array())
+    // The equation's fallback picture reuses the picture's image part.
+    const image = /r:embed="([^"]+)"/.exec(slideXml)?.[1] ?? ''
+    const shape = (content: string): string => `<p:sp><p:nvSpPr><p:cNvPr id="50" name="Equation"/><p:cNvSpPr/><p:nvPr><p:ph idx="1"/></p:nvPr></p:nvSpPr>${content}</p:sp>`
+    const equation = '<mc:AlternateContent xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:a14="http://schemas.microsoft.com/office/drawing/2010/main">'
+      + '<mc:Choice Requires="a14">' + shape('<p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a14:m><m:oMathPara xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math"><m:oMath><m:r><m:t>x</m:t></m:r></m:oMath></m:oMathPara></a14:m></a:p></p:txBody>') + '</mc:Choice>'
+      + `<mc:Fallback>${shape(`<p:spPr><a:blipFill><a:blip r:embed="${image}"/><a:stretch><a:fillRect/></a:stretch></a:blipFill></p:spPr>`)}</mc:Fallback></mc:AlternateContent>`
+    parts['ppt/slides/slide1.xml'] = strToU8(slideXml.replace('</p:spTree>', `${equation}</p:spTree>`))
+    // The layout's placeholder sits 1 inch in from the top-left corner, 2 inches wide and 1 inch high.
+    parts['ppt/slideLayouts/slideLayout1.xml'] = strToU8(strFromU8(parts['ppt/slideLayouts/slideLayout1.xml'] ?? new Uint8Array()).replace('</p:spTree>',
+      '<p:sp><p:nvSpPr><p:cNvPr id="2" name="Body"/><p:cNvSpPr/><p:nvPr><p:ph idx="1"/></p:nvPr></p:nvSpPr>'
+      + '<p:spPr><a:xfrm><a:off x="914400" y="914400"/><a:ext cx="1828800" cy="914400"/></a:xfrm></p:spPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p/></p:txBody></p:sp></p:spTree>'))
+
+    const { presentation: reopened, findings } = await readPptx(zipSync(parts))
+
+    expect(findings.map(finding => finding.construct)).toContain('Equations')
+    expect(reopened.slides[0]?.elements[1]).toMatchObject({ kind: 'image', x: 72, y: 72, width: 144, height: 72 })
+  })
+})
+
 describe('.pptx placeholder bullets', () => {
   it('leaves out the bullets a content placeholder\'s layout turns off, and keeps them where it does not', async () => {
     const box = (text: string, y: number): SlideElement => ({ ...title, id: newId(), y, paragraphs: [paragraphOf(text)] })
