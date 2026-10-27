@@ -14,6 +14,7 @@ describe('parseCellText', () => {
     ['123456789012345', 123_456_789_012_345],
     ['2026-08-13 12:00:00', 46_247.5],
     ['2026-08-13T06:00', 46_247.25],
+    ['2026-08-13', 46_247],
   ])('reads %s as a number', (text, number) => {
     expect(parseCellText(text).input).toBe(number)
   })

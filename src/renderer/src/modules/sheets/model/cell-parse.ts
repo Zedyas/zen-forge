@@ -49,11 +49,12 @@ function plainNumber(text: string): number | undefined {
 }
 
 /**
- * An ISO date with a time (`2026-08-13 14:30:00`, or with a `T` and without seconds), as a CSV export
- * writes one, as a date serial of that wall-clock time; undefined for anything else.
+ * An ISO date (`2026-08-13`), or one with a time (`2026-08-13 14:30:00`, or with a `T` and without
+ * seconds), as a CSV export writes one, as a date serial of that wall-clock time; undefined for anything
+ * else. The engine reads neither form itself.
  */
 function isoDateTimeSerial(text: string): number | undefined {
-  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?$/)
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?)?$/)
   if (match === null) return undefined
   const [year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0] = match.slice(1).map(part => Number(part ?? 0))
   const time = Date.UTC(year, month - 1, day, hour, minute, second)
