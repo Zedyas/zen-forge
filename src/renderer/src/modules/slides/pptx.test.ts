@@ -3,7 +3,7 @@ import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 import PptxGenJS from 'pptxgenjs'
 import { describe, expect, it } from 'vitest'
 import { createImportReport } from '@shared/fidelity'
-import { createSlide, newId, newTable, paragraphOf, textRun, updateCell, type Paragraph, type Presentation, type SlideElement } from './model'
+import { createSlide, lineEnds, newId, newTable, paragraphOf, textRun, updateCell, type Paragraph, type Presentation, type SlideElement } from './model'
 import { writePptx } from './pptx-export'
 import { readPptx } from './pptx-import'
 
@@ -171,6 +171,26 @@ describe('.pptx equations', () => {
 
     expect(findings.map(finding => finding.construct)).toContain('Equations')
     expect(reopened.slides[0]?.elements[1]).toMatchObject({ kind: 'image', x: 72, y: 72, width: 144, height: 72 })
+  })
+})
+
+describe('.pptx flipped groups', () => {
+  it('mirrors where a flipped group\'s shapes and lines sit, and reports the shapes as flipped', async () => {
+    const parts = unzipSync(await writePptx({ ...presentation, slides: [{ id: newId(), background: '#ffffff', elements: [], notes: '' }] }))
+    // A group 2 × 1 inches, flipped left to right, holding a half-inch square at its left end and a line falling to the right.
+    const child = (id: number, geometry: string, x: number, cx: number, cy: number): string => `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="Child ${id}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>`
+      + `<p:spPr><a:xfrm><a:off x="${x}" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="${geometry}"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="FF0000"/></a:solidFill><a:ln w="12700"><a:solidFill><a:srgbClr val="000000"/></a:solidFill></a:ln></p:spPr></p:sp>`
+    const group = '<p:grpSp><p:nvGrpSpPr><p:cNvPr id="60" name="Group"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm flipH="1"><a:off x="0" y="0"/><a:ext cx="1828800" cy="914400"/>'
+      + `<a:chOff x="0" y="0"/><a:chExt cx="1828800" cy="914400"/></a:xfrm></p:grpSpPr>${child(61, 'rect', 0, 457200, 457200)}${child(62, 'line', 914400, 914400, 914400)}</p:grpSp>`
+    parts['ppt/slides/slide1.xml'] = strToU8(strFromU8(parts['ppt/slides/slide1.xml'] ?? new Uint8Array()).replace('</p:spTree>', `${group}</p:spTree>`))
+
+    const { presentation: reopened, findings } = await readPptx(zipSync(parts))
+
+    const [square, line] = reopened.slides[0]?.elements ?? []
+    expect(square).toMatchObject({ kind: 'shape', x: 108, y: 0, width: 36, height: 36 })
+    // The line fell to the right from its top-left corner; mirrored, it falls to the left from the top-right of the group's left half.
+    expect(line?.kind === 'shape' ? lineEnds(line) : undefined).toEqual([{ x: 72, y: 0 }, { x: 0, y: 72 }])
+    expect(findings.map(finding => finding.construct)).toContain('Flipped shapes and pictures')
   })
 })
 

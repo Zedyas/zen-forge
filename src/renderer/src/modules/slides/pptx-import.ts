@@ -757,9 +757,17 @@ function convert(source: SourceElement, context: ElementContext): SlideElement[]
     case 'group': {
       findings.add('groups', slide)
       const centre = { x: source.left + source.width / 2, y: source.top + source.height / 2 }
-      const place: Placement = (child, rotation) =>
-        context.place(rotatePoint({ x: source.left + child.x, y: source.top + child.y }, centre, source.rotate), rotation + source.rotate)
-      return ordered(source.elements).flatMap(child => convert(child, { ...context, place }))
+      // A flipped group mirrors where its children sit, which way they turn, and the children themselves.
+      const mirror = (value: number, size: number, flipped: boolean): number => flipped ? size - value : value
+      const turn = source.isFlipH === source.isFlipV ? 1 : -1
+      const place: Placement = (child, rotation) => context.place(
+        rotatePoint({ x: source.left + mirror(child.x, source.width, source.isFlipH), y: source.top + mirror(child.y, source.height, source.isFlipV) }, centre, source.rotate),
+        turn * rotation + source.rotate,
+      )
+      const flipped = (child: SourceElement): SourceElement => 'isFlipH' in child
+        ? { ...child, isFlipH: child.isFlipH !== source.isFlipH, isFlipV: child.isFlipV !== source.isFlipV }
+        : child
+      return ordered(source.elements).flatMap(child => convert(flipped(child), { ...context, place }))
     }
     case 'diagram': {
       findings.add('smartArt', slide)
