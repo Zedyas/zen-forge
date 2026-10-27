@@ -232,6 +232,26 @@ describe('.pptx table text colour', () => {
   })
 })
 
+describe('.pptx line breaks', () => {
+  it('keeps every line break inside a paragraph as a space, so no two words run together', async () => {
+    const pptx = new PptxGenJS()
+    pptx.addSlide().addText([
+      { text: 'one' },
+      { text: 'two', options: { softBreakBefore: true } },
+      { text: 'three', options: { softBreakBefore: true, bold: true } },
+      { text: 'four', options: { softBreakBefore: true } },
+    ], { x: 0.5, y: 0.5, w: 6, h: 2 })
+    const written = await pptx.write({ outputType: 'uint8array' })
+    if (!(written instanceof Uint8Array)) throw new Error('pptxgenjs did not write bytes')
+
+    const { presentation: imported, findings } = await readPptx(written)
+
+    const box = imported.slides[0]?.elements[0]
+    expect(box?.kind === 'shape' ? box.paragraphs[0]?.runs.map(run => [run.text, run.bold]) : undefined).toEqual([['one two ', false], ['three', true], [' four', false]])
+    expect(findings.map(finding => finding.construct)).toEqual(['Line breaks inside paragraphs'])
+  })
+})
+
 describe('.pptx import report', () => {
   it('reports charts as lost on save, and keeps tables', async () => {
     const pptx = new PptxGenJS()

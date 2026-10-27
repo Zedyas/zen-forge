@@ -405,6 +405,31 @@ function withTabs(runs: readonly TextRun[], stretches: readonly Stretch[] | unde
   return at === xml.length ? restored : runs
 }
 
+/**
+ * pptxtojson drops the first of several line breaks in a paragraph, which joins the words on either
+ * side. When the runs hold the XML's text short of one space, the space comes back where the XML has it.
+ */
+function withBreaks(runs: readonly TextRun[], stretches: readonly Stretch[] | undefined): readonly TextRun[] {
+  const xml = stretches?.map(stretch => stretch.text).join('') ?? ''
+  if (xml.length !== runs.reduce((total, run) => total + run.text.length, 0) + 1) return runs
+  let at = 0
+  let restoredSpace = false
+  const restored = runs.map(run => {
+    let text = ''
+    for (let index = 0; index < run.text.length; index += 1) {
+      if (!restoredSpace && xml[at] === ' ' && run.text[index] !== ' ') {
+        text += ' '
+        at += 1
+        restoredSpace = true
+      }
+      text += run.text[index]
+      at += 1
+    }
+    return { ...run, text }
+  })
+  return restored.map(run => run.text).join('') === xml ? restored : runs
+}
+
 /** Splits runs where the XML's highlight changes, when the two agree on the paragraph's text. */
 function withHighlight(runs: readonly TextRun[], stretches: readonly Stretch[] | undefined, context: TextContext): readonly TextRun[] {
   if (stretches === undefined || stretches.every(stretch => stretch.highlight === undefined)) return runs
@@ -456,7 +481,7 @@ function readParagraphs(html: string, infos: readonly ParagraphInfo[] | undefine
       ? [textRun('', { size: 18, ...endStyle })]
       : empty
         ? read.map(run => ({ ...run, ...endStyle, text: '' }))
-        : withHighlight(withTabs(read, info?.stretches), info?.stretches, context)
+        : withHighlight(withTabs(withBreaks(read, info?.stretches), info?.stretches), info?.stretches, context)
     const htmlList: ListStyle = element.closest('ol') !== null ? 'number' : element.closest('li') !== null ? 'bullet' : 'none'
     return {
       runs,
