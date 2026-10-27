@@ -64,6 +64,7 @@ function TextField({ documentId, field, widget, value, zoom }: {
     style: widgetStyle(widget, zoom),
     value: shown,
     disabled: field.readOnly,
+    maxLength: field.maxLength,
     'aria-label': field.name,
     onFocus: () => {
       edit.current = { start: value, typed: value }

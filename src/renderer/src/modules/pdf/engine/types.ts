@@ -88,6 +88,8 @@ export interface FormField {
   readonly options?: readonly string[]
   readonly readOnly: boolean
   readonly multiline?: boolean
+  /** The most characters a text field takes, when it sets a limit. */
+  readonly maxLength?: number
   readonly widgets: readonly FormFieldWidget[]
 }
 

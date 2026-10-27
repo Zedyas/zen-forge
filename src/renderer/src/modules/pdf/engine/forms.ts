@@ -89,6 +89,7 @@ export function readFormFields(doc: PDFDocument): FormField[] {
       options: optionsOf(field),
       readOnly: field.isReadOnly(),
       multiline: field instanceof PDFTextField ? field.isMultiline() : undefined,
+      maxLength: field instanceof PDFTextField ? field.getMaxLength() : undefined,
       widgets,
     }
   })
@@ -108,7 +109,8 @@ export function applyFormValues(
       if (value === true || value === 'true') field.check()
       else field.uncheck()
     } else if (field instanceof PDFTextField) {
-      field.setText(typeof value === 'boolean' ? String(value) : value)
+      // pdf-lib refuses text longer than the field's limit, which would fail the whole save.
+      field.setText((typeof value === 'boolean' ? String(value) : value).slice(0, field.getMaxLength()))
     } else if (field instanceof PDFRadioGroup) {
       field.select(String(value))
     } else if (field instanceof PDFDropdown) {
