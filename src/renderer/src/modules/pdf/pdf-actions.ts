@@ -151,7 +151,7 @@ async function confirmRedaction(pages: readonly PageItem[]): Promise<RedactOptio
   if (!hasRedactions(pages)) return { removeHiddenInformation: false }
   const answer = await askConfirm({
     title: 'Apply redactions?',
-    message: 'Everything under the redaction boxes is permanently removed from the saved file: text, the covered parts of images, and drawings. The rest of each page stays as it is.',
+    message: 'Everything under the redaction boxes is permanently removed from the saved file: text, the covered parts of images, and drawings. A line or shape that a box touches is removed whole, even where it runs past the box. The rest of each page stays as it is.',
     option: {
       label: 'Also remove hidden information',
       detail: 'Document title and author, bookmarks, attached files, comments, hidden layers, and scripts.',

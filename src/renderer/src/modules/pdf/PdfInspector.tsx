@@ -54,7 +54,7 @@ function SelectedMarkup({ documentId, document }: { readonly documentId: string;
         <InspectorRow label="Size"><span>{points(markup.width)} × {points(markup.height)}</span></InspectorRow>
       )}
       {markup.kind === 'redact' && (
-        <p className="inspector-note">Removed permanently when you save. The page becomes an image.</p>
+        <p className="inspector-note">Removed permanently when you save, with any line or shape the box touches. The rest of the page stays text.</p>
       )}
       <button type="button" className="button is-quiet pdf-inspector-action" onClick={() => removeMarkup(documentId, selection.pageKey, selection.markupId)}>
         <Trash2 {...smallIcon} />Delete

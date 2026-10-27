@@ -111,7 +111,9 @@ async function applyRedactions(bytes: Uint8Array, indexes: readonly number[]): P
       page.applyRedactions(
         true,
         mupdf.PDFPage.REDACT_IMAGE_PIXELS,
-        mupdf.PDFPage.REDACT_LINE_ART_REMOVE_IF_COVERED,
+        // MuPDF cannot cut a shape at the box edge, so a shape the box touches goes whole: one only partly
+        // covered would otherwise stay in the file under the box. Lines crossing a box disappear with it.
+        mupdf.PDFPage.REDACT_LINE_ART_REMOVE_IF_TOUCHED,
         mupdf.PDFPage.REDACT_TEXT_REMOVE,
       )
       page.destroy()

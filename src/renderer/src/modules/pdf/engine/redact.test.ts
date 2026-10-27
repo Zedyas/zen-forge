@@ -37,6 +37,17 @@ describe('redactPages', () => {
     expect(page?.getRotation().angle).toBe(rotation)
   })
 
+  it('removes a drawn line that crosses the box edge and keeps lines away from it', async () => {
+    const { doc, page, box, shown } = await statement()
+    // The box spans x 36–206 at y 494–518: the first line starts inside it and runs past its edge.
+    page.drawLine({ start: { x: 120, y: 506 }, end: { x: 377, y: 506 } })
+    page.drawLine({ start: { x: 40, y: 111 }, end: { x: 359, y: 111 } })
+    const output = await redactPages(await doc.save(), [{ index: 0, shown, boxes: [box] }], keepHidden)
+
+    expect(await fileContainsText(output, '377')).toBe(false)
+    expect(await fileContainsText(output, '359')).toBe(true)
+  })
+
   it('refuses boxes drawn on a page that differs from the page it would redact', async () => {
     const { doc, box, shown } = await statement(90)
     const request = { index: 0, shown: { ...shown, rotation: 0 as const }, boxes: [box] }
