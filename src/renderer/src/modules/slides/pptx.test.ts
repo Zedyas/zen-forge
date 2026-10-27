@@ -114,6 +114,28 @@ describe('.pptx table borders', () => {
   })
 })
 
+describe('.pptx placeholder bullets', () => {
+  it('leaves out the bullets a content placeholder\'s layout turns off, and keeps them where it does not', async () => {
+    const box = (text: string, y: number): SlideElement => ({ ...title, id: newId(), y, paragraphs: [paragraphOf(text)] })
+    const deck: Presentation = { ...presentation, slides: [{ id: newId(), background: '#ffffff', elements: [box('Plain', 40), box('Bulleted', 200)], notes: '' }] }
+    const parts = unzipSync(await writePptx(deck))
+    // Make both boxes content placeholders that state no bullets of their own; the layout's idx 1 turns bullets off, its idx 2 does not.
+    let index = 0
+    parts['ppt/slides/slide1.xml'] = strToU8(strFromU8(parts['ppt/slides/slide1.xml'] ?? new Uint8Array())
+      .replace(/<p:nvPr><\/p:nvPr>/g, () => `<p:nvPr><p:ph idx="${++index}"/></p:nvPr>`)
+      .replace(/<a:buNone\/>/g, ''))
+    const layoutPlaceholder = (idx: number, levels: string): string => `<p:sp><p:nvSpPr><p:cNvPr id="${idx + 1}" name="Body ${idx}"/><p:cNvSpPr/><p:nvPr><p:ph idx="${idx}"/></p:nvPr></p:nvSpPr>`
+      + `<p:spPr/><p:txBody><a:bodyPr/><a:lstStyle>${levels}</a:lstStyle><a:p/></p:txBody></p:sp>`
+    parts['ppt/slideLayouts/slideLayout1.xml'] = strToU8(strFromU8(parts['ppt/slideLayouts/slideLayout1.xml'] ?? new Uint8Array())
+      .replace('</p:spTree>', `${layoutPlaceholder(1, '<a:lvl1pPr><a:buNone/></a:lvl1pPr>')}${layoutPlaceholder(2, '')}</p:spTree>`))
+
+    const { presentation: reopened } = await readPptx(zipSync(parts))
+
+    const lists = reopened.slides[0]?.elements.map(element => element.kind === 'text' ? [element.paragraphs[0]?.runs[0]?.text, element.paragraphs[0]?.list] : [])
+    expect(lists).toEqual([['Plain', 'none'], ['Bulleted', 'bullet']])
+  })
+})
+
 describe('.pptx import report', () => {
   it('reports charts as lost on save, and keeps tables', async () => {
     const pptx = new PptxGenJS()

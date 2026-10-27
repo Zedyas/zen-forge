@@ -171,7 +171,8 @@ function childNamed(parent: Element, name: string): Element | undefined {
   return Array.from(parent.children).find(child => child.tagName === name)
 }
 
-function listOf(properties: Element | undefined, bulletedPlaceholder: boolean): { list?: ListStyle; customList: boolean } {
+/** A paragraph's list from its own properties, or `inherited` when they do not say. */
+function listOf(properties: Element | undefined, inherited: ListStyle | undefined): { list?: ListStyle; customList: boolean } {
   const character = properties === undefined ? undefined : childNamed(properties, 'a:buChar')
   const numbering = properties === undefined ? undefined : childNamed(properties, 'a:buAutoNum')
   const picture = properties === undefined ? undefined : childNamed(properties, 'a:buBlip')
@@ -181,7 +182,39 @@ function listOf(properties: Element | undefined, bulletedPlaceholder: boolean): 
   if (numbering !== undefined) return { list: 'number', customList }
   if (character !== undefined || picture !== undefined) return { list: 'bullet', customList }
   if (properties !== undefined && childNamed(properties, 'a:buNone') !== undefined) return { list: 'none', customList }
-  return { list: bulletedPlaceholder ? 'bullet' : undefined, customList }
+  return { list: inherited, customList }
+}
+
+/** The list a level of the nearest list style that sets one gives, nearest first. */
+function inheritedList(styles: readonly (Element | undefined)[], level: number): ListStyle | undefined {
+  for (const style of styles) {
+    const properties = style === undefined ? undefined : childNamed(style, `a:lvl${level + 1}pPr`)
+    const { list } = listOf(properties, undefined)
+    if (list !== undefined) return list
+  }
+  return undefined
+}
+
+/** The list styles a slide placeholder inherits, nearest first: its layout placeholder's, then its master placeholder's. */
+type PlaceholderStyles = (placeholder: Element) => readonly (Element | undefined)[]
+
+/** The placeholder in a layout or master that a slide placeholder takes its look from: the same index, or else the same type. */
+function matchingPlaceholder(design: Document, placeholder: Element): Element | undefined {
+  const typeOf = (element: Element): string => element.getAttribute('type') ?? 'obj'
+  const type = typeOf(placeholder)
+  const index = placeholder.getAttribute('idx')
+  const shapes = Array.from(design.getElementsByTagName('p:sp')).flatMap(shape => {
+    const own = shape.getElementsByTagName('p:ph')[0]
+    return own === undefined ? [] : [{ shape, own }]
+  })
+  const match = shapes.find(({ own }) => index !== null && own.getAttribute('idx') === index)
+    ?? shapes.find(({ own }) => typeOf(own) === type || (type === 'obj' && typeOf(own) === 'body'))
+  return match?.shape
+}
+
+function lstStyleOf(shape: Element | undefined): Element | undefined {
+  const body = shape === undefined ? undefined : childNamed(shape, 'p:txBody')
+  return body === undefined ? undefined : childNamed(body, 'a:lstStyle')
 }
 
 /** The text of a paragraph's runs, fields and breaks in order, as pptxtojson writes them into its HTML. */
@@ -239,8 +272,12 @@ function readTableXml(frame: Element): TableXml | undefined {
   return { ends, lists, highlight: table.getElementsByTagName('a:highlight').length > 0 }
 }
 
-function readSlideXml(xml: string): SlideXml {
-  const document = new DOMParser().parseFromString(xml, 'application/xml')
+function parseXml(xml: string): Document {
+  return new DOMParser().parseFromString(xml, 'application/xml')
+}
+
+function readSlideXml(xml: string, placeholderStyles: PlaceholderStyles): SlideXml {
+  const document = parseXml(xml)
   const paragraphs = new Map<string, ParagraphInfo[]>()
   const tables = new Map<string, TableXml>()
   for (const frame of Array.from(document.getElementsByTagName('p:graphicFrame'))) {
@@ -252,15 +289,18 @@ function readSlideXml(xml: string): SlideXml {
     const id = shape.getElementsByTagName('p:cNvPr')[0]?.getAttribute('id')
     const body = childNamed(shape, 'p:txBody')
     if (id === null || id === undefined || body === undefined) continue
-    // A content placeholder (one with no type) takes bullets from the master's body style.
+    // A content placeholder (one with no type) takes bullets from the master's body style, unless
+    // its own, its layout's or its master placeholder's list style says otherwise.
     const placeholder = shape.getElementsByTagName('p:ph')[0]
     const bulletedPlaceholder = placeholder !== undefined && (placeholder.getAttribute('type') ?? 'obj') === 'obj'
+    const styles = [lstStyleOf(shape), ...(placeholder === undefined ? [] : placeholderStyles(placeholder))]
     paragraphs.set(id, Array.from(body.children).filter(child => child.tagName === 'a:p').map(paragraph => {
       const properties = childNamed(paragraph, 'a:pPr')
-      const level = Number(properties?.getAttribute('lvl') ?? 0)
+      const read = Number(properties?.getAttribute('lvl') ?? 0)
+      const level = Number.isFinite(read) ? Math.min(8, Math.max(0, read)) : 0
       return {
-        level: Number.isFinite(level) ? Math.min(8, Math.max(0, level)) : 0,
-        ...listOf(properties, bulletedPlaceholder),
+        level,
+        ...listOf(properties, inheritedList(styles, level) ?? (bulletedPlaceholder ? 'bullet' : undefined)),
         stretches: stretchesOf(paragraph),
         endStyle: endStyleOf(paragraph),
       }
@@ -747,6 +787,42 @@ function presentationOrder(parts: Readonly<Record<string, Uint8Array>>, files: r
   return same ? order : undefined
 }
 
+/** The part a relationship of `type` (`slideLayout`, `slideMaster`) points to from part `from`, as a zip path. */
+function relatedPart(parts: Readonly<Record<string, Uint8Array>>, from: string, type: string): string | undefined {
+  const slash = from.lastIndexOf('/')
+  const folder = from.slice(0, slash)
+  const relations = parts[`${folder}/_rels/${from.slice(slash + 1)}.rels`]
+  if (relations === undefined) return undefined
+  const tag = Array.from(strFromU8(relations).matchAll(/<Relationship\b[^>]*>/g), ([match]) => match)
+    .find(candidate => new RegExp(`\\bType="[^"]*/${type}"`).test(candidate))
+  const target = tag === undefined ? undefined : /\bTarget="([^"]+)"/.exec(tag)?.[1]
+  if (target === undefined) return undefined
+  const path = target.startsWith('/') ? [] : folder.split('/')
+  for (const segment of target.replace(/^\//, '').split('/')) {
+    if (segment === '..') path.pop()
+    else if (segment !== '.') path.push(segment)
+  }
+  return path.join('/')
+}
+
+/** Reads each slide's layout and master once, and finds the placeholders a slide placeholder inherits its list style from. */
+function placeholderStylesOf(parts: Readonly<Record<string, Uint8Array>>): (slideFile: string | undefined) => PlaceholderStyles {
+  const documents = new Map<string, Document>()
+  const documentOf = (name: string | undefined): Document | undefined => {
+    const data = name === undefined ? undefined : parts[name]
+    if (name === undefined || data === undefined) return undefined
+    const document = documents.get(name) ?? parseXml(strFromU8(data))
+    documents.set(name, document)
+    return document
+  }
+  return slideFile => {
+    const layout = slideFile === undefined ? undefined : relatedPart(parts, slideFile, 'slideLayout')
+    const master = layout === undefined ? undefined : relatedPart(parts, layout, 'slideMaster')
+    const designs = [documentOf(layout), documentOf(master)].filter(design => design !== undefined)
+    return placeholder => designs.map(design => lstStyleOf(matchingPlaceholder(design, placeholder)))
+  }
+}
+
 /** The built-in theme whose background most slides use, so a deck made with a theme keeps following it. */
 function matchingTheme(slides: readonly Slide[]): string {
   const counts = new Map<string, number>()
@@ -789,6 +865,7 @@ export async function readPptx(bytes: Uint8Array): Promise<ImportedPresentation>
   }
   const slideFiles = listedSlideFiles(parts)
   const findings = new Findings()
+  const inheritedStyles = placeholderStylesOf(parts)
 
   // Pair each pptxtojson slide with its file, then put them in the presentation's own order.
   const order = presentationOrder(parts, slideFiles)
@@ -798,7 +875,7 @@ export async function readPptx(bytes: Uint8Array): Promise<ImportedPresentation>
   const slides = inOrder.flatMap(({ slide: sourceSlide, file }, index): Slide[] => {
     if (sourceSlide === undefined) return []
     const number = index + 1
-    const xml = readSlideXml(file === undefined ? '<p:sld/>' : strFromU8(parts[file] ?? new Uint8Array()))
+    const xml = readSlideXml(file === undefined ? '<p:sld/>' : strFromU8(parts[file] ?? new Uint8Array()), inheritedStyles(file))
     const context: ElementContext = { findings, slide: number, place: onSlide, paragraphs: xml.paragraphs, tables: xml.tables }
     if (xml.animated) findings.add('animations', number)
     if (sourceSlide.transition !== undefined && sourceSlide.transition !== null && sourceSlide.transition.type !== 'none') findings.add('transitions', number)
