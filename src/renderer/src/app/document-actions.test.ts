@@ -1,8 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CloseChoice, FileReference } from '@shared/shell'
+import type { DroppedFiles } from '../services/file/FileService'
 
-const { describeFile, forgetRecent, recordRecent, confirmClose, resolveClose, showInOtherWindow, editorFor } = vi.hoisted(() => ({
+const { describeFile, describeDroppedFiles, warn, forgetRecent, recordRecent, confirmClose, resolveClose, showInOtherWindow, editorFor } = vi.hoisted(() => ({
   describeFile: vi.fn<(path: string) => Promise<FileReference>>(),
+  describeDroppedFiles: vi.fn<(files: ArrayLike<File>) => Promise<DroppedFiles>>(),
+  warn: vi.fn<(title: string, options: { description: string }) => void>(),
   forgetRecent: vi.fn<(path: string) => Promise<void>>(async () => undefined),
   recordRecent: vi.fn<(file: FileReference) => Promise<void>>(async () => undefined),
   confirmClose: vi.fn<(name: string) => Promise<CloseChoice>>(),
@@ -10,13 +13,14 @@ const { describeFile, forgetRecent, recordRecent, confirmClose, resolveClose, sh
   showInOtherWindow: vi.fn<(path: string) => Promise<boolean>>(async () => false),
   editorFor: vi.fn<(kind: string) => EditorHandler | undefined>(() => undefined),
 }))
-vi.mock('../services/file/IpcFileService', () => ({ fileService: { describe: describeFile } }))
+vi.mock('sonner', () => ({ toast: { warning: warn } }))
+vi.mock('../services/file/IpcFileService', () => ({ fileService: { describe: describeFile, describeDroppedFiles } }))
 vi.mock('../services/index/document-index', () => ({ forgetRecent, recordRecent }))
 vi.mock('../services/platform/client', () => ({ platformClient: { confirmClose, resolveClose, showInOtherWindow } }))
 vi.mock('../ui/ConfirmDialog', () => ({ askConfirm: async () => ({ value: 'cancel' }) }))
 vi.mock('./editors', () => ({ editorFor }))
 
-import { closeDocument, openRecent, resolveWindowClose } from './document-actions'
+import { closeDocument, openDroppedFiles, openRecent, resolveWindowClose } from './document-actions'
 import type { EditorHandler } from './editors'
 import { homeTabId, useDocumentsStore, type OpenDocument } from './documents-store'
 
@@ -49,6 +53,20 @@ describe('opening a recent file', () => {
     await expect(openRecent(report.path)).rejects.toThrow('“report.docx” was moved or deleted.')
     expect(forgetRecent).toHaveBeenCalledWith(report.path)
     expect(useDocumentsStore.getState().documents).toEqual([])
+  })
+})
+
+describe('dropping files', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useDocumentsStore.setState({ documents: [], activeId: homeTabId })
+  })
+
+  it('opens the files dropped with a folder and names the folder it skipped', async () => {
+    describeDroppedFiles.mockResolvedValue({ files: [report], skipped: [{ name: 'Invoices', reason: 'The selected path is not a file.' }] })
+    await openDroppedFiles([])
+    expect(useDocumentsStore.getState().documents.map(document => document.id)).toEqual([report.path])
+    expect(warn).toHaveBeenCalledWith('Skipped “Invoices”', { description: 'The selected path is not a file.' })
   })
 })
 

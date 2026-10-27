@@ -49,9 +49,15 @@ export async function chooseAndOpenFiles(kind?: EditorApplicationId): Promise<vo
   await openFiles(await fileService.chooseFiles({ extensions: openableExtensions(kind), allowMultiple: true }))
 }
 
-export async function openDroppedFiles(files: FileList): Promise<void> {
-  const openable = (await fileService.describeDroppedFiles(files)).filter(isOpenable)
-  if (openable.length === 0) {
+/** Opens the dropped files that can be opened. Items that are not files, such as folders, are skipped and named in a warning. */
+export async function openDroppedFiles(files: ArrayLike<File>): Promise<void> {
+  const dropped = await fileService.describeDroppedFiles(files)
+  const openable = dropped.files.filter(isOpenable)
+  if (dropped.skipped.length > 0) {
+    toast.warning(`Skipped ${dropped.skipped.map(item => `“${item.name}”`).join(', ')}`, {
+      description: [...new Set(dropped.skipped.map(item => item.reason))].join(' '),
+    })
+  } else if (openable.length === 0) {
     throw new Error(`Drop a ${openableExtensions().map(extension => `.${extension}`).join(', ')} file.`)
   }
   await openFiles(openable)
