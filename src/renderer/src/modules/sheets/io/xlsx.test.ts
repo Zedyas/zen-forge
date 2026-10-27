@@ -151,6 +151,20 @@ describe('xlsx', () => {
     ])
   })
 
+  it('calculates ISO.CEILING from a file and writes its prefix back', async () => {
+    const source = new ExcelJS.Workbook()
+    source.addWorksheet('Sheet1').getCell('A1').value = { formula: '_xlfn.ISO.CEILING(4.3,2)', result: 6 }
+    const { data, findings } = await readXlsx(new Uint8Array(await source.xlsx.writeBuffer()))
+    const opened = new Workbook(data)
+    const sheetId = opened.sheets()[0]?.id ?? 0
+
+    expect(findings).toEqual([])
+    expect(opened.getCellInput(sheetId, [0, 0])).toBe('=ISO.CEILING(4.3,2)')
+    expect(opened.getCellValue(sheetId, [0, 0])).toBe(6)
+    const sheetXml = new TextDecoder().decode(unzipSync(await writeXlsx(opened.toData()))['xl/worksheets/sheet1.xml'])
+    expect(sheetXml).toContain('<f>_xlfn.ISO.CEILING(4.3,2)</f>')
+  })
+
   it('opens a sheet with more rows than a function call can take arguments', async () => {
     const source = new ExcelJS.Workbook()
     const sheet = source.addWorksheet('Sheet1')
