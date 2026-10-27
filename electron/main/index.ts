@@ -11,7 +11,7 @@ import { registerPrintIpc } from './print-ipc'
 import { applySecurity, handle, registerAppScheme, rendererUrl } from './security'
 import { applyStoredAppearance, copyZendoData, getAppearance, readSession, readSettings, setAppearance, setCheckForUpdates, writeSession } from './settings'
 import { currentUpdateStatus, registerUpdates, scheduleUpdateCheck } from './updates'
-import { targetFor, windowWith } from './windows'
+import { closeWaitsForPage, historyItems, targetFor, windowWith } from './windows'
 
 /** Every window is the same kind: a row of tabs that starts on Home. */
 interface WindowRecord {
@@ -162,7 +162,6 @@ function appearanceItems(): MenuItemConstructorOptions[] {
 /** The menu bar follows the focused window's active tab: Format appears for a spreadsheet, Page for a PDF, Slide for a presentation. */
 function buildMenu(record: WindowRecord | undefined): Menu {
   const edit = menuItems('edit', record)
-  const history = edit.filter(item => item.id === 'edit.undo' || item.id === 'edit.redo')
   const find = edit.filter(item => item.id === 'edit.find')
   const editing = edit.filter(item => item.id !== 'edit.undo' && item.id !== 'edit.redo' && item.id !== 'edit.find' && item.type !== 'separator')
   const file = menuItems('file', record)
@@ -202,8 +201,7 @@ function buildMenu(record: WindowRecord | undefined): Menu {
     {
       label: 'Edit',
       submenu: [
-        // Home has no document to undo; its text fields still need Undo and Redo, which macOS reaches only through the menu.
-        ...(history.length > 0 ? history : [{ role: 'undo' as const }, { role: 'redo' as const }]),
+        ...historyItems(edit),
         { type: 'separator' },
         { role: 'cut' },
         { role: 'copy' },
@@ -293,8 +291,7 @@ function createWindow(restore?: WindowSession): WindowRecord {
     refreshMenu()
   })
   window.on('close', event => {
-    // A crashed page cannot answer, and its unsaved changes went with it; waiting would keep the window, and a quit, stuck.
-    if (!record.state.hasUnsaved || record.closeApproved || window.webContents.isCrashed()) return
+    if (!closeWaitsForPage(record)) return
     // The renderer walks its unsaved documents with Save / Don't Save / Cancel, then calls resolveClose.
     event.preventDefault()
     send(record, 'shell:close-requested')
