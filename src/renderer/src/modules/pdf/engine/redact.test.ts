@@ -137,6 +137,17 @@ describe('redactPages', () => {
     expect(text).toContain('KEEP ME')
   })
 
+  it('removes tag alt text whose page only its marked-content reference names', async () => {
+    const { doc, page, box, shown } = await statement()
+    const { context } = doc
+    const reference = context.obj({ Type: 'MCR', Pg: page.ref, MCID: 0 })
+    const element = context.register(context.obj({ Type: 'StructElem', S: 'Figure', K: [reference], Alt: PDFString.of('SECRET-ALT') }))
+    doc.catalog.set(PDFName.of('StructTreeRoot'), context.register(context.obj({ Type: 'StructTreeRoot', K: [element] })))
+
+    const output = await redactPages(await doc.save({ useObjectStreams: false }), [{ index: 0, shown, boxes: [box] }], keepHidden)
+    expect(await fileContainsText(output, 'SECRET-ALT')).toBe(false)
+  })
+
   it('removes covered text in a hidden layer, marked in the page content or on a form XObject', async () => {
     // The box covers the line at y = 500 (82pt from the top as displayed).
     const box = { x: 36, y: 82, width: 170, height: 24 }

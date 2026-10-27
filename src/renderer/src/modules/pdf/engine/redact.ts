@@ -139,9 +139,15 @@ function removeTagText(doc: PDFDocument, redactedPages: ReadonlySet<string>): vo
       return
     }
     if (!(object instanceof PDFDict)) return
-    const ownPage = object.get(PDFName.of('Pg'))
-    const page = ownPage instanceof PDFRef ? ownPage.tag : inheritedPage
-    if (page !== undefined && redactedPages.has(page)) {
+    const pageOf = (dict: PDFObject | undefined): string | undefined => {
+      const pg = dict instanceof PDFDict ? dict.get(PDFName.of('Pg')) : undefined
+      return pg instanceof PDFRef ? pg.tag : undefined
+    }
+    const page = pageOf(object) ?? inheritedPage
+    // An element's content can also name its page on each marked-content or object reference in /K.
+    const kids = doc.context.lookup(object.get(PDFName.of('K')))
+    const pages = [page, ...(kids instanceof PDFArray ? kids.asArray() : [kids]).map(pageOf)]
+    if (pages.some(tag => tag !== undefined && redactedPages.has(tag))) {
       for (const key of ['Alt', 'ActualText', 'E', 'T']) object.delete(PDFName.of(key))
     }
     visit(object.get(PDFName.of('K')), page)
