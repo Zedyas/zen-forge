@@ -933,9 +933,19 @@ export class Workbook {
     return false
   }
 
-  /** The used area of a sheet, for exports. */
+  /**
+   * The used area of a sheet, for exports: up to the last cell holding a value or formula. The engine's
+   * own dimensions also reach every empty cell a formula reads (=SUM(A2:A1000) makes 1,000 rows).
+   */
   usedSize(sheetId: number): { readonly width: number; readonly height: number } {
-    return this.#engine.getSheetDimensions(sheetId)
+    let width = 0
+    let height = 0
+    this.#engine.getSheetSerialized(sheetId).forEach((row, rowIndex) => row.forEach((input, col) => {
+      if (input === null || input === undefined || input === '') return
+      width = Math.max(width, col + 1)
+      height = rowIndex + 1
+    }))
+    return { width, height }
   }
 
   /** The workbook as plain data, with computed values, for saving to a file. */

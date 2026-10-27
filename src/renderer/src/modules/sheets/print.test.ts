@@ -16,6 +16,15 @@ function workbookWith(cells: (string | number)[][]): { workbook: Workbook; sheet
 const texts = (rows: readonly (readonly PrintCell[])[]): string[][] => rows.map(row => row.map(cell => cell.text))
 
 describe('sheetPrintTable', () => {
+  it('stops at the last cell with content, not at the end of a range a formula reads', () => {
+    const { workbook, sheetId } = workbookWith([['Total', '=SUM(A2:A1000)', '=VLOOKUP(1,D1:E300,2,0)']])
+
+    const table = sheetPrintTable(workbook, sheetId)
+
+    expect(table?.columnWidths).toHaveLength(3)
+    expect(table?.bodyRows).toHaveLength(1)
+  })
+
   it('leaves out hidden rows and columns and prints values as the grid shows them', () => {
     const { workbook, sheetId } = workbookWith([
       ['Item', 'Note', 'Share'],
