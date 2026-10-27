@@ -860,7 +860,9 @@ export class Workbook {
       matches.forEach(match => {
         // A replacer function inserts the text literally; a replacement string would expand "$&" and "$1".
         const write = { col: match.cell[0], row: match.cell[1], input: match.input.replace(pattern, () => replacement) }
-        bySheet.set(match.sheetId, [...bySheet.get(match.sheetId) ?? [], write])
+        const writes = bySheet.get(match.sheetId)
+        if (writes === undefined) bySheet.set(match.sheetId, [write])
+        else writes.push(write)
       })
       this.#engine.batch(() => bySheet.forEach((writes, sheetId) => this.#writeCells(sheetId, writes)))
     })

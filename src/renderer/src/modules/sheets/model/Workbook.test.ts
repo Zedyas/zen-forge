@@ -212,6 +212,19 @@ describe('Workbook', () => {
     expect(workbook.getCellValue(sheetId, [5, 0])).toBe(144_111)
   })
 
+  it('replaces text in 60,000 cells in well under the test timeout', () => {
+    const blank = blankWorkbookData()
+    const sheet = blank.sheets[0]
+    if (sheet === undefined) throw new Error('Blank workbook has no sheet.')
+    const cells = Array.from({ length: 20_000 }, () => ['old a', 'old b', 'old c'])
+    const workbook = new Workbook({ ...blank, sheets: [{ ...sheet, cells }] })
+    const sheetId = workbook.sheets()[0]?.id ?? 0
+
+    expect(workbook.replaceAll('old', 'new')).toBe(60_000)
+
+    expect(workbook.getCellValue(sheetId, [2, 19_999])).toBe('new c')
+  })
+
   it('pastes 150,000 cells in well under the test timeout, leaving a skipped row as it was', () => {
     const workbook = new Workbook()
     const sheetId = workbook.sheets()[0]?.id ?? 0
