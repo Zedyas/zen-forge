@@ -179,10 +179,11 @@ describe('redactPages', () => {
     for (const secret of ['SECRET-PIECE', 'SECRET-XMP']) expect(await fileContainsText(output, secret)).toBe(false)
   })
 
-  it('removes tag alt text whose page only its marked-content reference names', async () => {
+  it.each(['inline', 'indirect'])('removes tag alt text whose page only its marked-content reference names (%s reference)', async storage => {
     const { doc, page, box, shown } = await statement()
     const { context } = doc
-    const reference = context.obj({ Type: 'MCR', Pg: page.ref, MCID: 0 })
+    const inline = context.obj({ Type: 'MCR', Pg: page.ref, MCID: 0 })
+    const reference = storage === 'inline' ? inline : context.register(inline)
     const element = context.register(context.obj({ Type: 'StructElem', S: 'Figure', K: [reference], Alt: PDFString.of('SECRET-ALT') }))
     doc.catalog.set(PDFName.of('StructTreeRoot'), context.register(context.obj({ Type: 'StructTreeRoot', K: [element] })))
 

@@ -141,7 +141,8 @@ function removeTagText(doc: PDFDocument, redactedPages: ReadonlySet<string>): vo
       return
     }
     if (!(object instanceof PDFDict)) return
-    const pageOf = (dict: PDFObject | undefined): string | undefined => {
+    const pageOf = (entry: PDFObject | undefined): string | undefined => {
+      const dict = doc.context.lookup(entry)
       const pg = dict instanceof PDFDict ? dict.get(PDFName.of('Pg')) : undefined
       return pg instanceof PDFRef ? pg.tag : undefined
     }
