@@ -1,5 +1,5 @@
 /**
- * A document's look, as plain data: the paragraph styles (Normal, Title, Heading 1–3, Quote) and
+ * A document's look, as plain data: the paragraph styles (Normal, Title, Heading 1–6, Quote) and
  * the page setup. Every document carries its own copy (the `doc` node's attributes), read from
  * and written to the styles and section of a .docx file. A template is another set of these.
  * Sizes and spacing are in points, page sizes in twips (1/1440 inch, Word's unit), colours in hex.
@@ -20,8 +20,17 @@ export interface BlockStyle {
   readonly indentLeft: number
 }
 
-export const styleNames = ['normal', 'title', 'heading1', 'heading2', 'heading3', 'quote'] as const
+export const styleNames = ['normal', 'title', 'heading1', 'heading2', 'heading3', 'heading4', 'heading5', 'heading6', 'quote'] as const
 export type StyleName = (typeof styleNames)[number]
+
+export const headingLevels = [1, 2, 3, 4, 5, 6] as const
+export type HeadingLevel = (typeof headingLevels)[number]
+
+/** The theme style of a heading level; anything out of range is the nearest level. */
+export function headingStyle(level: unknown): `heading${HeadingLevel}` {
+  const value = typeof level === 'number' && Number.isFinite(level) ? Math.round(level) : 1
+  return `heading${Math.min(6, Math.max(1, value)) as HeadingLevel}`
+}
 
 export type DocumentTheme = Readonly<Record<StyleName, BlockStyle>>
 
@@ -31,6 +40,9 @@ export const styleLabels: Readonly<Record<StyleName, string>> = {
   heading1: 'Heading 1',
   heading2: 'Heading 2',
   heading3: 'Heading 3',
+  heading4: 'Heading 4',
+  heading5: 'Heading 5',
+  heading6: 'Heading 6',
   quote: 'Quote',
 }
 
@@ -46,6 +58,9 @@ export const defaultTheme: DocumentTheme = {
   heading1: { ...normal, fontSize: 20, bold: true, spaceBefore: 18, spaceAfter: 6, lineHeight: 1 },
   heading2: { ...normal, fontSize: 16, bold: true, spaceBefore: 14, spaceAfter: 4, lineHeight: 1 },
   heading3: { ...normal, fontSize: 13, bold: true, spaceBefore: 12, spaceAfter: 4, lineHeight: 1 },
+  heading4: { ...normal, fontSize: 12, bold: true, spaceBefore: 12, spaceAfter: 4, lineHeight: 1 },
+  heading5: { ...normal, fontSize: 11, bold: true, spaceBefore: 10, spaceAfter: 4, lineHeight: 1 },
+  heading6: { ...normal, fontSize: 11, bold: true, italic: true, spaceBefore: 10, spaceAfter: 4, lineHeight: 1 },
   quote: { ...normal, color: '#555555', italic: true, indentLeft: 18 },
 }
 
@@ -67,8 +82,6 @@ export interface PageSetup {
   readonly marginRight: number
   readonly marginBottom: number
   readonly marginLeft: number
-  /** Page numbers centred in the footer, in print and in Word. */
-  readonly pageNumbers: boolean
 }
 
 export const papers = [
@@ -99,7 +112,6 @@ export function pageFor(paper: PaperName, landscape = false): PageSetup {
     width: landscape ? size.height : size.width,
     height: landscape ? size.width : size.height,
     marginTop: inch, marginRight: inch, marginBottom: inch, marginLeft: inch,
-    pageNumbers: false,
   }
 }
 
@@ -150,9 +162,7 @@ function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
 }
 
 function isPageSetup(value: unknown): value is PageSetup {
-  return isRecord(value)
-    && ['width', 'height', 'marginTop', 'marginRight', 'marginBottom', 'marginLeft'].every(key => typeof value[key] === 'number')
-    && typeof value['pageNumbers'] === 'boolean'
+  return isRecord(value) && ['width', 'height', 'marginTop', 'marginRight', 'marginBottom', 'marginLeft'].every(key => typeof value[key] === 'number')
 }
 
 function isBlockStyle(value: unknown): value is BlockStyle {

@@ -29,6 +29,19 @@ export function countText(doc: ProseMirrorNode): TextCounts {
   return result
 }
 
+/** The deepest heading level a table of contents can list. */
+export const deepestContentsLevel = 6
+
+/** A table of contents' `levels` attribute as a number from 1 to 6; 3, as in Word, when unset. */
+export function contentsLevels(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.min(deepestContentsLevel, Math.max(1, Math.round(value))) : 3
+}
+
+/** The headings a table of contents lists: Heading 1 down to `levels`, in order. Titles are not listed, as in Word. */
+export function contentsEntries(doc: ProseMirrorNode, levels: number): OutlineHeading[] {
+  return outline(doc).filter(heading => heading.level >= 1 && heading.level <= levels)
+}
+
 /** The document's title and headings in order, for the inspector's outline. Titles are level 0. */
 export function outline(doc: ProseMirrorNode): OutlineHeading[] {
   const headings: OutlineHeading[] = []

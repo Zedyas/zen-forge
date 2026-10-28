@@ -13,7 +13,8 @@ describe('the check before saving over a file', () => {
   it('passes what Markdown keeps and catches what it would change', () => {
     const kept = doc(block('heading', 'Plan', { level: 1 }), block('paragraph', 'Text', { textAlign: 'left' }))
     expect(sameDocument(schema, kept, reopened(kept))).toBe(true)
-    for (const changed of [doc(block('title', 'Plan')), doc(block('paragraph', 'Centred', { textAlign: 'center' })), doc(block('paragraph', 'x'), { type: 'pageBreak' }, block('paragraph', 'y'))]) {
+    const withFooter = { ...doc(block('paragraph', 'Text')), attrs: { headerFooter: { footer: [block('paragraph', 'Page')] } } }
+    for (const changed of [withFooter, doc(block('title', 'Plan')), doc(block('paragraph', 'Centred', { textAlign: 'center' })), doc(block('paragraph', 'x'), { type: 'pageBreak' }, block('paragraph', 'y'))]) {
       expect(sameDocument(schema, changed, reopened(changed))).toBe(false)
     }
   })

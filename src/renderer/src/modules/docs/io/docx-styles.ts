@@ -13,6 +13,11 @@ export const docxStyleNames = {
 
 export type DocxStyleId = keyof typeof docxStyleNames
 
+/** Word's TOC field for Heading 1 to `levels`, linked (\h), without page numbers on the web (\z), with outline levels (\u). */
+export function contentsInstruction(levels: number): string {
+  return `TOC \\o "1-${levels}" \\h \\z \\u`
+}
+
 /** Word has no checklist; a checklist item is a paragraph that starts with one of these boxes. */
 export const checklistMarks = { open: '☐', done: '☑' } as const
 

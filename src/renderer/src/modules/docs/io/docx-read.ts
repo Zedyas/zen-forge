@@ -1,11 +1,13 @@
 /**
  * Reads .docx into a Sumi document. The package is size-checked, only the parts this reader uses
  * are unzipped (fflate), and their XML is parsed with DOMParser, then mapped to TipTap JSON:
- * - styles.xml becomes the document's theme (Normal, Title, Heading 1–3, Quote);
+ * - styles.xml becomes the document's theme (Normal, Title, Heading 1–6, Quote);
  * - formatting set on the text itself (direct formatting) becomes marks and paragraph attributes,
  *   as does the formatting of any other paragraph style;
  * - numbering.xml says which paragraphs are bulleted, numbered or checklist items, and at what level;
- * - the last section gives the page setup; every section's headers, footers and columns are checked.
+ * - a TOC field becomes a table of contents, whose entries Sumi lists from the headings itself;
+ * - the last section gives the page setup and the headers and footers (header-footer.ts); every
+ *   section's headers, footers and columns are checked.
  * Whatever is not kept is reported in the import report, with what happens to it on save. Anything
  * unexpected is reported too, so saving asks first; the save also re-reads what it writes
  * (doc-documents.ts), which catches what these checks miss.
@@ -15,10 +17,12 @@ import type { JSONContent } from '@tiptap/core'
 import { strFromU8, unzipSync } from 'fflate'
 import type { FindingSeverity, ImportFindingInput } from '@shared/fidelity'
 import { assertZipFitsInMemory } from '../../../services/zip'
+import { pageFieldCodes, trimmedPart, type HeaderFooterContent, type HeaderFooterPart, type HeadersAndFooters } from '../header-footer'
 import {
   contentWidthPixels,
   defaultPage,
   defaultTheme,
+  headingStyle,
   singleLineHeight,
   type BlockStyle,
   type DocumentProperties,
@@ -26,6 +30,7 @@ import {
   type PageSetup,
   type StyleName,
 } from '../theme'
+import { contentsLevels, deepestContentsLevel } from '../text-stats'
 import { checklistMarks, docxStyleNames, highlightColors, safeHref } from './docx-styles'
 import { toDataUrl } from './images'
 
@@ -40,7 +45,7 @@ const xmlParts = new Set([
   'word/document.xml', 'word/styles.xml', 'word/numbering.xml', 'word/comments.xml', 'word/settings.xml',
   'word/theme/theme1.xml', 'word/_rels/document.xml.rels', 'docProps/core.xml',
 ])
-const headerOrFooter = /^word\/(header|footer)\d*\.xml$/
+const headerOrFooter = /^word\/(_rels\/)?(header|footer)\d*\.xml(\.rels)?$/
 
 /** Inflates only the entries `wanted` accepts; the rest of the package is never unpacked. */
 function unzipParts(bytes: Uint8Array, wanted: (name: string) => boolean): Record<string, Uint8Array> {
@@ -419,6 +424,8 @@ interface Context {
   readonly fields: Field[]
   /** Items numbered so far per counter and level, so a list that continues after a break keeps counting. */
   readonly listCounts: Map<string, number[]>
+  /** A header or footer reads its page number fields as fields; the body keeps their text. */
+  readonly part: 'body' | 'header'
 }
 
 /** The kind of block a paragraph style makes, by the style's own name. */
@@ -428,6 +435,9 @@ const kindsByStyleName: Readonly<Record<string, BlockKind>> = {
   'heading 1': 'heading1',
   'heading 2': 'heading2',
   'heading 3': 'heading3',
+  'heading 4': 'heading4',
+  'heading 5': 'heading5',
+  'heading 6': 'heading6',
   quote: 'quote',
   'intense quote': 'quote',
   [docxStyleNames.Code.toLowerCase()]: 'code',
@@ -439,7 +449,7 @@ const kindsByStyleName: Readonly<Record<string, BlockKind>> = {
   'no spacing': 'normal',
 }
 
-const deeperHeading = /^heading [4-9]$/
+const deeperHeading = /^heading [7-9]$/
 
 /** Elements inside a paragraph, a run or the body that are handled, or that carry nothing Sumi could show. */
 const knownElements = new Set([
@@ -464,11 +474,19 @@ function reportUnknown(element: Element, context: Context): void {
 type InlineSegment = JSONContent[]
 
 function textNode(text: string, marks: JSONContent['marks']): JSONContent {
-  return { type: 'text', text, ...(marks !== undefined && marks.length > 0 ? { marks } : {}) }
+  return { type: 'text', text, ...markList(marks) }
 }
 
 function fieldName(instruction: string): string {
   return instruction.trim().split(/\s+/)[0]?.toUpperCase() ?? ''
+}
+
+function pageFieldOf(name: string, context: Context): string | undefined {
+  return context.part === 'header' ? pageFieldCodes[name] : undefined
+}
+
+function markList(marks: JSONContent['marks']): Pick<JSONContent, 'marks'> {
+  return marks !== undefined && marks.length > 0 ? { marks } : {}
 }
 
 function hyperlinkTarget(instruction: string): string | undefined {
@@ -592,7 +610,9 @@ function inlineContent(paragraph: Element, styleRun: RunProps, context: Context)
           else if (type === 'end') {
             const ended = context.fields.pop()
             const name = ended === undefined ? '' : fieldName(ended.instruction)
-            if (name !== '' && name !== 'HYPERLINK') {
+            const pageField = pageFieldOf(name, context)
+            if (pageField !== undefined) current().push({ type: 'pageField', attrs: { kind: pageField }, ...markList(marks()) })
+            else if (name !== '' && name !== 'HYPERLINK') {
               context.findings.add('Fields', 'dropped', { name, alternative: 'Their last shown text is kept as plain text; they no longer update.' })
             }
           }
@@ -611,8 +631,9 @@ function inlineContent(paragraph: Element, styleRun: RunProps, context: Context)
         case 'w:rPr':
           break
         default:
-          // Text between a field's start and its result is the field code, not document text.
-          if (context.fields.some(open => !open.inResult)) break
+          // Text between a field's start and its result is the field code, not document text; a
+          // page number field's result is the number Word last showed, which the field replaces.
+          if (context.fields.some(open => !open.inResult || pageFieldOf(fieldName(open.instruction), context) !== undefined)) break
           inlineChild(child, marks)
       }
     }
@@ -682,6 +703,11 @@ function inlineContent(paragraph: Element, styleRun: RunProps, context: Context)
         case 'w:fldSimple': {
           const instruction = attr(child, 'w:instr') ?? ''
           const name = fieldName(instruction)
+          const pageField = pageFieldOf(name, context)
+          if (pageField !== undefined) {
+            current().push({ type: 'pageField', attrs: { kind: pageField } })
+            break
+          }
           if (name !== 'HYPERLINK') context.findings.add('Fields', 'dropped', { name, alternative: 'Their last shown text is kept as plain text; they no longer update.' })
           walk(child, safeHref(hyperlinkTarget(instruction)) ?? href)
           break
@@ -723,10 +749,12 @@ function inlineContent(paragraph: Element, styleRun: RunProps, context: Context)
 function blockKind(name: string, resolved: ParagraphProps, context: Context): { readonly kind: BlockKind; readonly otherStyle: boolean } {
   const kind = kindsByStyleName[name]
   if (kind !== undefined) return { kind, otherStyle: false }
-  const level = deeperHeading.test(name) ? 3 : resolved.outlineLevel
+  // Word's own styles for headers and footers; their formatting is kept on the text.
+  if (context.part === 'header' && (name === 'header' || name === 'footer')) return { kind: 'normal', otherStyle: true }
+  const level = deeperHeading.test(name) ? 6 : resolved.outlineLevel
   if (level !== undefined && level < 9) {
-    if (level >= 3) context.findings.add('Headings below level 3', 'degraded', { alternative: 'Shown as Heading 3, and saved that way.' })
-    return { kind: (['heading1', 'heading2', 'heading3'] as const)[Math.min(level, 2)] ?? 'heading3', otherStyle: level >= 3 }
+    if (level >= 6) context.findings.add('Headings below level 6', 'degraded', { alternative: 'Shown as Heading 6, and saved that way.' })
+    return { kind: headingStyle(level + 1), otherStyle: level >= 6 }
   }
   context.findings.add('Other paragraph styles', 'degraded', {
     name: name.replace(/\b\w/g, letter => letter.toUpperCase()),
@@ -828,7 +856,7 @@ function paragraphItems(paragraph: Element, context: Context): Item[] {
     context.findings.add('Paragraph borders and shading', 'degraded', { alternative: 'Shown without them, and saved that way.' })
   }
   if (resolved.rightToLeft === true) context.findings.add('Right-to-left paragraphs', 'degraded', { alternative: 'Shown left to right, and saved that way.' })
-  const themeStyle: StyleName = kind === 'title' || kind === 'heading1' || kind === 'heading2' || kind === 'heading3' || kind === 'quote' ? kind : 'normal'
+  const themeStyle: StyleName = kind === 'code' || kind === 'rule' || kind === 'checklist' || kind === 'continue' || kind === 'cell' ? 'normal' : kind
   const base = context.theme[themeStyle]
   const extra = otherStyle ? styleDifference(style, base) : { paragraph: {}, run: {} }
   const segments = inlineContent(paragraph, { ...extra.run, hidden: style.run.hidden }, context)
@@ -881,6 +909,9 @@ function paragraphItems(paragraph: Element, context: Context): Item[] {
       case 'heading1':
       case 'heading2':
       case 'heading3':
+      case 'heading4':
+      case 'heading5':
+      case 'heading6':
         items.push({ kind: 'block', node: node('heading', content, { level: Number(kind.slice(-1)) }), place })
         return
       case 'code':
@@ -1052,14 +1083,56 @@ function group(items: readonly Item[]): JSONContent[] {
   return result
 }
 
+/** How deep fields are nested at the end of a paragraph, from `depth` at its start. */
+function fieldDepthAfter(paragraph: Element, depth: number): number {
+  return all(paragraph, 'w:fldChar').reduce((current, character) => {
+    const type = attr(character, 'w:fldCharType')
+    return type === 'begin' ? current + 1 : type === 'end' ? current - 1 : current
+  }, depth)
+}
+
+/**
+ * A table of contents, from a paragraph whose first field is Word's TOC field. Its entries are
+ * the field's last result, which Sumi lists again from the headings, so only its levels are read.
+ */
+function contentsStart(paragraph: Element, context: Context): JSONContent | undefined {
+  const parts = Array.from(paragraph.getElementsByTagName('*')).filter(element => element.tagName === 'w:fldChar' || element.tagName === 'w:instrText')
+  const begin = parts.findIndex(element => attr(element, 'w:fldCharType') === 'begin')
+  if (begin === -1) return undefined
+  const end = parts.findIndex((element, index) => index > begin && element.tagName === 'w:fldChar')
+  const instruction = parts.slice(begin + 1, end === -1 ? undefined : end).map(element => element.textContent ?? '').join('')
+  if (fieldName(instruction) !== 'TOC') return undefined
+  const range = /\\o\s+"(\d+)-(\d+)"/i.exec(instruction)
+  const levels = contentsLevels(Number(range?.[2] ?? 3))
+  // Sumi writes \o "1-n" \h \z \u; other switches pick other entries or change how they look.
+  const others = instruction.trim().replace(/^TOC/i, '').replace(/\\o\s+"\d+-\d+"|\\[hzu](?=\s|$)/gi, '').trim()
+  if (range === null || range[1] !== '1' || Number(range[2]) > deepestContentsLevel || others !== '') {
+    context.findings.add('Table of contents settings', 'degraded', { alternative: `Lists Heading 1 to ${levels}, and saved that way.` })
+  }
+  return { type: 'tableOfContents', attrs: { levels } }
+}
+
 function blocks(container: Element, context: Context): JSONContent[] {
   const items: Item[] = []
+  // Inside a table of contents until its field ends; those paragraphs are Word's copy of the headings.
+  let contentsDepth = 0
   const collect = (parent: Element): void => {
     for (const child of Array.from(parent.children)) {
       switch (child.tagName) {
-        case 'w:p':
-          items.push(...paragraphItems(child, context))
+        case 'w:p': {
+          if (contentsDepth > 0) {
+            contentsDepth = fieldDepthAfter(child, contentsDepth)
+            break
+          }
+          const contents = contentsStart(child, context)
+          if (contents === undefined) {
+            items.push(...paragraphItems(child, context))
+            break
+          }
+          items.push({ kind: 'block', node: contents, place: { quote: false, level: undefined } })
+          contentsDepth = fieldDepthAfter(child, 0)
           break
+        }
         case 'w:tbl':
           items.push({ kind: 'block', node: table(child, context), place: { quote: false, level: undefined } })
           break
@@ -1112,6 +1185,9 @@ const themeStyleNames: Readonly<Record<Exclude<StyleName, 'normal'>, readonly st
   heading1: ['heading 1'],
   heading2: ['heading 2'],
   heading3: ['heading 3'],
+  heading4: ['heading 4'],
+  heading5: ['heading 5'],
+  heading6: ['heading 6'],
   quote: ['quote', 'intense quote'],
 }
 
@@ -1124,79 +1200,124 @@ function readTheme(styles: StyleSheet): DocumentTheme {
     const fallback = { ...defaultTheme[name], fontFamily: normal.fontFamily }
     return id === undefined ? fallback : blockStyle(styles.paragraph(id), fallback)
   }
-  return { normal, title: style('title'), heading1: style('heading1'), heading2: style('heading2'), heading3: style('heading3'), quote: style('quote') }
+  return {
+    normal,
+    title: style('title'),
+    heading1: style('heading1'),
+    heading2: style('heading2'),
+    heading3: style('heading3'),
+    heading4: style('heading4'),
+    heading5: style('heading5'),
+    heading6: style('heading6'),
+    quote: style('quote'),
+  }
 }
 
-/** Whether a header or footer shows anything besides a page number, and whether it has one. */
-function readHeaderPart(xml: Element | undefined): { readonly content: boolean; readonly pageNumber: boolean } {
-  if (xml === undefined) return { content: false, pageNumber: false }
-  const fields = [...all(xml, 'w:instrText').map(element => element.textContent ?? ''), ...all(xml, 'w:fldSimple').map(element => attr(element, 'w:instr') ?? '')]
-    .map(fieldName).filter(name => name !== '')
-  const pageNumber = fields.includes('PAGE')
-  let depth = 0
-  let inResult = false
-  // Any field other than the page number (a date, the file name) is content Sumi does not keep.
-  let content = fields.some(name => name !== 'PAGE') || all(xml, 'w:drawing').length > 0 || all(xml, 'w:pict').length > 0
-  // Runs directly in a w:fldSimple are its result, not text of their own.
-  for (const run of all(xml, 'w:r').filter(candidate => candidate.parentElement?.tagName !== 'w:fldSimple')) {
-    for (const child of Array.from(run.children)) {
-      if (child.tagName === 'w:fldChar') {
-        const type = attr(child, 'w:fldCharType')
-        if (type === 'begin') depth += 1
-        if (type === 'separate') inResult = true
-        if (type === 'end') {
-          depth -= 1
-          inResult = false
-        }
-      } else if (child.tagName === 'w:t' && depth === 0 && !inResult && (child.textContent ?? '').trim() !== '') content = true
-    }
-  }
-  return { content, pageNumber }
+/** Whether a header or footer part shows anything: text, a field or a picture. */
+function showsSomething(xml: Element | undefined): boolean {
+  if (xml === undefined) return false
+  return (xml.textContent ?? '').trim() !== '' || ['w:fldChar', 'w:fldSimple', 'w:drawing', 'w:pict'].some(name => all(xml, name).length > 0)
+}
+
+interface Sections {
+  readonly page: PageSetup
+  /** The header and footer parts the last section shows, as package paths. */
+  readonly parts: ReadonlyMap<HeaderFooterPart, string>
+  readonly differentFirstPage: boolean
+}
+
+const partsByReference: Readonly<Record<string, HeaderFooterPart>> = {
+  'header:default': 'header', 'footer:default': 'footer', 'header:first': 'firstHeader', 'footer:first': 'firstFooter',
 }
 
 /**
- * The page setup of the last section, which Sumi keeps. Every section is checked for headers,
- * footers and columns, since an earlier section can have them when the last one does not.
+ * The page setup, headers and footers of the last section, which Sumi keeps. Every section is
+ * checked for headers, footers and columns, since an earlier section can show others.
  */
-function readSections(body: Element, relationships: ReadonlyMap<string, Relationship>, parts: Readonly<Record<string, Uint8Array>>, findings: Findings): PageSetup {
+function readSections(body: Element, relationships: ReadonlyMap<string, Relationship>, xmlPart: (name: string) => Element | undefined, findings: Findings): Sections {
   const sections = all(body, 'w:sectPr').filter(section => section.parentElement?.tagName !== 'w:sectPrChange')
   const last = kid(body, 'w:sectPr') ?? sections[sections.length - 1]
-  let pageNumbers = false
-  let headerContent = false
+  // A section without its own header or footer of a kind shows the one before it.
+  const shown = new Map<string, string>()
+  const earlier: Array<readonly [string, string]> = []
   for (const section of sections) {
     if ((number(attr(kid(section, 'w:cols'), 'w:num')) ?? 1) > 1) {
       findings.add('Multiple columns', 'dropped', { alternative: 'Shown in one column, and saved that way.' })
     }
     for (const reference of [...kids(section, 'w:headerReference'), ...kids(section, 'w:footerReference')]) {
       const target = relationships.get(attr(reference, 'r:id') ?? '')?.target
-      const part = target === undefined ? undefined : parts[target]
-      const read = readHeaderPart(part === undefined ? undefined : parseXml(strFromU8(part)))
-      const footer = reference.tagName === 'w:footerReference'
-      if (footer && read.pageNumber && section === last) pageNumbers = true
-      if (read.content || (read.pageNumber && (!footer || section !== last))) headerContent = true
+      const kind = reference.tagName === 'w:headerReference' ? 'header' : 'footer'
+      if (target !== undefined) shown.set(`${kind}:${attr(reference, 'w:type') ?? 'default'}`, target)
     }
+    if (section !== last) earlier.push(...shown)
   }
-  if (headerContent) {
-    findings.add('Header and footer text', 'dropped', {
-      alternative: pageNumbers ? 'Not shown, and not kept when saved. Page numbers are kept.' : notKept,
-    })
+  if (earlier.some(([key, target]) => shown.get(key) !== target && showsSomething(xmlPart(target)))) {
+    findings.add('Headers and footers of earlier sections', 'dropped', { alternative: 'Every page shows the last section’s header and footer, and saved that way.' })
   }
   if (sections.length > 1) {
     findings.add('Section breaks', 'dropped', { unit: 'section', count: sections.length, alternative: 'Saved as one section, with the last section’s page size and margins.' })
   }
-  if (last === undefined) return defaultPage
+  const parts = new Map<HeaderFooterPart, string>()
+  for (const [key, target] of shown) {
+    const part = partsByReference[key]
+    if (part !== undefined) parts.set(part, target)
+  }
+  const differentFirstPage = toggle(last, 'w:titlePg') === true
+  if (last === undefined) return { page: defaultPage, parts, differentFirstPage }
   const size = kid(last, 'w:pgSz')
   const margins = kid(last, 'w:pgMar')
   const length = (element: Element | undefined, name: string, fallback: number): number => Math.abs(number(attr(element, name)) ?? fallback)
   return {
-    width: length(size, 'w:w', defaultPage.width),
-    height: length(size, 'w:h', defaultPage.height),
-    marginTop: length(margins, 'w:top', defaultPage.marginTop),
-    marginRight: length(margins, 'w:right', defaultPage.marginRight),
-    marginBottom: length(margins, 'w:bottom', defaultPage.marginBottom),
-    marginLeft: length(margins, 'w:left', defaultPage.marginLeft),
-    pageNumbers,
+    page: {
+      width: length(size, 'w:w', defaultPage.width),
+      height: length(size, 'w:h', defaultPage.height),
+      marginTop: length(margins, 'w:top', defaultPage.marginTop),
+      marginRight: length(margins, 'w:right', defaultPage.marginRight),
+      marginBottom: length(margins, 'w:bottom', defaultPage.marginBottom),
+      marginLeft: length(margins, 'w:left', defaultPage.marginLeft),
+    },
+    parts,
+    differentFirstPage,
   }
+}
+
+const headerMarks = new Set(['bold', 'italic', 'underline', 'textStyle'])
+
+/** Text, line breaks and page number fields with the formatting a header holds; pictures and other formatting are reported. */
+function headerInline(nodes: readonly JSONContent[], findings: Findings): JSONContent[] {
+  return nodes.flatMap(node => {
+    if (node.type === 'image') {
+      findings.add('Pictures in headers and footers', 'dropped', { unit: 'picture', alternative: notKept })
+      return []
+    }
+    const marks = (node.marks ?? []).filter(mark => headerMarks.has(mark.type))
+    if (marks.length === (node.marks ?? []).length) return [node]
+    findings.add('Header and footer formatting', 'degraded', { alternative: 'Shown with bold, italic, underline, font, size and colour only, and saved that way.' })
+    return [{ ...node, marks }]
+  })
+}
+
+/** A header's blocks as the paragraphs it holds: headings, lists and tables become plain paragraphs. */
+function headerParagraphs(nodes: readonly JSONContent[], findings: Findings): JSONContent[] {
+  return nodes.flatMap(node => {
+    if (node.type === 'paragraph' || node.type === 'heading' || node.type === 'title') {
+      if (node.type !== 'paragraph') findings.add('Headings in headers and footers', 'degraded', { alternative: 'Shown as plain paragraphs, and saved that way.' })
+      const align: unknown = node.attrs?.['textAlign']
+      const content = headerInline(node.content ?? [], findings)
+      return [{ type: 'paragraph', ...(typeof align === 'string' ? { attrs: { textAlign: align } } : {}), ...(content.length > 0 ? { content } : {}) }]
+    }
+    if (node.type === 'pageBreak') return []
+    findings.add('Tables and lists in headers and footers', 'degraded', { alternative: 'Shown as plain paragraphs, and saved that way.' })
+    return headerParagraphs(node.content ?? [], findings)
+  })
+}
+
+/** A header or footer part, read like the body but with its own relationships and page number fields. */
+function readHeaderFooterPart(target: string | undefined, context: Context, xmlPart: (name: string) => Element | undefined): HeaderFooterContent {
+  const root = target === undefined ? undefined : xmlPart(target)
+  if (target === undefined || root === undefined) return []
+  const relationships = readRelationships(xmlPart(`${target.replace(/^word\//, 'word/_rels/')}.rels`))
+  return trimmedPart(headerParagraphs(blocks(root, { ...context, relationships, fields: [], listCounts: new Map(), part: 'header' }), context.findings))
 }
 
 /** Tracked changes anywhere in the body: insertions and deletions, and formatting changes. */
@@ -1208,6 +1329,9 @@ function trackedChanges(body: Element): number {
 function readSettings(xml: Element | undefined, findings: Findings): void {
   if (kid(xml, 'w:documentProtection') !== undefined) {
     findings.add('Editing restrictions', 'dropped', { alternative: 'Not kept when saved, so the saved file can be edited freely.' })
+  }
+  if (toggle(xml, 'w:evenAndOddHeaders') === true) {
+    findings.add('Different odd and even pages', 'degraded', { alternative: 'Every page shows the odd-page header and footer, and saved that way.' })
   }
   if (toggle(xml, 'w:trackRevisions') === true) {
     findings.add('Track changes setting', 'degraded', { alternative: 'Word stops tracking changes in the saved file until you turn it on again.' })
@@ -1225,12 +1349,14 @@ export function readDocx(bytes: Uint8Array): DocxRead {
   if (body === undefined) throw new Error('This file is not a Word document, or it is damaged.')
 
   const relationships = readRelationships(xmlPart('word/_rels/document.xml.rels'))
-  const pictures = imageTargets(relationships)
+  // Pictures in headers and footers are reported as not kept, which needs them read.
+  const partRelationships = Object.keys(parts).filter(name => name.endsWith('.rels') && headerOrFooter.test(name)).map(name => readRelationships(xmlPart(name)))
+  const pictures = new Set([relationships, ...partRelationships].flatMap(each => [...imageTargets(each)]))
   const media = pictures.size === 0 ? {} : unzipParts(bytes, name => pictures.has(name))
   const themeFonts = readThemeFonts(xmlPart('word/theme/theme1.xml'))
   const styles = new StyleSheet(xmlPart('word/styles.xml'), themeFonts)
   const findings = new Findings()
-  const page = readSections(body, relationships, parts, findings)
+  const { page, parts: headerFooterTargets, differentFirstPage } = readSections(body, relationships, xmlPart, findings)
   const context: Context = {
     styles,
     numbering: readNumbering(xmlPart('word/numbering.xml'), styles),
@@ -1242,6 +1368,7 @@ export function readDocx(bytes: Uint8Array): DocxRead {
     findings,
     fields: [],
     listCounts: new Map(),
+    part: 'body',
   }
 
   const comments = kids(xmlPart('word/comments.xml'), 'w:comment').length
@@ -1251,10 +1378,12 @@ export function readDocx(bytes: Uint8Array): DocxRead {
   readSettings(xmlPart('word/settings.xml'), findings)
 
   const content = blocks(body, context)
+  const part = (name: HeaderFooterPart): HeaderFooterContent => readHeaderFooterPart(headerFooterTargets.get(name), context, xmlPart)
+  const headerFooter: HeadersAndFooters = { header: part('header'), footer: part('footer'), firstHeader: part('firstHeader'), firstFooter: part('firstFooter'), differentFirstPage }
   return {
     content: {
       type: 'doc',
-      attrs: { page, theme: context.theme, properties: readProperties(xmlPart('docProps/core.xml')) },
+      attrs: { page, theme: context.theme, properties: readProperties(xmlPart('docProps/core.xml')), headerFooter },
       content: content.length > 0 ? content : [{ type: 'paragraph' }],
     },
     findings: findings.list(),

@@ -4,8 +4,9 @@ import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
 import { useEditorState } from '@tiptap/react'
 import { Inspector, InspectorRow, InspectorSection } from '../../ui/Inspector'
 import { Tip } from '../../ui/Tip'
-import { currentBlockStyle, setPage, setParagraphFormat, type ParagraphFormat } from './doc-commands'
-import { countText, outline } from './text-stats'
+import { currentBlockStyle, editPart, setHeadersAndFooters, setPage, setParagraphFormat, usePartEditing, type ParagraphFormat } from './doc-commands'
+import { documentHeadersAndFooters, hasPageNumber, withPageNumber, type HeaderFooterPart } from './header-footer'
+import { contentsLevels, countText, deepestContentsLevel, outline } from './text-stats'
 import { documentPage, isLandscape, lengthUnit, pageFor, paperOf, papers, type PageSetup } from './theme'
 
 const pointsPerUnit = lengthUnit === 'in' ? 72 : 72 / 2.54
@@ -166,6 +167,26 @@ function TableSection({ editor }: { readonly editor: Editor }) {
   )
 }
 
+function ContentsSection({ editor }: { readonly editor: Editor }) {
+  const levels = useEditorState({
+    editor,
+    selector: ({ editor: current }) => current.isActive('tableOfContents') ? contentsLevels(current.getAttributes('tableOfContents')['levels']) : undefined,
+  })
+  if (levels === undefined) return null
+  return (
+    <InspectorSection title="Table of contents">
+      <InspectorRow label="Headings 1 to">
+        <span className="segmented">
+          {Array.from({ length: deepestContentsLevel }, (_, index) => index + 1).map(level => (
+            <button key={level} type="button" aria-pressed={level === levels} onClick={() => editor.chain().focus().updateAttributes('tableOfContents', { levels: level }).run()}>{level}</button>
+          ))}
+        </span>
+      </InspectorRow>
+      <p className="inspector-note">It lists the headings as they are now. Word adds page numbers when you update the table there.</p>
+    </InspectorSection>
+  )
+}
+
 function PageSection({ editor }: { readonly editor: Editor }) {
   const page = useEditorState({ editor, selector: ({ editor: current }) => documentPage(current.state.doc.attrs['page']) })
   const paper = paperOf(page)
@@ -203,17 +224,52 @@ function PageSection({ editor }: { readonly editor: Editor }) {
       {margin('marginBottom', 'Bottom margin')}
       {margin('marginLeft', 'Left margin')}
       {margin('marginRight', 'Right margin')}
+    </InspectorSection>
+  )
+}
+
+function HeaderFooterSection({ editor, documentId }: { readonly editor: Editor; readonly documentId: string }) {
+  const headerFooter = useEditorState({ editor, selector: ({ editor: current }) => documentHeadersAndFooters(current.state.doc.attrs['headerFooter']) })
+  const editing = usePartEditing(state => state.editing)
+  // With a different first page, each part is a choice of the first page's or the other pages'; the open one shows pressed.
+  const choice = (label: string, first: HeaderFooterPart, other: HeaderFooterPart) => (
+    <InspectorRow label={label}>
+      <span className="segmented">
+        {([[first, 'First page'], [other, 'Other pages']] as const).map(([part, name]) => (
+          <button key={part} type="button" aria-pressed={editing?.documentId === documentId && editing.part === part} onClick={() => editPart(documentId, part)}>{name}</button>
+        ))}
+      </span>
+    </InspectorRow>
+  )
+  return (
+    <InspectorSection title="Header and footer">
+      {headerFooter.differentFirstPage
+        ? <>{choice('Header', 'firstHeader', 'header')}{choice('Footer', 'firstFooter', 'footer')}</>
+        : (
+          <div className="sumi-inspector-actions">
+            <button type="button" className="button" onClick={() => editPart(documentId, 'header')}>Header</button>
+            <button type="button" className="button" onClick={() => editPart(documentId, 'footer')}>Footer</button>
+          </div>
+        )}
       <label className="sumi-check-row">
-        <input type="checkbox" checked={page.pageNumbers} onChange={event => setPage(editor, { pageNumbers: event.currentTarget.checked })} />
-        Page numbers in the footer
+        <input
+          type="checkbox"
+          checked={hasPageNumber(headerFooter.footer)}
+          onChange={event => setHeadersAndFooters(editor, { footer: withPageNumber(headerFooter.footer, event.currentTarget.checked) })}
+        />
+        {headerFooter.differentFirstPage ? 'Page numbers on the other pages' : 'Page numbers in the footer'}
       </label>
-      <p className="inspector-note">Used when printing and saved in Word files.</p>
+      <label className="sumi-check-row">
+        <input type="checkbox" checked={headerFooter.differentFirstPage} onChange={event => setHeadersAndFooters(editor, { differentFirstPage: event.currentTarget.checked })} />
+        Different first page
+      </label>
+      <p className="inspector-note">Double-click the top or bottom margin of the page to edit. Used when printing and saved in Word files.</p>
     </InspectorSection>
   )
 }
 
 /** Detail that does not need to be one click away: paragraph and table settings, page setup, counts and the outline. */
-export function DocInspector({ editor }: { readonly editor: Editor }) {
+export function DocInspector({ editor, documentId }: { readonly editor: Editor; readonly documentId: string }) {
   const { counts, headings } = useEditorState({
     editor,
     selector: ({ editor: current }) => ({ counts: countText(current.state.doc), headings: outline(current.state.doc) }),
@@ -223,7 +279,9 @@ export function DocInspector({ editor }: { readonly editor: Editor }) {
     <Inspector label="Document inspector">
       <ParagraphSection editor={editor} />
       <TableSection editor={editor} />
+      <ContentsSection editor={editor} />
       <PageSection editor={editor} />
+      <HeaderFooterSection editor={editor} documentId={documentId} />
 
       <InspectorSection title="Document">
         <InspectorRow label="Words"><span>{counts.words.toLocaleString()}</span></InspectorRow>
@@ -232,7 +290,7 @@ export function DocInspector({ editor }: { readonly editor: Editor }) {
 
       <InspectorSection title="Outline">
         {headings.length === 0
-          ? <p className="inspector-note">Headings appear here. Choose Title or Heading 1 to 3 from the style menu.</p>
+          ? <p className="inspector-note">Headings appear here. Choose Title or Heading 1 to 6 from the style menu.</p>
           : (
             <ul className="inspector-list sumi-outline">
               {headings.map(heading => (

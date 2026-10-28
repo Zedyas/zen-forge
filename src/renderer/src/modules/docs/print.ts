@@ -1,13 +1,66 @@
-import type { Editor } from '@tiptap/core'
-import { DOMSerializer } from '@tiptap/pm/model'
+import type { Editor, JSONContent } from '@tiptap/core'
+import { DOMSerializer, type Node as ProseMirrorNode } from '@tiptap/pm/model'
 import { toast } from 'sonner'
 import { openFiles } from '../../app/document-actions'
 import { useDocumentsStore } from '../../app/documents-store'
 import { fileService } from '../../services/file/IpcFileService'
 import { openPrintDialog, printToPdf, type Printout } from '../../services/print/print'
-import { documentPage, documentTheme, themeVariables } from './theme'
+import { documentHeadersAndFooters, type HeaderFooterContent } from './header-footer'
+import { hexColor } from './io/docx-styles'
+import { contentsEntries, contentsLevels, deepestContentsLevel } from './text-stats'
+import { documentPage, documentTheme, themeVariables, toPoints, type BlockStyle } from './theme'
 
 const millimetresPerTwip = 25.4 / 1440
+
+/** Text as a CSS string; a line end is CSS's `\A`. */
+function cssString(text: string): string {
+  return `"${text.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\r?\n/g, '\\A ')}"`
+}
+
+/** One paragraph of a header or footer as a CSS `content` value, with page numbers as counters. */
+function boxContent(paragraph: JSONContent): string {
+  const parts = (paragraph.content ?? []).map(node => {
+    if (node.type === 'pageField') return node.attrs?.['kind'] === 'total' ? 'counter(pages)' : 'counter(page)'
+    if (node.type === 'hardBreak') return '"\\A"'
+    return cssString(node.text ?? '')
+  })
+  return parts.length === 0 ? '""' : parts.join(' ')
+}
+
+/** A margin box holds text in one format: the paragraph style's, with its first run's formatting over it. */
+function boxFont(paragraph: JSONContent | undefined, base: BlockStyle): string {
+  const first = paragraph?.content?.find(node => node.type === 'text' || node.type === 'pageField')
+  const has = (type: string): boolean => first?.marks?.some(mark => mark.type === type) === true
+  const style = first?.marks?.find(mark => mark.type === 'textStyle')?.attrs ?? {}
+  const family: unknown = style['fontFamily']
+  const color: unknown = style['color']
+  return [
+    `font-family: ${cssString(typeof family === 'string' && family !== '' ? family : base.fontFamily)}, sans-serif;`,
+    `font-size: ${toPoints(style['fontSize']) ?? base.fontSize}pt;`,
+    `color: ${(typeof color === 'string' ? hexColor(color) : undefined) ?? base.color};`,
+    has('bold') ? 'font-weight: 700;' : '',
+    has('italic') ? 'font-style: italic;' : '',
+    has('underline') ? 'text-decoration: underline;' : '',
+  ].join(' ')
+}
+
+const boxSides = ['left', 'center', 'right'] as const
+
+/**
+ * A header or footer as the @page margin boxes along one edge: each paragraph goes in the box for
+ * its alignment (justified ones on the left), and page numbers are the page counters, so every
+ * page shows its own. A side with nothing is `none`, which clears what the general page rule set.
+ */
+function marginBoxes(edge: 'top' | 'bottom', content: HeaderFooterContent, base: BlockStyle): string {
+  return boxSides.map(side => {
+    const paragraphs = content.filter(paragraph => {
+      const align: unknown = paragraph.attrs?.['textAlign']
+      return side === 'left' ? align !== 'center' && align !== 'right' : align === side
+    })
+    const value = paragraphs.length === 0 ? 'none' : paragraphs.map(boxContent).join(' "\\A" ')
+    return `@${edge}-${side} { content: ${value}; white-space: pre-wrap; text-align: ${side}; vertical-align: middle; line-height: 1.15; ${boxFont(paragraphs[0], base)} }`
+  }).join('\n')
+}
 
 /**
  * A picture that is not stored in the document, or whose data cannot be shown, prints as its
@@ -25,26 +78,59 @@ async function replaceBrokenImages(root: HTMLElement): Promise<void> {
 }
 
 /**
+ * Fills each table of contents with the headings, each a link to its heading, so the entries in a
+ * PDF can be clicked. Chromium cannot tell which page a heading lands on (CSS target-counter is
+ * not supported), so the entries print without page numbers.
+ */
+function fillContents(prose: HTMLElement, doc: ProseMirrorNode): void {
+  const tables = prose.querySelectorAll('.sumi-toc')
+  if (tables.length === 0) return
+  // The headings serialize in document order, the order the entries are in.
+  const entries = contentsEntries(doc, deepestContentsLevel)
+  prose.querySelectorAll('h1, h2, h3, h4, h5, h6').forEach((heading, index) => {
+    heading.id = `sumi-heading-${index + 1}`
+  })
+  for (const table of tables) {
+    const levels = contentsLevels(Number(table.getAttribute('data-levels')))
+    table.replaceChildren(...entries.flatMap((entry, index) => {
+      if (entry.level > levels) return []
+      const line = document.createElement('p')
+      line.className = 'sumi-toc-entry'
+      line.dataset['level'] = String(entry.level)
+      const link = document.createElement('a')
+      link.href = `#sumi-heading-${index + 1}`
+      link.textContent = entry.text
+      line.append(link)
+      return [line]
+    }))
+  }
+}
+
+/**
  * The document as it prints: the editor's content serialized by the schema, styled by the same
  * `.sumi-prose` rules and theme variables as the page on screen (docs.css), on the document's own
- * paper. Word margins can differ on each side, and page numbers sit in the bottom margin, so the
- * printout carries its own @page rule for both; the print service's rule sets the paper size.
+ * paper. Word margins can differ on each side, and the header and footer sit in the top and
+ * bottom margins, so the printout carries its own @page rules for both; the print service's rule
+ * sets the paper size.
  */
 export async function docPrintout(editor: Editor): Promise<Printout> {
   const doc = editor.state.doc
   const page = documentPage(doc.attrs['page'])
   const theme = documentTheme(doc.attrs['theme'])
+  const headerFooter = documentHeadersAndFooters(doc.attrs['headerFooter'])
   const margin = (twips: number): string => `${(twips * millimetresPerTwip).toFixed(2)}mm`
-  const pageNumbers = page.pageNumbers
-    ? `@bottom-center { content: counter(page); font: 9pt "${theme.normal.fontFamily}", sans-serif; color: #555; }`
-    : ''
+  const boxes = (header: HeaderFooterContent, footer: HeaderFooterContent): string => `${marginBoxes('top', header, theme.normal)}\n${marginBoxes('bottom', footer, theme.normal)}`
   const rule = document.createElement('style')
-  rule.textContent = `@page { margin: ${margin(page.marginTop)} ${margin(page.marginRight)} ${margin(page.marginBottom)} ${margin(page.marginLeft)}; ${pageNumbers} }`
+  rule.textContent = [
+    `@page { margin: ${margin(page.marginTop)} ${margin(page.marginRight)} ${margin(page.marginBottom)} ${margin(page.marginLeft)};\n${boxes(headerFooter.header, headerFooter.footer)} }`,
+    ...(headerFooter.differentFirstPage ? [`@page :first {\n${boxes(headerFooter.firstHeader, headerFooter.firstFooter)} }`] : []),
+  ].join('\n')
 
   const prose = document.createElement('div')
   prose.className = 'sumi-prose sumi-print'
   for (const [name, value] of themeVariables(theme)) prose.style.setProperty(name, value)
   prose.append(DOMSerializer.fromSchema(editor.schema).serializeFragment(doc.content))
+  fillContents(prose, doc)
   await replaceBrokenImages(prose)
 
   const content = document.createElement('div')

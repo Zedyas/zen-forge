@@ -9,6 +9,7 @@ import { DocInspector } from './DocInspector'
 import { DocEssentials, DocToolbar } from './DocToolbar'
 import { clearFind } from './find'
 import { FindBar } from './FindBar'
+import { HeaderFooterZone } from './HeaderFooterZone'
 import { exportDocPdf, printDoc } from './print'
 import { countText } from './text-stats'
 import { documentPage, documentTheme, themeVariables } from './theme'
@@ -38,7 +39,10 @@ function followLink(event: MouseEvent): void {
 
 const inches = (twips: number): string => `${twips / 1440}in`
 
-/** The sheet of paper: the document's page size and margins, its theme as CSS variables, at the tab's zoom. */
+/**
+ * The sheet of paper: the document's page size and margins, its theme as CSS variables, at the
+ * tab's zoom, with the header and footer in its top and bottom margins.
+ */
 function Paper({ document, editor }: { readonly document: OpenDocument; readonly editor: Editor }) {
   const { page, theme } = useEditorState({
     editor,
@@ -53,15 +57,30 @@ function Paper({ document, editor }: { readonly document: OpenDocument; readonly
 
   return (
     <div ref={sheet} className="sumi-sheet" style={{ zoom }}>
-      <EditorContent
-        editor={editor}
+      <div
         className="sumi-paper"
         style={{
           width: inches(page.width),
           minHeight: inches(page.height),
           padding: `${inches(page.marginTop)} ${inches(page.marginRight)} ${inches(page.marginBottom)} ${inches(page.marginLeft)}`,
         }}
-      />
+      >
+        <HeaderFooterZone
+          editor={editor}
+          documentId={document.id}
+          edge="top"
+          base={theme.normal}
+          style={{ top: 0, left: inches(page.marginLeft), right: inches(page.marginRight), height: inches(page.marginTop) }}
+        />
+        <EditorContent editor={editor} className="sumi-body" />
+        <HeaderFooterZone
+          editor={editor}
+          documentId={document.id}
+          edge="bottom"
+          base={theme.normal}
+          style={{ bottom: 0, left: inches(page.marginLeft), right: inches(page.marginRight), height: inches(page.marginBottom) }}
+        />
+      </div>
     </div>
   )
 }
@@ -112,7 +131,7 @@ export function DocEditor({ document, editor }: DocEditorProps) {
           </div>
           <StatusBar document={document} editor={editor} />
         </div>
-        {inspectorShown && <DocInspector editor={editor} />}
+        {inspectorShown && <DocInspector editor={editor} documentId={document.id} />}
       </div>
     </>
   )

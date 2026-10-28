@@ -1,13 +1,16 @@
 /**
  * Markdown through TipTap's own Markdown support (GitHub-flavoured: tables, task lists, images).
- * The writer leaves out what Markdown cannot hold (underline, alignment, page breaks, fonts);
+ * The writer leaves out what Markdown cannot hold (underline, alignment, page breaks, fonts,
+ * headers and footers) and writes a table of contents as a list of links to the headings;
  * saving over a file checks what would change first (doc-documents.ts).
  */
 
 import type { JSONContent } from '@tiptap/core'
 import { MarkdownManager } from '@tiptap/markdown'
 import type { ImportFindingInput } from '@shared/fidelity'
+import { documentHeadersAndFooters, headerFooterParts } from '../header-footer'
 import { documentExtensions } from '../schema'
+import { contentsLevels } from '../text-stats'
 
 export interface MarkdownImport {
   readonly content: JSONContent
@@ -35,18 +38,14 @@ function safeLink(href: unknown): boolean {
 
 /**
  * Fits parsed Markdown to the schema: TipTap's Markdown reader treats an image alone on a line as
- * a block, but Sumi's images are inline; headings deeper than 3 become Heading 3; unsafe links
- * lose their link.
+ * a block, but Sumi's images are inline; unsafe links lose their link.
  */
 function normalize(node: JSONContent): JSONContent {
-  const level: unknown = node.attrs?.['level']
-  const attrs = node.type === 'heading' && typeof level === 'number' && level > 3 ? { ...node.attrs, level: 3 } : node.attrs
   const marks = node.marks?.filter(mark => mark.type !== 'link' || safeLink(mark.attrs?.['href']))
   const content = node.content?.map(child =>
     blockContainers.has(node.type ?? '') && child.type === 'image' ? { type: 'paragraph', content: [child] } : normalize(child))
   return {
     ...node,
-    ...(attrs === undefined ? {} : { attrs }),
     ...(marks === undefined ? {} : { marks }),
     ...(content === undefined ? {} : { content }),
   }
@@ -59,14 +58,11 @@ function places(count: number): string {
 /** What Markdown can say that a Sumi document cannot, with what opening and saving does to it. */
 function markdownFindings(text: string): ImportFindingInput[] {
   let html = 0
-  let deepHeadings = 0
   markdown().instance.walkTokens(markdown().instance.lexer(text), (token: MarkdownToken) => {
     if (token.type === 'html') html += 1
-    if (token.type === 'heading' && token.depth > 3) deepHeadings += 1
   })
   const findings: ImportFindingInput[] = []
   if (html > 0) findings.push({ construct: 'HTML', location: places(html), suggestedAlternative: 'Shown as the text it contains, and saved as plain Markdown without the HTML.' })
-  if (deepHeadings > 0) findings.push({ construct: 'Headings below level 3', location: places(deepHeadings), suggestedAlternative: 'Shown as level 3 headings, and saved that way.' })
   if (/^\[\^[^\]]+\]:/m.test(text)) findings.push({ construct: 'Footnotes', suggestedAlternative: 'Shown as plain text, and saved that way.' })
   return findings
 }
@@ -184,8 +180,96 @@ function forMarkdown(node: JSONContent, imageSources: ReadonlyMap<string, string
   }
 }
 
+/** What saving as Markdown leaves out that is easy to miss, said in the question before saving over a file. */
+export function markdownLosses(content: JSONContent): string[] {
+  const headerFooter = documentHeadersAndFooters(content.attrs?.['headerFooter'])
+  const contents = (node: JSONContent): boolean => node.type === 'tableOfContents' || (node.content ?? []).some(contents)
+  return [
+    ...headerFooterParts.some(part => headerFooter[part].length > 0) ? ['the header and footer are left out'] : [],
+    ...contents(content) ? ['the table of contents becomes a list of links that no longer updates'] : [],
+  ]
+}
+
+interface Heading {
+  readonly level: number
+  readonly text: string
+  readonly slug: string
+}
+
+/**
+ * The document's headings with the anchors GitHub gives them (github-slugger): lowercase,
+ * punctuation removed, spaces as hyphens, and -1, -2 after a repeat, skipping any anchor already
+ * taken. The title is written as a heading too, so it takes an anchor; it is level 0, which no
+ * table of contents lists.
+ */
+function headings(content: JSONContent): Heading[] {
+  const found: Heading[] = []
+  const repeats = new Map<string, number>()
+  const visit = (node: JSONContent): void => {
+    if (node.type === 'heading' || node.type === 'title') {
+      const text = (node.content ?? []).map(child => child.text ?? '').join('').trim()
+      const level: unknown = node.attrs?.['level']
+      const base = text.toLowerCase().replace(/[^\p{L}\p{M}\p{N}\s_-]/gu, '').replace(/\s/g, '-')
+      let slug = base
+      while (repeats.has(slug)) {
+        const count = (repeats.get(base) ?? 0) + 1
+        repeats.set(base, count)
+        slug = `${base}-${count}`
+      }
+      repeats.set(slug, 0)
+      if (text !== '') found.push({ level: node.type === 'title' ? 0 : typeof level === 'number' ? level : 1, text, slug })
+    }
+    node.content?.forEach(visit)
+  }
+  visit(content)
+  return found
+}
+
+interface ContentsItem {
+  readonly entry: Heading
+  readonly children: ContentsItem[]
+}
+
+function bulletList(items: readonly ContentsItem[]): JSONContent[] {
+  if (items.length === 0) return []
+  return [{
+    type: 'bulletList',
+    content: items.map(({ entry, children }) => {
+      const link = { type: 'text', text: entry.text, marks: [{ type: 'link', attrs: { href: `#${entry.slug}` } }] }
+      return { type: 'listItem', content: [{ type: 'paragraph', content: [link] }, ...bulletList(children)] }
+    }),
+  }]
+}
+
+/** A table of contents as a bulleted list of links to the headings; each heading nests under the last one above its level. */
+function contentsList(entries: readonly Heading[]): JSONContent[] {
+  const top: ContentsItem[] = []
+  const open: ContentsItem[] = []
+  for (const entry of entries) {
+    while ((open.at(-1)?.entry.level ?? 0) >= entry.level) open.pop()
+    const item: ContentsItem = { entry, children: [] }
+    const parent = open.at(-1)
+    if (parent === undefined) top.push(item)
+    else parent.children.push(item)
+    open.push(item)
+  }
+  return bulletList(top)
+}
+
+/** The document with each table of contents written out as a list of links; it no longer updates. */
+function withContentsLists(node: JSONContent, entries: readonly Heading[]): JSONContent {
+  if (node.content === undefined) return node
+  return {
+    ...node,
+    content: node.content.flatMap(child => child.type === 'tableOfContents'
+      ? contentsList(entries.filter(entry => entry.level >= 1 && entry.level <= contentsLevels(child.attrs?.['levels'])))
+      : [withContentsLists(child, entries)]),
+  }
+}
+
 export function writeMarkdown(content: JSONContent, imageSources: ReadonlyMap<string, string> = new Map()): string {
   const frontMatter: unknown = content.attrs?.['frontMatter']
-  const body = `${escapePlaceholders(markdown().serialize(forMarkdown(content, imageSources)).trim())}\n`
+  const written = forMarkdown(withContentsLists(content, headings(content)), imageSources)
+  const body = `${escapePlaceholders(markdown().serialize(written).trim())}\n`
   return typeof frontMatter === 'string' && frontMatter !== '' ? `${frontMatter.endsWith('\n') ? frontMatter : `${frontMatter}\n`}\n${body}` : body
 }
