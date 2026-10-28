@@ -7,7 +7,7 @@ import { chooseDocumentPath, openFiles } from '../../app/document-actions'
 import { useFidelityStore } from '../../services/fidelity/fidelity-store'
 import { recordPreview, recordRecent } from '../../services/index/document-index'
 import { askConfirm } from '../../ui/ConfirmDialog'
-import { inspectPdf, listFormFields, redactPages, savePdf, type RedactionRequest, type RedactOptions } from './engine'
+import { inspectPdf, listFormFields, preparePdf, redactPages, savePdf, type RedactionRequest, type RedactOptions } from './engine'
 import { openFind } from './find-store'
 import { isRedaction, newId, toPageRef, turnPage, type PageItem, type Size, type Snapshot } from './model'
 import { closePdfJs, openPdfJs, renderPage, shownPage } from './pdfjs'
@@ -69,8 +69,9 @@ export async function loadPdfDocument(id: string, path: string, fileName: string
   setPdfDocument(id, { status: 'loading' })
   let bytes: Uint8Array | undefined
   try {
-    bytes = await fileService.read(path)
-    const inspection = await inspectPdf(bytes)
+    const prepared = await preparePdf(await fileService.read(path))
+    bytes = prepared.bytes
+    const { inspection } = prepared
     const sizes = await measureSource(bytes, 0)
     const fields = inspection.hasForm ? await listFormFields(bytes) : []
     const snapshot: Snapshot = { pages: pagesOf(0, sizes.size), formValues: {}, flattenForm: false }
@@ -257,7 +258,7 @@ export async function insertPagesFromFile(id: string): Promise<void> {
   if (document === undefined) return
   const [file] = await fileService.chooseFiles({ extensions: ['pdf'] })
   if (file === undefined) return
-  const bytes = await fileService.read(file.path)
+  const { bytes } = await preparePdf(await fileService.read(file.path))
   const source = document.sources.length
   const sizes = await measureSource(bytes, source)
   updatePdf(id, current => ({ sources: [...current.sources, bytes], sizes: new Map([...current.sizes, ...sizes]) }))

@@ -102,6 +102,8 @@ export interface PdfInspection {
   readonly pageCount: number
   readonly findings: readonly ImportFindingInput[]
   readonly hasForm: boolean
+  /** True for a file with a password or permission restrictions; `preparePdf` gives its plain copy. */
+  readonly encrypted: boolean
 }
 
 export interface ImageSource {

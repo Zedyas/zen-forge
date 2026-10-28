@@ -1,7 +1,8 @@
 import { toast } from 'sonner'
 import { fileService } from '../../services/file/IpcFileService'
 import { openFiles } from '../../app/document-actions'
-import { imagesToPdf, inspectPdf, savePdf, type ImageSource, type PageRef } from './engine'
+import { platformClient } from '../../services/platform/client'
+import { imagesToPdf, preparePdf, savePdf, type ImageSource, type PageRef } from './engine'
 
 function report(error: unknown, title: string): void {
   toast.error(title, { description: error instanceof Error ? error.message : undefined })
@@ -14,7 +15,7 @@ async function writeAndOpen(bytes: Uint8Array, defaultName: string): Promise<voi
   await openFiles([await fileService.describe(path)])
 }
 
-/** Chooses photos or scans and makes one PDF page per image, each page sized to its image. */
+/** Chooses photos or scans and makes one PDF page per image, each page sized to its image and no larger than the region's paper. */
 export async function createPdfFromImages(): Promise<void> {
   try {
     const files = await fileService.chooseFiles({ extensions: ['png', 'jpg', 'jpeg'], allowMultiple: true })
@@ -23,7 +24,7 @@ export async function createPdfFromImages(): Promise<void> {
       bytes: await fileService.read(file.path),
       type: file.extension === 'png' ? 'png' : 'jpeg',
     })))
-    const bytes = await imagesToPdf(images)
+    const bytes = await imagesToPdf(images, await platformClient.printPaper())
     await writeAndOpen(bytes, files.length === 1 ? `${files[0]?.name.replace(/\.[^.]+$/, '') ?? 'Images'}.pdf` : 'Images.pdf')
   } catch (error) {
     report(error, 'Could not make a PDF from those images')
@@ -39,10 +40,10 @@ export async function combinePdfs(): Promise<void> {
       toast.info('Choose two or more PDFs to combine.', { description: 'Hold ⌘ to select several files.' })
       return
     }
-    const sources = await Promise.all(files.map(file => fileService.read(file.path)))
-    const counts = await Promise.all(sources.map(async source => (await inspectPdf(source)).pageCount))
-    const pages: PageRef[] = counts.flatMap((count, source) =>
-      Array.from({ length: count }, (_, index) => ({ source, index, rotation: 0, edits: [] })))
+    const prepared = await Promise.all(files.map(async file => preparePdf(await fileService.read(file.path))))
+    const sources = prepared.map(({ bytes }) => bytes)
+    const pages: PageRef[] = prepared.flatMap(({ inspection }, source) =>
+      Array.from({ length: inspection.pageCount }, (_, index) => ({ source, index, rotation: 0, edits: [] })))
     await writeAndOpen(await savePdf({ sources, pages }), 'Combined.pdf')
   } catch (error) {
     report(error, 'Could not combine those PDFs')
