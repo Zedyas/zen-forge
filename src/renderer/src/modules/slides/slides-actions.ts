@@ -1,6 +1,7 @@
 import { toast } from 'sonner'
 import type { CommandId } from '@shared/commands'
 import { createImportReport } from '@shared/fidelity'
+import { chooseDocumentPath } from '../../app/document-actions'
 import { useDocumentsStore } from '../../app/documents-store'
 import { fileService } from '../../services/file/IpcFileService'
 import { useFidelityStore } from '../../services/fidelity/fidelity-store'
@@ -115,7 +116,7 @@ export async function saveSlidesDocument(id: string, saveAs: boolean): Promise<b
   }
 
   const path = chooseNewPath
-    ? await fileService.chooseSavePath({ defaultName: `${open.name}${suffix}.pptx`, extensions: ['pptx'] })
+    ? await chooseDocumentPath(id, { defaultName: `${open.name}${suffix}.pptx`, extensions: ['pptx'] })
     : open.path
   if (path === undefined) return false
 

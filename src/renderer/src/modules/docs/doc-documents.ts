@@ -4,6 +4,7 @@ import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
 import { Placeholder, Selection } from '@tiptap/extensions'
 import { toast } from 'sonner'
 import { createImportReport, type ImportFindingInput, type ImportReport } from '@shared/fidelity'
+import { chooseDocumentPath } from '../../app/document-actions'
 import { useDocumentsStore, type OpenDocument } from '../../app/documents-store'
 import { fileService } from '../../services/file/IpcFileService'
 import { useFidelityStore } from '../../services/fidelity/fidelity-store'
@@ -11,7 +12,7 @@ import { recordPreview, recordRecent } from '../../services/index/document-index
 import { askConfirm } from '../../ui/ConfirmDialog'
 import { DocShortcuts } from './doc-commands'
 import { FindHighlight } from './find'
-import { sameDocument } from './io/compare'
+import { lostKinds, sameDocument } from './io/compare'
 import { localImagePath } from './io/local-images'
 import { mimeTypeForExtension, toDataUrl } from './io/images'
 import { renderPreview } from './preview'
@@ -31,10 +32,10 @@ interface CachedDoc {
   /** Markdown images shown from data URLs, mapped back to the paths the file had for them. */
   imageSources: Map<string, string>
   /**
-   * Set once the person chose Overwrite for a save that would change the file; later saves of this
-   * tab then go straight to disk instead of asking every time.
+   * The signature of the loss the person last chose Overwrite for. Later saves that would lose the
+   * same go straight to disk; a save that would lose something new asks again.
    */
-  overwriteAccepted: boolean
+  acceptedRisk?: string
 }
 
 // Editors outlive the editor component (tabs remount on switch), so they live here, by document id.
@@ -139,7 +140,7 @@ export function useDocEntry(document: OpenDocument): DocEntry {
   const cached = cache.get(document.id)
   useEffect(() => {
     if (cache.has(document.id)) return
-    const created: CachedDoc = { entry: { status: 'loading' }, documentId: document.id, imageSources: new Map(), overwriteAccepted: false }
+    const created: CachedDoc = { entry: { status: 'loading' }, documentId: document.id, imageSources: new Map() }
     cache.set(document.id, created)
     void load(document, created)
   }, [document])
@@ -172,13 +173,14 @@ function isMarkdown(format: string): boolean {
   return format === 'md' || format === 'markdown'
 }
 
-async function encode(editor: Editor, format: string, imageSources: ReadonlyMap<string, string>): Promise<Uint8Array> {
+/** Encodes `content`, read from the editor by the caller at the moment it records what is saved. */
+async function encode(content: JSONContent, format: string, imageSources: ReadonlyMap<string, string>): Promise<Uint8Array> {
   if (isMarkdown(format)) {
     const { writeMarkdown } = await import('./io/markdown')
-    return new TextEncoder().encode(writeMarkdown(editor.getJSON(), imageSources))
+    return new TextEncoder().encode(writeMarkdown(content, imageSources))
   }
   const { writeDocx } = await import('./io/docx-export')
-  const { bytes, skippedImages } = await writeDocx(editor.getJSON())
+  const { bytes, skippedImages } = await writeDocx(content)
   if (skippedImages > 0) {
     toast.warning(`${skippedImages} ${skippedImages === 1 ? 'image was' : 'images were'} not saved`, {
       description: 'Word files can hold PNG, JPEG, GIF and BMP images that are part of the document, not linked from elsewhere.',
@@ -199,38 +201,57 @@ function withImagePaths(node: JSONContent, sources: ReadonlyMap<string, string>)
 }
 
 /**
- * Reads `bytes` back with Sumi's own reader and compares the result with the editor's document.
+ * Reads `bytes` back with Sumi's own reader and compares the result with `shown`, the editor's
+ * document the bytes were encoded from.
  * Anything a format cannot hold, or that the writer and reader disagree on, shows up here, so a
- * save never replaces a file with less than the editor shows without asking.
+ * save never replaces a file with less than the editor shows without asking. Resolves to the kinds
+ * of thing lost (empty when only text or values differ), or undefined when nothing changes.
  */
-async function changesOnReopen(editor: Editor, format: string, bytes: Uint8Array, imageSources: ReadonlyMap<string, string>): Promise<boolean> {
+async function changesOnReopen(editor: Editor, shown: JSONContent, format: string, bytes: Uint8Array, imageSources: ReadonlyMap<string, string>): Promise<readonly string[] | undefined> {
   try {
+    let reread: JSONContent
+    let expected = shown
     if (isMarkdown(format)) {
       const { readMarkdown } = await import('./io/markdown')
-      return !sameDocument(editor.schema, withImagePaths(editor.getJSON(), imageSources), readMarkdown(new TextDecoder().decode(bytes)).content)
+      expected = withImagePaths(shown, imageSources)
+      reread = readMarkdown(new TextDecoder().decode(bytes)).content
+    } else {
+      const { readDocx } = await import('./io/docx-read')
+      reread = readDocx(bytes).content
     }
-    const { readDocx } = await import('./io/docx-read')
-    return !sameDocument(editor.schema, editor.getJSON(), readDocx(bytes).content)
+    return sameDocument(editor.schema, expected, reread) ? undefined : lostKinds(editor.schema, expected, reread)
   } catch {
-    return true
+    return ['unreadable']
   }
+}
+
+interface OverwriteRisk {
+  readonly message: string
+  /** What exactly would be lost; equal signatures mean the same loss. */
+  readonly signature: string
 }
 
 /** Why saving over the file would lose something, or undefined when it keeps everything. */
-async function overwriteRisk(editor: Editor, format: string, bytes: Uint8Array, cached: CachedDoc, report: ImportReport | undefined): Promise<string | undefined> {
+async function overwriteRisk(editor: Editor, shown: JSONContent, format: string, bytes: Uint8Array, cached: CachedDoc, report: ImportReport | undefined): Promise<OverwriteRisk | undefined> {
   if (report !== undefined && report.severity !== 'lossless') {
-    return `Saving writes only what Sumi shows, so what the import report lists would change or be lost in ${report.sourceName}.`
+    return {
+      message: `Saving writes only what Sumi shows, so what the import report lists would change or be lost in ${report.sourceName}.`,
+      signature: `report:${report.findings.map(finding => finding.construct).join('|')}`,
+    }
   }
-  if (await changesOnReopen(editor, format, bytes, cached.imageSources)) {
-    return isMarkdown(format) ? 'Saving as Markdown would change parts of this document.' : 'Saving as a Word document would change parts of this document.'
+  const lost = await changesOnReopen(editor, shown, format, bytes, cached.imageSources)
+  if (lost === undefined) return undefined
+  return {
+    message: isMarkdown(format) ? 'Saving as Markdown would change parts of this document.' : 'Saving as a Word document would change parts of this document.',
+    signature: `${format}:${lost.join('|')}`,
   }
-  return undefined
 }
 
 /**
- * Saves a document tab. Saving over an existing file first checks that nothing would be lost: the
- * import report is clean, and the file Sumi writes reads back as the document shown. Otherwise it
- * asks: Overwrite, or Save a copy, which keeps the original intact.
+ * Saves a document tab. Every save over an existing file first checks that nothing would be lost:
+ * the import report is clean, and the file Sumi writes reads back as the document shown. Otherwise
+ * it asks: Overwrite, or Save a copy, which keeps the original intact. A loss already accepted with
+ * Overwrite is not asked about again; a new one is.
  */
 export async function saveDoc(documentId: string, saveAs: boolean): Promise<boolean> {
   const document = useDocumentsStore.getState().documents.find(candidate => candidate.id === documentId)
@@ -241,33 +262,40 @@ export async function saveDoc(documentId: string, saveAs: boolean): Promise<bool
   const imported = useFidelityStore.getState().reports[documentId]
   let path = saveAs ? undefined : document.path
   let bytes: Uint8Array | undefined
-  if (path !== undefined && !cached.overwriteAccepted) {
-    bytes = await encode(editor, extensionOf(path), cached.imageSources)
-    const risk = await overwriteRisk(editor, extensionOf(path), bytes, cached, imported)
-    if (risk !== undefined) {
+  // The document as encoded, read together with the content each encode gets, so typing during the
+  // awaits below keeps the tab unsaved.
+  let snapshot = editor.state.doc
+  if (path !== undefined) {
+    const shown = editor.getJSON()
+    bytes = await encode(shown, extensionOf(path), cached.imageSources)
+    const risk = await overwriteRisk(editor, shown, extensionOf(path), bytes, cached, imported)
+    if (risk !== undefined && risk.signature !== cached.acceptedRisk) {
       const { value } = await askConfirm({
         title: 'Save over the original?',
-        message: `${risk} Saving a copy keeps the original file intact.`,
+        message: `${risk.message} Saving a copy keeps the original file intact.`,
         actions: [{ label: 'Overwrite', value: 'overwrite' }, { label: 'Save a copy', value: 'copy', primary: true }],
       })
       if (value === 'cancel') return false
       if (value === 'copy') {
         path = undefined
         bytes = undefined
-      } else cached.overwriteAccepted = true
+      } else cached.acceptedRisk = risk.signature
     }
   }
 
   if (path === undefined) {
     const formats = saveFormats(document.extension)
     const suffix = !saveAs && document.path !== undefined ? ' (edited)' : ''
-    path = await fileService.chooseSavePath({ defaultName: `${document.name}${suffix}.${formats[0] ?? 'docx'}`, extensions: formats })
+    path = await chooseDocumentPath(documentId, { defaultName: `${document.name}${suffix}.${formats[0] ?? 'docx'}`, extensions: formats })
     if (path === undefined) return false
   }
 
   const format = extensionOf(path)
-  const snapshot = editor.state.doc
-  await fileService.write(path, bytes ?? await encode(editor, format, cached.imageSources))
+  if (bytes === undefined) {
+    snapshot = editor.state.doc
+    bytes = await encode(editor.getJSON(), format, cached.imageSources)
+  }
+  await fileService.write(path, bytes)
   const file = await fileService.describe(path)
   cached.saved = snapshot
 
@@ -275,7 +303,7 @@ export async function saveDoc(documentId: string, saveAs: boolean): Promise<bool
   if (newId !== documentId) {
     cache.delete(documentId)
     cached.documentId = newId
-    cached.overwriteAccepted = false
+    cached.acceptedRisk = undefined
     cache.set(newId, cached)
     emit()
   }

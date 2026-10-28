@@ -3,7 +3,7 @@ import type { CommandId } from '@shared/commands'
 import { createImportReport } from '@shared/fidelity'
 import { useDocumentsStore } from '../../app/documents-store'
 import { fileService } from '../../services/file/IpcFileService'
-import { openFiles } from '../../app/document-actions'
+import { chooseDocumentPath, openFiles } from '../../app/document-actions'
 import { useFidelityStore } from '../../services/fidelity/fidelity-store'
 import { recordPreview, recordRecent } from '../../services/index/document-index'
 import { askConfirm } from '../../ui/ConfirmDialog'
@@ -184,7 +184,7 @@ export async function savePdfDocument(id: string, saveAs: boolean): Promise<bool
   }
 
   const path = chooseNewPath
-    ? await fileService.chooseSavePath({ defaultName: `${open.name}.pdf`, extensions: ['pdf'] })
+    ? await chooseDocumentPath(id, { defaultName: `${open.name}.pdf`, extensions: ['pdf'] })
     : open.path
   if (path === undefined) return false
 

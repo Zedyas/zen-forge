@@ -1,8 +1,9 @@
 import { app, nativeTheme } from 'electron'
-import { cpSync, existsSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, readdirSync, readFileSync, renameSync, rmSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { suiteName } from '../../src/shared/applications'
 import type { Appearance, WindowSession } from '../../src/shared/shell'
+import { replaceFileSync } from './node-file-service'
 
 interface Settings {
   readonly appearance: Appearance
@@ -67,7 +68,7 @@ export function readSettings(): Settings {
 }
 
 function writeSettings(change: Partial<Settings>): void {
-  writeFileSync(settingsPath(), JSON.stringify({ ...readSettings(), ...change }, null, 2))
+  replaceFileSync(settingsPath(), JSON.stringify({ ...readSettings(), ...change }, null, 2))
 }
 
 /** Appearance drives `nativeTheme`, so CSS `prefers-color-scheme`, menus and window chrome all follow it. */
@@ -122,7 +123,7 @@ export function readSession(): readonly WindowSession[] {
 
 export function writeSession(sessions: readonly WindowSession[]): void {
   try {
-    writeFileSync(sessionPath(), JSON.stringify(sessions))
+    replaceFileSync(sessionPath(), JSON.stringify(sessions))
   } catch {
     // Not persisting only costs reopening these tabs on the next launch.
   }

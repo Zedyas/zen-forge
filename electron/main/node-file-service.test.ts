@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { mkdtemp, mkdir, readdir, rm } from 'node:fs/promises'
+import { chmod, lstat, mkdtemp, mkdir, readdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { NodeFileService } from './node-file-service'
+import { NodeFileService, replaceFileSync } from './node-file-service'
 
 describe('NodeFileService contract', () => {
   const service = new NodeFileService()
@@ -52,11 +52,50 @@ describe('NodeFileService contract', () => {
     expect(await readdir(temporaryDirectory)).toEqual(['atomic.csv'])
   })
 
+  it('writes through a symlink to the file it points to, keeping the link', async () => {
+    const real = join(temporaryDirectory, 'real.pdf')
+    const link = join(temporaryDirectory, 'link.pdf')
+    await writeFile(real, Uint8Array.of(1))
+    await symlink(real, link)
+
+    await service.writeFile(link, Uint8Array.of(2))
+
+    expect((await lstat(link)).isSymbolicLink()).toBe(true)
+    expect(new Uint8Array(await readFile(real))).toEqual(Uint8Array.of(2))
+    expect((await readdir(temporaryDirectory)).sort()).toEqual(['link.pdf', 'real.pdf'])
+  })
+
+  it('keeps the original file\'s permissions', async () => {
+    const path = join(temporaryDirectory, 'shared.docx')
+    await writeFile(path, Uint8Array.of(1))
+    await chmod(path, 0o640)
+
+    await service.writeFile(path, Uint8Array.of(2))
+
+    expect((await stat(path)).mode & 0o777).toBe(0o640)
+  })
+
+  it('removes the temporary file when the original cannot be replaced', async () => {
+    await mkdir(join(temporaryDirectory, 'folder.pdf'))
+
+    await expect(service.writeFile(join(temporaryDirectory, 'folder.pdf'), Uint8Array.of(1))).rejects.toThrow()
+    expect(await readdir(temporaryDirectory)).toEqual(['folder.pdf'])
+  })
+
   it('refuses to read or write unknown file types', async () => {
     const path = join(temporaryDirectory, 'secrets.txt')
 
     await expect(service.readFile(path)).rejects.toThrow('Unsupported file type: .txt')
     await expect(service.writeFile(path, Uint8Array.of(0))).rejects.toThrow('Unsupported file type: .txt')
     expect(await readdir(temporaryDirectory)).toEqual([])
+  })
+
+  it('replaces a settings file with complete JSON and no temporary file', async () => {
+    const path = join(temporaryDirectory, 'session.json')
+    replaceFileSync(path, JSON.stringify([{ paths: ['/old.pdf'] }]))
+    replaceFileSync(path, JSON.stringify([{ paths: ['/new.pdf'] }]))
+
+    expect(JSON.parse(await readFile(path, 'utf8'))).toEqual([{ paths: ['/new.pdf'] }])
+    expect(await readdir(temporaryDirectory)).toEqual(['session.json'])
   })
 })

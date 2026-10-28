@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { FileReference } from '@shared/shell'
-import { homeTabId, useDocumentsStore } from './documents-store'
+import { changedOnDisk, homeTabId, openInOtherTab, useDocumentsStore } from './documents-store'
 
 function file(path: string): FileReference {
   const name = path.split('/').pop() ?? path
@@ -59,5 +59,27 @@ describe('documents store', () => {
     expect(useDocumentsStore.getState().activeId).toBe('/b.pdf')
     store.selectIndex(1)
     expect(useDocumentsStore.getState().activeId).toBe('/a.pdf')
+  })
+
+  it('finds another tab holding a Save As path, but not the tab being saved', () => {
+    const store = useDocumentsStore.getState()
+    store.openFile(file('/a.docx'))
+    const untitled = store.openUntitled('docs')
+
+    expect(openInOtherTab(useDocumentsStore.getState(), untitled, '/a.docx')?.id).toBe('/a.docx')
+    expect(openInOtherTab(useDocumentsStore.getState(), '/a.docx', '/a.docx')).toBeUndefined()
+    expect(openInOtherTab(useDocumentsStore.getState(), untitled, '/b.docx')).toBeUndefined()
+  })
+
+  it('notices a file changed on disk since the tab opened or last saved it', () => {
+    const store = useDocumentsStore.getState()
+    store.openFile({ ...file('/a.docx'), size: 10, lastModified: 1 })
+    store.setSaved('/a.docx', { ...file('/a.docx'), size: 12, lastModified: 2 })
+    const known = useDocumentsStore.getState().documents[0]?.onDisk
+
+    expect(known).toEqual({ size: 12, lastModified: 2 })
+    expect(known !== undefined && changedOnDisk(known, { size: 12, lastModified: 2 })).toBe(false)
+    expect(known !== undefined && changedOnDisk(known, { size: 12, lastModified: 3 })).toBe(true)
+    expect(known !== undefined && changedOnDisk(known, { size: 11, lastModified: 2 })).toBe(true)
   })
 })

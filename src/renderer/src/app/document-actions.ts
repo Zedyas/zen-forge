@@ -1,11 +1,12 @@
 import { toast } from 'sonner'
-import { applicationForExtension, applications, findApplication, type EditorApplicationId } from '@shared/applications'
-import type { FileReference } from '@shared/shell'
+import { applicationForExtension, applications, findApplication, isWritableExtension, type EditorApplicationId } from '@shared/applications'
+import type { FileReference, SaveFileOptions } from '@shared/shell'
 import { fileService } from '../services/file/IpcFileService'
 import { recordRecent } from '../services/index/document-index'
 import { platformClient } from '../services/platform/client'
+import { askConfirm } from '../ui/ConfirmDialog'
 import { editorFor } from './editors'
-import { useDocumentsStore, type OpenDocument } from './documents-store'
+import { changedOnDisk, openInOtherTab, useDocumentsStore, type OpenDocument } from './documents-store'
 
 function findDocument(id: string): OpenDocument | undefined {
   return useDocumentsStore.getState().documents.find(candidate => candidate.id === id)
@@ -43,13 +44,46 @@ export async function openDroppedFiles(files: FileList): Promise<void> {
   await openFiles(openable)
 }
 
+/**
+ * Asks where to save a document. A file open in another tab is refused: this tab would take that
+ * tab's place, and the other tab's unsaved changes would be lost. The main process refuses files
+ * open in other windows the same way.
+ */
+export async function chooseDocumentPath(id: string, options: SaveFileOptions): Promise<string | undefined> {
+  const path = await fileService.chooseSavePath(options)
+  const other = path === undefined ? undefined : openInOtherTab(useDocumentsStore.getState(), id, path)
+  if (other !== undefined) {
+    throw new Error(`“${other.name}” is open in another tab. Close that tab first, or save with a different name.`)
+  }
+  return path
+}
+
+/**
+ * Before saving over a file that another app changed since this tab opened or saved it, asks:
+ * Overwrite, or Save a copy, which keeps the other app's version. Resolves to the choice or `cancel`.
+ */
+async function confirmChangedOnDisk(document: OpenDocument): Promise<string> {
+  if (document.path === undefined || document.onDisk === undefined || !isWritableExtension(document.extension)) return 'overwrite'
+  // A file deleted since is simply written again.
+  const current = await fileService.describe(document.path).catch(() => undefined)
+  if (current === undefined || !changedOnDisk(document.onDisk, current)) return 'overwrite'
+  const { value } = await askConfirm({
+    title: 'Save over the changed file?',
+    message: `Another app changed ${current.name} after Zen Suzu opened or last saved it. Overwriting replaces those changes. Saving a copy keeps both versions.`,
+    actions: [{ label: 'Overwrite', value: 'overwrite' }, { label: 'Save a copy', value: 'copy', primary: true }],
+  })
+  return value
+}
+
 /** Saves one document through its module; reports failure as a toast and resolves false. */
 export async function saveDocument(id: string, saveAs: boolean): Promise<boolean> {
   const document = findDocument(id)
   const editor = document === undefined ? undefined : editorFor(document.kind)
-  if (editor === undefined) return false
+  if (document === undefined || editor === undefined) return false
   try {
-    return await editor.save(id, saveAs)
+    const choice = saveAs ? 'overwrite' : await confirmChangedOnDisk(document)
+    if (choice === 'cancel') return false
+    return await editor.save(id, saveAs || choice === 'copy')
   } catch (error) {
     toast.error('Could not save', { description: error instanceof Error ? error.message : 'The file could not be written.' })
     return false
