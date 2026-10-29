@@ -181,6 +181,8 @@ export type TableEdit = 'rowAbove' | 'rowBelow' | 'columnLeft' | 'columnRight' |
 
 /** Adds or removes a row or column beside the current cell, or at the table's end when none is current. */
 export function editTable(id: string, edit: TableEdit): void {
+  // A cell being typed into writes its draft where it was opened, so that has to happen before rows or columns move.
+  activeEditor(id)?.commit()
   const document = readySlides(id)
   const table = document === undefined ? undefined : selectedTable(document)
   if (document === undefined || table === undefined) return

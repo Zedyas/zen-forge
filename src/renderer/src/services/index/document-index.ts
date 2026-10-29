@@ -23,27 +23,46 @@ const databasePromise = openDB<DocumentIndexSchema>('document-index', 1, {
 })
 
 const recentEvents = new BroadcastChannel('document-index-recents')
+const localListeners = new Set<() => void>()
+
+/** A channel does not deliver to its own sender, so this window's listeners are called directly. */
+function announceChange(): void {
+  recentEvents.postMessage('changed')
+  localListeners.forEach(listener => listener())
+}
 
 /** Inserts or refreshes a disposable index entry for a document opened from disk, keeping its preview. */
 export async function recordRecent(file: FileReference): Promise<void> {
   const database = await databasePromise
-  const existing = await database.get('recents', file.path)
-  await database.put('recents', { ...file, openedAt: Date.now(), preview: existing?.preview })
-  recentEvents.postMessage('changed')
+  // Reading and writing in one transaction, so a preview saved meanwhile does not write the old time back.
+  const transaction = database.transaction('recents', 'readwrite')
+  const existing = await transaction.store.get(file.path)
+  await transaction.store.put({ ...file, openedAt: Date.now(), preview: existing?.preview })
+  await transaction.done
+  announceChange()
 }
 
 export async function recordPreview(path: string, preview: string): Promise<void> {
   const database = await databasePromise
-  const existing = await database.get('recents', path)
+  const transaction = database.transaction('recents', 'readwrite')
+  const existing = await transaction.store.get(path)
   if (existing === undefined || existing.preview === preview) return
-  await database.put('recents', { ...existing, preview })
-  recentEvents.postMessage('changed')
+  await transaction.store.put({ ...existing, preview })
+  await transaction.done
+  announceChange()
 }
 
 export async function forgetRecent(path: string): Promise<void> {
   const database = await databasePromise
   await database.delete('recents', path)
-  recentEvents.postMessage('changed')
+  announceChange()
+}
+
+/** Empties the list, as File > Open Recent > Clear Menu does. */
+export async function clearRecents(): Promise<void> {
+  const database = await databasePromise
+  await database.clear('recents')
+  announceChange()
 }
 
 export async function listRecents(query = ''): Promise<readonly RecentDocument[]> {
@@ -56,9 +75,13 @@ export async function listRecents(query = ''): Promise<readonly RecentDocument[]
     .slice(0, 40)
 }
 
-/** Refreshes Home when another window updates the shared index. */
+/** Calls `listener` when the list changes, in this window or another that shares the index. */
 export function watchRecents(listener: () => void): () => void {
   const handleMessage = (): void => listener()
   recentEvents.addEventListener('message', handleMessage)
-  return () => recentEvents.removeEventListener('message', handleMessage)
+  localListeners.add(listener)
+  return () => {
+    recentEvents.removeEventListener('message', handleMessage)
+    localListeners.delete(listener)
+  }
 }

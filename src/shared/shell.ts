@@ -41,6 +41,11 @@ export interface WindowState {
   readonly session: WindowSession
 }
 
+/** What File > Open Recent asks of the window that holds the recent files list. */
+export type RecentsRequest =
+  | { readonly action: 'open'; readonly path: string }
+  | { readonly action: 'clear' }
+
 /** Per-window view toggles mirrored into the native View menu's check marks. */
 export interface ViewState {
   readonly toolbar: boolean
@@ -93,6 +98,8 @@ export interface ShellBridge {
   setAppearance(appearance: Appearance): Promise<void>
   setWindowState(state: WindowState): Promise<void>
   setViewState(state: ViewState): Promise<void>
+  /** Tells the main process the recent files, newest first, for the File > Open Recent menu. */
+  setRecents(paths: readonly string[]): Promise<void>
   /** Fills the screen with the window, for a slideshow; `false` returns it to its place. */
   setFullScreen(fullScreen: boolean): Promise<void>
   /**
@@ -106,6 +113,8 @@ export interface ShellBridge {
   openReleaseNotes(): Promise<void>
   onDocumentOpened(listener: (file: FileReference) => void): () => void
   onCommand(listener: (command: CommandId) => void): () => void
+  /** Open Recent menu choices: open one of the files, or clear the list. */
+  onRecentsRequest(listener: (request: RecentsRequest) => void): () => void
   /** Fires when the user closes the window or quits while documents are unsaved. */
   onCloseRequested(listener: () => void): () => void
   /** Receives the latest status at once, then each change. */

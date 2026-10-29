@@ -2,7 +2,8 @@ import { app, BrowserWindow, dialog, Menu, nativeTheme, type IpcMainInvokeEvent,
 import { basename, extname, join } from 'node:path'
 import { applicationForExtension, findApplication, suiteName } from '../../src/shared/applications'
 import { commandApplies, commandDefinitions, type CommandDefinition, type MenuId } from '../../src/shared/commands'
-import type { Appearance, FileReference, ViewState, WindowSession, WindowState } from '../../src/shared/shell'
+import { acceptRecents, recentMenuItems } from '../../src/shared/recents'
+import type { Appearance, FileReference, RecentsRequest, ViewState, WindowSession, WindowState } from '../../src/shared/shell'
 import { attachSpellingMenu, registerLinkIpc } from './document-editing'
 import { registerFileIpc } from './file-ipc'
 import { NodeFileService } from './node-file-service'
@@ -26,6 +27,8 @@ const records: WindowRecord[] = []
 const fileService = new NodeFileService()
 /** Files handed over by Finder before the app finished launching. */
 const pendingOpenPaths: string[] = []
+/** The recent files, newest first, as the windows last reported them; the Open Recent menu lists them. */
+let recentPaths: readonly string[] = []
 let lastFocused: WindowRecord | undefined
 let quitting = false
 
@@ -77,6 +80,8 @@ function runCommand(command: CommandDefinition): void {
 
 function menuItems(menu: MenuId, record: WindowRecord | undefined): MenuItemConstructorOptions[] {
   const active = record?.state.active ?? 'home'
+  // Commands that share a group sit in one submenu, placed where the group's first command is.
+  const submenus = new Map<string, MenuItemConstructorOptions[]>()
   return commandDefinitions
     .filter(command => command.menu === menu && commandApplies(command, active))
     .flatMap(command => {
@@ -90,8 +95,48 @@ function menuItems(menu: MenuId, record: WindowRecord | undefined): MenuItemCons
         item.type = 'checkbox'
         item.checked = record?.view[command.toggle] ?? true
       }
-      return command.separatorBefore === true ? [{ type: 'separator' as const }, item] : [item]
+      const separator = command.separatorBefore === true ? [{ type: 'separator' as const }] : []
+      if (command.group === undefined) return [...separator, item]
+      const submenu = submenus.get(command.group)
+      if (submenu !== undefined) {
+        submenu.push(item)
+        return []
+      }
+      const first = [item]
+      submenus.set(command.group, first)
+      return [...separator, { label: command.group, submenu: first }]
     })
+}
+
+function sendRecentsRequest(request: RecentsRequest): void {
+  send(targetWindow(), 'shell:recents-request', request)
+}
+
+/** File > Open Recent. Choosing a file asks a window to open it; that window owns the list and reports a file that is gone. */
+function openRecentItem(): MenuItemConstructorOptions {
+  const items = recentMenuItems(recentPaths)
+  return {
+    label: 'Open Recent',
+    enabled: items.length > 0,
+    submenu: [
+      ...items.map(item => ({
+        label: item.label,
+        toolTip: item.path,
+        click: () => sendRecentsRequest({ action: 'open', path: item.path }),
+      })),
+      { type: 'separator' },
+      {
+        label: 'Clear Menu',
+        enabled: items.length > 0,
+        click: () => {
+          recentPaths = []
+          app.clearRecentDocuments()
+          refreshMenu()
+          sendRecentsRequest({ action: 'clear' })
+        },
+      },
+    ],
+  }
 }
 
 function appearanceItems(): MenuItemConstructorOptions[] {
@@ -111,6 +156,9 @@ function appearanceItems(): MenuItemConstructorOptions[] {
 function buildMenu(record: WindowRecord | undefined): Menu {
   const edit = menuItems('edit', record)
   const find = edit.filter(item => item.id === 'edit.find')
+  const editing = edit.filter(item => item.id !== 'edit.undo' && item.id !== 'edit.redo' && item.id !== 'edit.find' && item.type !== 'separator')
+  const file = menuItems('file', record)
+  const afterOpen = file.findIndex(item => item.id === 'file.open') + 1
   const format = menuItems('format', record)
   const page = menuItems('page', record)
   const slide = menuItems('slide', record)
@@ -141,7 +189,7 @@ function buildMenu(record: WindowRecord | undefined): Menu {
     },
     {
       label: 'File',
-      submenu: [...menuItems('file', record), { role: 'close', label: 'Close Window', accelerator: 'Shift+CmdOrCtrl+W' }],
+      submenu: [...file.slice(0, afterOpen), openRecentItem(), ...file.slice(afterOpen), { role: 'close', label: 'Close Window', accelerator: 'Shift+CmdOrCtrl+W' }],
     },
     {
       label: 'Edit',
@@ -152,6 +200,7 @@ function buildMenu(record: WindowRecord | undefined): Menu {
         { role: 'copy' },
         { role: 'paste' },
         { role: 'selectAll' },
+        ...(editing.length > 0 ? [{ type: 'separator' as const }, ...editing] : []),
         ...(find.length > 0 ? [{ type: 'separator' as const }, ...find] : []),
       ],
     },
@@ -320,6 +369,13 @@ handle('shell:set-view-state', (event, view: ViewState) => {
   const record = senderRecord(event)
   if (record === undefined) return
   record.view = view
+  refreshMenu()
+})
+handle('shell:set-recents', (_event, payload: unknown) => {
+  // Every window reports on every change, and a new preview changes nothing the menu shows.
+  const next = acceptRecents(recentPaths, payload)
+  if (next === recentPaths) return
+  recentPaths = next
   refreshMenu()
 })
 // Through IPC rather than the HTML Fullscreen API: that needs a click or key press in the page, and

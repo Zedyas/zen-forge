@@ -39,7 +39,11 @@ export function replaceFileSync(path: string, contents: string): void {
 /** Main-process filesystem adapter used behind the FileService IPC contract. */
 export class NodeFileService {
   async describeFile(path: string): Promise<FileReference> {
-    const metadata = await stat(path)
+    const metadata = await stat(path).catch((error: unknown) => {
+      // A recent file or a restored tab whose file has gone: say so instead of Node's ENOENT text.
+      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') throw new Error(`“${basename(path)}” was moved or deleted.`)
+      throw error
+    })
     if (metadata.isDirectory() && extensionOf(path) === 'numbers') {
       // Older Numbers versions could save a document as a package: a folder that Finder shows as one file.
       throw new Error('This Numbers document is saved as a package. In Numbers, choose File > Advanced > Change File Type > Single File, then open it again.')

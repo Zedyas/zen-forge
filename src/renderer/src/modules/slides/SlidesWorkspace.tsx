@@ -8,15 +8,12 @@ import { holdsText } from './model'
 import { runSlidesCommand } from './slide-commands'
 import {
   copySelection,
-  deleteSlide,
-  duplicateSelection,
   finishTyping,
   isTextEntry,
   loadSlidesDocument,
   nudgeSelection,
   paste,
   releaseSlidesDocument,
-  removeSelection,
   saveSlidesDocument,
   select,
   setSlideNotes,
@@ -25,6 +22,7 @@ import {
   startNewPresentation,
 } from './slides-actions'
 import { currentSlide, markTyping, readySlides, selectedElement, typingDone, useSlidesStore, type ReadySlides } from './slides-store'
+import { FindBar } from './FindBar'
 import { SlideCanvas } from './SlideCanvas'
 import { SlidesErrorBoundary } from './SlidesErrorBoundary'
 import { SlideRail } from './SlideRail'
@@ -35,9 +33,10 @@ import { activeEditor } from './text-editing'
 import './slides.css'
 
 /**
- * Keys on the canvas: Delete, arrow nudges (Shift for 10 pt), ⌘D, Return to type into the selected
- * box, Escape to deselect. With the slide rail focused, or nothing selected, arrows change slide
- * and, in the rail, Delete removes it. Ignored while typing and while the slideshow plays.
+ * Keys on the canvas: Delete, arrow nudges (Shift for 10 pt), Return to type into the selected box,
+ * Escape to deselect. With the slide rail focused, or nothing selected, arrows change slide and, in
+ * the rail, Delete removes it. Ignored while typing and while the slideshow plays. Delete runs its
+ * command; ⌘D is the menu accelerator of Duplicate, so it is not handled here.
  */
 function useSlideKeys(documentId: string | undefined): void {
   useEffect(() => {
@@ -49,11 +48,6 @@ function useSlideKeys(documentId: string | undefined): void {
       const control = event.target instanceof Element && event.target.closest('button, [role="menuitem"], [role="menu"], select, a') !== null
       if (control && (event.key === 'Enter' || event.key === ' ')) return
       const inRail = event.target instanceof Element && event.target.closest('.slides-rail') !== null
-      if (event.metaKey && !event.shiftKey && !event.altKey && event.key.toLowerCase() === 'd') {
-        event.preventDefault()
-        duplicateSelection(documentId)
-        return
-      }
       if (event.metaKey || event.ctrlKey || event.altKey) return
       if (inRail || document.selection.length === 0) {
         const slides = document.present.slides
@@ -65,7 +59,7 @@ function useSlideKeys(documentId: string | undefined): void {
           showSlide(documentId, target.id)
         } else if (inRail && (event.key === 'Backspace' || event.key === 'Delete')) {
           event.preventDefault()
-          deleteSlide(documentId)
+          void runSlidesCommand('slide.delete')
         }
         return
       }
@@ -74,7 +68,7 @@ function useSlideKeys(documentId: string | undefined): void {
         select(documentId, [])
       } else if (event.key === 'Backspace' || event.key === 'Delete') {
         event.preventDefault()
-        removeSelection(documentId)
+        void runSlidesCommand('edit.delete')
       } else if (event.key === 'Enter' && single !== undefined && (holdsText(single) || single.kind === 'table')) {
         event.preventDefault()
         startEditing(documentId, single.id, single.kind === 'table' ? document.cell ?? { row: 0, column: 0 } : undefined)
@@ -202,6 +196,7 @@ export function SlidesWorkspace({ document }: { readonly document: OpenDocument 
       <div className="window-body">
         <SlideRail documentId={documentId} document={state} />
         <div className="window-main">
+          {state.find !== undefined && <FindBar documentId={documentId} document={state} focusRequest={state.find} />}
           <div className="slides-main">
             <SlideCanvas documentId={documentId} document={state} />
             {slide !== undefined && <NotesField key={slide.id} documentId={documentId} slideId={slide.id} notes={slide.notes} />}

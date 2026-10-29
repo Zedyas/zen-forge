@@ -1,6 +1,6 @@
 import type { CommandId } from '@shared/commands'
 import type { Paper } from '@shared/print'
-import type { Appearance, CloseChoice, FileReference, UpdateCheckResult, UpdateStatus, ViewState, WindowSession, WindowState } from '@shared/shell'
+import type { Appearance, CloseChoice, FileReference, RecentsRequest, UpdateCheckResult, UpdateStatus, ViewState, WindowSession, WindowState } from '@shared/shell'
 import { getBridge, mainProcessMessage, requireBridge } from '../file/IpcFileService'
 
 /** Keeps renderer components independent from the preload bridge and its browser fallback. */
@@ -59,6 +59,10 @@ export const platformClient = {
     await getBridge()?.setViewState(state)
   },
 
+  async setRecents(paths: readonly string[]): Promise<void> {
+    await getBridge()?.setRecents(paths)
+  },
+
   async setFullScreen(fullScreen: boolean): Promise<void> {
     await getBridge()?.setFullScreen(fullScreen)
   },
@@ -85,6 +89,10 @@ export const platformClient = {
 
   onCommand(listener: (command: CommandId) => void): () => void {
     return getBridge()?.onCommand(listener) ?? (() => undefined)
+  },
+
+  onRecentsRequest(listener: (request: RecentsRequest) => void): () => void {
+    return getBridge()?.onRecentsRequest(listener) ?? (() => undefined)
   },
 
   onCloseRequested(listener: () => void): () => void {

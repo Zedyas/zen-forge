@@ -1,11 +1,13 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { CommandId } from '../../src/shared/commands'
-import type { FileReference, ShellBridge, UpdateStatus } from '../../src/shared/shell'
+import type { FileReference, RecentsRequest, ShellBridge, UpdateStatus } from '../../src/shared/shell'
 
 const documentListeners = new Set<(file: FileReference) => void>()
 const pendingDocuments: FileReference[] = []
 const commandListeners = new Set<(command: CommandId) => void>()
 const pendingCommands: CommandId[] = []
+const recentsListeners = new Set<(request: RecentsRequest) => void>()
+const pendingRecents: RecentsRequest[] = []
 const closeListeners = new Set<() => void>()
 const updateStatusListeners = new Set<(status: UpdateStatus) => void>()
 let latestUpdateStatus: UpdateStatus | undefined
@@ -27,6 +29,14 @@ ipcRenderer.on('shell:command', (_event, command: CommandId) => {
     return
   }
   commandListeners.forEach(listener => listener(command))
+})
+
+ipcRenderer.on('shell:recents-request', (_event, request: RecentsRequest) => {
+  if (recentsListeners.size === 0) {
+    pendingRecents.push(request)
+    return
+  }
+  recentsListeners.forEach(listener => listener(request))
 })
 
 ipcRenderer.on('shell:close-requested', () => {
@@ -71,6 +81,7 @@ const shellBridge: ShellBridge = {
   setAppearance: appearance => ipcRenderer.invoke('shell:set-appearance', appearance),
   setWindowState: state => ipcRenderer.invoke('shell:set-window-state', state),
   setViewState: state => ipcRenderer.invoke('shell:set-view-state', state),
+  setRecents: paths => ipcRenderer.invoke('shell:set-recents', paths),
   setFullScreen: fullScreen => ipcRenderer.invoke('shell:set-full-screen', fullScreen),
   resolveClose: approved => ipcRenderer.invoke('shell:resolve-close', approved),
   checkForUpdates: () => ipcRenderer.invoke('update:check'),
@@ -85,6 +96,11 @@ const shellBridge: ShellBridge = {
     commandListeners.add(listener)
     pendingCommands.splice(0).forEach(command => listener(command))
     return () => commandListeners.delete(listener)
+  },
+  onRecentsRequest: listener => {
+    recentsListeners.add(listener)
+    pendingRecents.splice(0).forEach(request => listener(request))
+    return () => recentsListeners.delete(listener)
   },
   onCloseRequested: listener => {
     closeListeners.add(listener)
