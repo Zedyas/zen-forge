@@ -6,24 +6,30 @@ import {
   type FunctionListEntry,
   type RawCellContent,
 } from 'hyperformula'
-import { columnName, sheetRangeReference } from './address'
-import { parseCellText } from './cell-parse'
+import { columnName, sheetNameProblem, sheetRangeReference } from './address'
+import { parseCellText, shownInput } from './cell-parse'
+import { fillSeries } from './fill-series'
+import { formatCellValue, isDateStyle } from './format'
+import { shiftFormula } from './references'
 import {
   defaultCellStyle,
   defaultColumnCount,
   defaultRowCount,
+  defaultRowHeight,
   isDefaultStyle,
   type CellInput,
   type CellRange,
   type CellStyle,
+  type CopiedCells,
   type NamedRange,
   type NumberFormat,
+  type PastedCell,
   type SheetData,
   type SheetLayoutData,
   type WorkbookData,
 } from './workbook-data'
 
-export type { CellInput, CellRange, CellStyle, NamedRange, NumberFormat, WorkbookData } from './workbook-data'
+export type { CellInput, CellRange, CellStyle, CopiedCells, NamedRange, NumberFormat, PastedCell, WorkbookData } from './workbook-data'
 
 export interface WorkbookSheet {
   readonly id: number
@@ -47,10 +53,19 @@ export interface FindMatch {
   readonly input: string
 }
 
+/** One column (fill down or up) or row (fill right or left) of a fill-handle drag, as workbook cells. */
+export interface FillLine {
+  /** The selected cells the drag started from, top to bottom or left to right. */
+  readonly seeds: readonly Item[]
+  /** The cells the drag added, nearest the seeds first; hidden rows and columns are left out. */
+  readonly targets: readonly Item[]
+}
+
 interface SheetLayout {
   rowCount: number
   columnCount: number
   readonly columnWidths: Map<number, number>
+  readonly rowHeights: Map<number, number>
   readonly hiddenRows: Set<number>
   readonly hiddenColumns: Set<number>
   freezeRows: number
@@ -78,17 +93,28 @@ const blankLayout: SheetLayoutData = {
   rowCount: defaultRowCount,
   columnCount: defaultColumnCount,
   columnWidths: [],
+  rowHeights: [],
   hiddenRows: [],
   hiddenColumns: [],
   freezeRows: 0,
   freezeColumns: 0,
 }
 
+/**
+ * The height a cell's text needs at a column width, in pixels. Measuring needs the screen's fonts, so
+ * the grid supplies it; the workbook uses it to fit rows to wrapped and larger text.
+ */
+export type CellMeasure = (text: string, style: CellStyle, width: number) => number
+
+/** Style properties that change how tall a cell's text is. */
+const textLayoutKeys: readonly (keyof CellStyle)[] = ['wrap', 'fontSize', 'fontFamily']
+
 function layoutFromData(layout: SheetLayoutData): SheetLayout {
   return {
     rowCount: Math.max(layout.rowCount, defaultRowCount),
     columnCount: Math.max(layout.columnCount, defaultColumnCount),
     columnWidths: new Map(layout.columnWidths),
+    rowHeights: new Map(layout.rowHeights),
     hiddenRows: new Set(layout.hiddenRows),
     hiddenColumns: new Set(layout.hiddenColumns),
     freezeRows: layout.freezeRows,
@@ -111,6 +137,13 @@ function serializedInput(value: RawCellContent): CellInput {
   if (value === undefined) return null
   if (value instanceof Date) return value.toISOString()
   return value
+}
+
+/** A raw input as the formula bar shows it and Find searches it, without the mark that keeps every text cell text. */
+function shownCellInput(serialized: RawCellContent): string {
+  if (serialized instanceof Date) return serialized.toISOString()
+  if (typeof serialized === 'string') return shownInput(serialized)
+  return serialized === null || serialized === undefined ? '' : String(serialized)
 }
 
 function plainValue(value: CellValue): string | number | boolean | null {
@@ -180,9 +213,7 @@ export class Workbook {
   }
 
   getCellInput(sheetId: number, [col, row]: Item): string {
-    const serialized = this.#engine.getCellSerialized({ sheet: sheetId, col, row })
-    if (serialized instanceof Date) return serialized.toISOString()
-    return serialized === null || serialized === undefined ? '' : String(serialized)
+    return shownCellInput(this.#engine.getCellSerialized({ sheet: sheetId, col, row }))
   }
 
   getCellValue(sheetId: number, [col, row]: Item): string | number | boolean | null {
@@ -213,6 +244,45 @@ export class Workbook {
     return this.#layout(sheetId).columnWidths.get(column) ?? defaultColumnWidth
   }
 
+  getRowHeight(sheetId: number, row: number): number {
+    return this.#layout(sheetId).rowHeights.get(row) ?? defaultRowHeight
+  }
+
+  /** Sets rows to `height` pixels as one undo step; undefined puts them back to the default height. */
+  setRowHeight(sheetId: number, rows: readonly number[], height: number | undefined): void {
+    const heights = this.#layout(sheetId).rowHeights
+    const next = height === undefined ? undefined : Math.max(12, Math.min(600, Math.round(height)))
+    if (rows.every(row => heights.get(row) === next)) return
+    this.#commit(() => rows.forEach(row => {
+      if (next === undefined || next === defaultRowHeight) heights.delete(row)
+      else heights.set(row, next)
+    }))
+  }
+
+  /** Makes each row just tall enough for its tallest cell, as double-clicking a row border does in Excel. */
+  fitRows(sheetId: number, rows: readonly number[], measure: CellMeasure): void {
+    this.#commit(() => this.#fitRows(sheetId, rows, measure, false))
+  }
+
+  /** `growOnly` keeps a row that is already tall enough, such as one sized by hand, as it is. */
+  #fitRows(sheetId: number, rows: readonly number[], measure: CellMeasure, growOnly: boolean): void {
+    const layout = this.#layout(sheetId)
+    const styles = this.#styles.get(this.#sheetName(sheetId))
+    const columns = Math.max(this.#engine.getSheetDimensions(sheetId).width, ...[...styles?.keys() ?? []].map(key => parseStyleKey(key)[0] + 1))
+    new Set(rows).forEach(row => {
+      let needed = defaultRowHeight
+      for (let col = 0; col < columns; col += 1) {
+        const style = this.#style(sheetId, col, row)
+        const text = formatCellValue(plainValue(this.#engine.getCellValue({ sheet: sheetId, col, row })), style)
+        if (text !== '') needed = Math.max(needed, measure(text, style, this.getColumnWidth(sheetId, col)))
+      }
+      const height = Math.min(600, Math.ceil(needed))
+      if (growOnly && height <= (layout.rowHeights.get(row) ?? defaultRowHeight)) return
+      if (height === defaultRowHeight) layout.rowHeights.delete(row)
+      else layout.rowHeights.set(row, height)
+    })
+  }
+
   getFrozenColumnCount(sheetId: number): number {
     const layout = this.#layout(sheetId)
     return this.visibleColumns(sheetId).filter(column => column < layout.freezeColumns).length
@@ -227,90 +297,198 @@ export class Workbook {
     return this.#style(sheetId, col, row)
   }
 
-  setNumberFormat(sheetId: number, range: CellRange, format: NumberFormat): void {
-    this.updateStyle(sheetId, range, { numberFormat: format })
+  setNumberFormat(sheetId: number, areas: readonly CellRange[], format: NumberFormat): void {
+    this.updateStyle(sheetId, areas, { numberFormat: format })
   }
 
-  changeDecimalPlaces(sheetId: number, range: CellRange, difference: -1 | 1): void {
-    this.#updateStyle(sheetId, range, style => ({
+  changeDecimalPlaces(sheetId: number, areas: readonly CellRange[], difference: -1 | 1): void {
+    this.#updateStyle(sheetId, areas, style => ({
       // General shows every digit, so decimal places only mean something once the cell is a number, as in Excel.
       numberFormat: style.numberFormat === 'general' ? 'number' : style.numberFormat,
       decimalPlaces: Math.max(0, Math.min(12, style.decimalPlaces + difference)),
     }))
   }
 
-  /** Applies a style patch to every cell in the range; `undefined` values reset that property. */
-  updateStyle(sheetId: number, range: CellRange, patch: Partial<CellStyle>): void {
-    this.#updateStyle(sheetId, range, () => patch)
+  /**
+   * Applies a style patch to every cell of the areas; `undefined` values reset that property. Areas are
+   * the rectangles of one selection, which leave out hidden rows and columns. With `fit`, a change to
+   * wrapping or the font refits the rows to their text in the same undo step.
+   */
+  updateStyle(sheetId: number, areas: readonly CellRange[], patch: Partial<CellStyle>, fit?: CellMeasure): void {
+    this.#updateStyle(sheetId, areas, () => patch)
+    if (fit === undefined || !textLayoutKeys.some(key => key in patch)) return
+    const rows = areas.flatMap(area => Array.from({ length: area.height }, (_, offset) => area.y + offset))
+    this.#amend(() => this.#fitRows(sheetId, rows, fit, false))
   }
 
-  clearFormatting(sheetId: number, range: CellRange): void {
-    this.#commit(() => this.#mapStyles(sheetId, range, () => defaultCellStyle))
+  clearFormatting(sheetId: number, areas: readonly CellRange[]): void {
+    this.#commit(() => this.#mapStyles(sheetId, areas, () => defaultCellStyle))
   }
 
   /** Applies a per-cell patch. Changing the number format drops the file's own pattern, which no longer applies. */
-  #updateStyle(sheetId: number, range: CellRange, patchFor: (style: CellStyle) => Partial<CellStyle>): void {
-    this.#commit(() => this.#mapStyles(sheetId, range, style => {
+  #updateStyle(sheetId: number, areas: readonly CellRange[], patchFor: (style: CellStyle) => Partial<CellStyle>): void {
+    this.#commit(() => this.#mapStyles(sheetId, areas, style => {
       const patch = patchFor(style)
       const formatChanged = patch.numberFormat !== undefined || patch.decimalPlaces !== undefined
       return mergeStyle(style, formatChanged ? { ...patch, formatCode: undefined } : patch)
     }))
   }
 
-  setCellInput(sheetId: number, [col, row]: Item, input: CellInput): void {
-    if (this.getCellInput(sheetId, [col, row]) === String(input ?? '')) return
-    this.#commit(() => this.#engine.setCellContents({ sheet: sheetId, col, row }, [[input]]))
+  /** With `fit`, a row too short for the new text of a wrapped or larger-font cell grows to show it. */
+  setCellInput(sheetId: number, [col, row]: Item, input: CellInput, fit?: CellMeasure): void {
+    const current = this.#engine.getCellSerialized({ sheet: sheetId, col, row })
+    if (current === input || shownCellInput(current) === String(input ?? '')) return
+    this.#commit(() => {
+      this.#engine.setCellContents({ sheet: sheetId, col, row }, [[input]])
+      const style = this.#style(sheetId, col, row)
+      if (fit !== undefined && textLayoutKeys.some(key => style[key] !== undefined)) this.#fitRows(sheetId, [row], fit, true)
+    })
   }
 
-  /** Empties values and formulas in the range as one undo step, keeping formatting. */
-  clearContents(sheetId: number, range: CellRange): void {
-    const { width, height } = this.#engine.getSheetDimensions(sheetId)
-    const right = Math.min(range.x + range.width, width)
-    const bottom = Math.min(range.y + range.height, height)
-    if (right <= range.x || bottom <= range.y) return
-    this.#commit(() => this.#engine.setCellContents(
-      { sheet: sheetId, col: range.x, row: range.y },
-      Array.from({ length: bottom - range.y }, () => Array.from({ length: right - range.x }, () => null)),
-    ))
+  /** Empties values and formulas in the areas as one undo step, keeping formatting. */
+  clearContents(sheetId: number, areas: readonly CellRange[]): void {
+    const filled = this.#filledAreas(sheetId, areas)
+    if (filled.length > 0) this.#commit(() => this.#clearValues(sheetId, filled))
   }
 
   /** Pastes tabular text and applies formats inferred from Excel or Google Sheets display values. */
   setBlock(sheetId: number, [startCol, startRow]: Item, values: readonly (readonly string[])[]): void {
-    if (values.length === 0) return
+    this.pasteCells(sheetId, values.flatMap((row, rowOffset) => row.map((text, colOffset): PastedCell => ({
+      target: [startCol + colOffset, startRow + rowOffset],
+      ...parseCellText(text),
+    }))))
+  }
+
+  /** The raw inputs and styles of the given columns and rows, for the clipboard. */
+  copyCells(sheetId: number, columns: readonly number[], rows: readonly number[]): CopiedCells {
+    return {
+      columns,
+      rows,
+      cells: rows.map(row => columns.map(col => {
+        const style = this.#styles.get(this.#sheetName(sheetId))?.get(styleKey(col, row))
+        return { input: serializedInput(this.#engine.getCellSerialized({ sheet: sheetId, col, row })), ...(style === undefined ? {} : { style }) }
+      })),
+    }
+  }
+
+  /**
+   * Writes pasted cells and their styles as one undo step; copied formulas keep pointing the same distance away.
+   * With `cutSheetId`, the cells were cut from that sheet, so their sources are emptied first, styles included.
+   */
+  pasteCells(sheetId: number, cells: readonly PastedCell[], cutSheetId?: number): void {
+    if (cells.length === 0) return
     this.#commit(() => {
+      if (cutSheetId !== undefined) {
+        this.#clearValues(cutSheetId, this.#filledAreas(cutSheetId, cells.flatMap(({ source }) =>
+          source === undefined ? [] : [{ x: source[0], y: source[1], width: 1, height: 1 }])))
+        const cutStyles = this.#sheetStyles(this.#sheetName(cutSheetId))
+        cells.forEach(({ source }) => { if (source !== undefined) cutStyles.delete(styleKey(source[0], source[1])) })
+      }
       const styles = this.#sheetStyles(this.#sheetName(sheetId))
-      const parsed = values.map(row => row.map(parseCellText))
-      this.#engine.setCellContents(
-        { sheet: sheetId, col: startCol, row: startRow },
-        parsed.map(row => row.map(cell => cell.input)),
-      )
-      parsed.forEach((row, rowOffset) => row.forEach((cell, colOffset) => {
-        const key = styleKey(startCol + colOffset, startRow + rowOffset)
-        if (cell.style === undefined) styles.delete(key)
-        else styles.set(key, cell.style)
+      this.#engine.batch(() => cells.forEach(({ target: [col, row], input, style, source }) => {
+        const moved = typeof input === 'string' && source !== undefined ? shiftFormula(input, col - source[0], row - source[1]) : input
+        this.#engine.setCellContents({ sheet: sheetId, col, row }, [[moved]])
+        if (style === undefined || isDefaultStyle(style)) styles.delete(styleKey(col, row))
+        else styles.set(styleKey(col, row), style)
       }))
     })
   }
 
-  /** Repeats source cells into a destination while HyperFormula translates relative formulas.
-   * Copy/paste cannot run inside engine.batch (it forces evaluation), so each paste recomputes. */
-  fillRange(sheetId: number, source: CellRange, destination: CellRange): void {
+  /**
+   * Moves cells, as Cut and then Paste do: formulas anywhere that referred to them follow them, and their
+   * styles go along, as one undo step. False when the engine cannot, such as when it would split an array.
+   */
+  moveCells(fromSheetId: number, range: CellRange, toSheetId: number, [col, row]: Item): boolean {
+    const source = {
+      start: { sheet: fromSheetId, col: range.x, row: range.y },
+      end: { sheet: fromSheetId, col: range.x + range.width - 1, row: range.y + range.height - 1 },
+    }
+    const destination = { sheet: toSheetId, col, row }
+    if (!this.#engine.isItPossibleToMoveCells(source, destination)) return false
+    this.#commit(() => {
+      this.#engine.moveCells(source, destination)
+      const from = this.#sheetStyles(this.#sheetName(fromSheetId))
+      const to = this.#sheetStyles(this.#sheetName(toSheetId))
+      const moved: [string, CellStyle | undefined][] = []
+      this.#forEachCell(range, (sourceCol, sourceRow) => {
+        const key = styleKey(sourceCol, sourceRow)
+        moved.push([styleKey(col + sourceCol - range.x, row + sourceRow - range.y), from.get(key)])
+        from.delete(key)
+      })
+      moved.forEach(([key, style]) => {
+        if (style === undefined) to.delete(key)
+        else to.set(key, style)
+      })
+      // The engine moves a name whose whole range was cut; its saved definition moves the same way.
+      const fromName = this.#sheetName(fromSheetId)
+      this.#namedRanges.forEach((namedRange, key) => {
+        const { x, y, width, height } = namedRange.range
+        const inside = x >= range.x && y >= range.y && x + width <= range.x + range.width && y + height <= range.y + range.height
+        if (namedRange.sheetName !== fromName || !inside) return
+        const moved = { x: x + col - range.x, y: y + row - range.y, width, height }
+        this.#namedRanges.set(key, { ...namedRange, sheetName: this.#sheetName(toSheetId), range: moved })
+      })
+    })
+    return true
+  }
+
+  /** Empties values, formulas and formatting in the areas as one undo step. */
+  clearCells(sheetId: number, areas: readonly CellRange[]): void {
+    this.#commit(() => {
+      this.#clearValues(sheetId, this.#filledAreas(sheetId, areas))
+      this.#mapStyles(sheetId, areas, () => defaultCellStyle)
+    })
+  }
+
+  /** The parts of the areas inside the sheet's used area: the only cells that can hold values. */
+  #filledAreas(sheetId: number, areas: readonly CellRange[]): readonly CellRange[] {
+    const { width, height } = this.#engine.getSheetDimensions(sheetId)
+    return areas.flatMap(area => {
+      const right = Math.min(area.x + area.width, width)
+      const bottom = Math.min(area.y + area.height, height)
+      return right <= area.x || bottom <= area.y ? [] : [{ x: area.x, y: area.y, width: right - area.x, height: bottom - area.y }]
+    })
+  }
+
+  #clearValues(sheetId: number, areas: readonly CellRange[]): void {
+    this.#engine.batch(() => areas.forEach(area => this.#engine.setCellContents(
+      { sheet: sheetId, col: area.x, row: area.y },
+      Array.from({ length: area.height }, () => Array.from({ length: area.width }, () => null)),
+    )))
+  }
+
+  /**
+   * The fill handle, as one undo step: each line continues its seeds as a series (1, 2 → 3, 4; Jan →
+   * Feb; Item 1 → Item 2) or repeats them, with copied formulas' references moved and styles copied.
+   * `backward` fills up or left, so the targets count down from the seeds.
+   */
+  fillCells(sheetId: number, lines: readonly FillLine[], backward: boolean): void {
+    // The engine cannot be read inside a batch, so every seed is read before anything is written.
+    const writes = lines.flatMap(({ seeds, targets }) => {
+      const filled = fillSeries(
+        seeds.map(([col, row]) => ({
+          input: serializedInput(this.#engine.getCellSerialized({ sheet: sheetId, col, row })),
+          value: plainValue(this.#engine.getCellValue({ sheet: sheetId, col, row })),
+          date: isDateStyle(this.#style(sheetId, col, row)),
+        })),
+        targets.map((_, index) => backward ? -1 - index : seeds.length + index),
+      )
+      return targets.flatMap((target, index) => {
+        const cell = filled[index]
+        const source = cell === undefined ? undefined : seeds[cell.seed]
+        return cell === undefined || source === undefined ? [] : [{ target, source, input: cell.input }]
+      })
+    })
+    if (writes.length === 0) return
     this.#commit(() => {
       const styles = this.#sheetStyles(this.#sheetName(sheetId))
-      this.#forEachCell(destination, (col, row) => {
-        const sourceCol = source.x + ((col - source.x) % source.width + source.width) % source.width
-        const sourceRow = source.y + ((row - source.y) % source.height + source.height) % source.height
-        if (col === sourceCol && row === sourceRow) return
-        this.#engine.copy({
-          start: { sheet: sheetId, col: sourceCol, row: sourceRow },
-          end: { sheet: sheetId, col: sourceCol, row: sourceRow },
-        })
-        this.#engine.paste({ sheet: sheetId, col, row })
-        const sourceStyle = styles.get(styleKey(sourceCol, sourceRow))
-        const targetKey = styleKey(col, row)
-        if (sourceStyle === undefined) styles.delete(targetKey)
-        else styles.set(targetKey, { ...sourceStyle })
-      })
+      this.#engine.batch(() => writes.forEach(({ target: [col, row], source, input }) => {
+        const moved = typeof input === 'string' ? shiftFormula(input, col - source[0], row - source[1]) : input
+        this.#engine.setCellContents({ sheet: sheetId, col, row }, [[moved]])
+        const style = styles.get(styleKey(source[0], source[1]))
+        if (style === undefined) styles.delete(styleKey(col, row))
+        else styles.set(styleKey(col, row), style)
+      }))
     })
   }
 
@@ -430,11 +608,14 @@ export class Workbook {
     })
   }
 
+  /** False when the name breaks Excel's rules (see `sheetNameProblem`) or is unchanged. */
   renameSheet(sheetId: number, name: string): boolean {
     const trimmed = name.trim()
+    const previousName = this.#sheetName(sheetId)
+    if (trimmed === previousName) return false
+    if (sheetNameProblem(trimmed, this.#sheetOrder.filter(candidate => candidate !== previousName)) !== undefined) return false
     if (!this.#engine.isItPossibleToRenameSheet(sheetId, trimmed)) return false
     this.#commit(() => {
-      const previousName = this.#sheetName(sheetId)
       this.#engine.renameSheet(sheetId, trimmed)
       this.#sheetOrder = this.#sheetOrder.map(candidate => candidate === previousName ? trimmed : candidate)
       const layout = this.#layouts.get(previousName)
@@ -491,7 +672,7 @@ export class Workbook {
     const needle = caseSensitive ? query : query.toLocaleLowerCase()
     return this.sheets().flatMap(sheet => this.#engine.getSheetSerialized(sheet.id).flatMap((row, rowIndex) =>
       row.flatMap((value, colIndex) => {
-        const input = value === null || value === undefined ? '' : String(value)
+        const input = shownCellInput(value)
         const candidate = caseSensitive ? input : input.toLocaleLowerCase()
         return candidate.includes(needle)
           ? [{ sheetId: sheet.id, sheetName: sheet.name, cell: [colIndex, rowIndex] as Item, input }]
@@ -583,23 +764,25 @@ export class Workbook {
     return height - start < 2 ? undefined : { x: 0, y: start, width, height: height - start }
   }
 
-  selectionStats(sheetId: number, range: CellRange): SelectionStats {
+  selectionStats(sheetId: number, areas: readonly CellRange[]): SelectionStats {
     const { width, height } = this.#engine.getSheetDimensions(sheetId)
     let count = 0
     let numericCount = 0
     let sum = 0
     let min = Number.POSITIVE_INFINITY
     let max = Number.NEGATIVE_INFINITY
-    for (let row = range.y; row < Math.min(range.y + range.height, height); row += 1) {
-      for (let col = range.x; col < Math.min(range.x + range.width, width); col += 1) {
-        const value = this.#engine.getCellValue({ sheet: sheetId, col, row })
-        if (value === null || value === '') continue
-        count += 1
-        if (typeof value !== 'number') continue
-        numericCount += 1
-        sum += value
-        min = Math.min(min, value)
-        max = Math.max(max, value)
+    for (const area of areas) {
+      for (let row = area.y; row < Math.min(area.y + area.height, height); row += 1) {
+        for (let col = area.x; col < Math.min(area.x + area.width, width); col += 1) {
+          const value = this.#engine.getCellValue({ sheet: sheetId, col, row })
+          if (value === null || value === '') continue
+          count += 1
+          if (typeof value !== 'number') continue
+          numericCount += 1
+          sum += value
+          min = Math.min(min, value)
+          max = Math.max(max, value)
+        }
       }
     }
     return { count, numericCount, sum, min, max }
@@ -726,14 +909,14 @@ export class Workbook {
     }
   }
 
-  #mapStyles(sheetId: number, range: CellRange, map: (style: CellStyle) => CellStyle): void {
+  #mapStyles(sheetId: number, areas: readonly CellRange[], map: (style: CellStyle) => CellStyle): void {
     const styles = this.#sheetStyles(this.#sheetName(sheetId))
-    this.#forEachCell(range, (col, row) => {
+    areas.forEach(area => this.#forEachCell(area, (col, row) => {
       const key = styleKey(col, row)
       const next = map(styles.get(key) ?? defaultCellStyle)
       if (isDefaultStyle(next)) styles.delete(key)
       else styles.set(key, next)
-    })
+    }))
   }
 
   #shiftMetadata(
@@ -767,6 +950,16 @@ export class Workbook {
     })
     hidden.clear()
     shiftedHidden.forEach(coordinate => hidden.add(coordinate))
+
+    if (axis === 'row') {
+      const shiftedHeights = new Map<number, number>()
+      layout.rowHeights.forEach((height, coordinate) => {
+        if (removedCount > 0 && coordinate >= index && coordinate < index + removedCount) return
+        shiftedHeights.set(coordinate >= index + removedCount ? coordinate + offset : coordinate, height)
+      })
+      layout.rowHeights.clear()
+      shiftedHeights.forEach((height, coordinate) => layout.rowHeights.set(coordinate, height))
+    }
 
     if (axis === 'column') {
       const shiftedWidths = new Map<number, number>()
@@ -833,6 +1026,7 @@ export class Workbook {
             rowCount: layout.rowCount,
             columnCount: layout.columnCount,
             columnWidths: [...layout.columnWidths.entries()],
+            rowHeights: [...layout.rowHeights.entries()],
             hiddenRows: [...layout.hiddenRows],
             hiddenColumns: [...layout.hiddenColumns],
             freezeRows: layout.freezeRows,
@@ -888,6 +1082,12 @@ export class Workbook {
     this.#depth += 1
     this.#emit()
     return result
+  }
+
+  /** Folds a follow-up change into the undo step just committed, such as refitting rows after a style change. */
+  #amend(mutation: () => void): void {
+    mutation()
+    this.#emit()
   }
 
   #emit(): void {

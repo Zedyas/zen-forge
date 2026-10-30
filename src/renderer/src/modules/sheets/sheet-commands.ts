@@ -1,5 +1,6 @@
 import type { Item } from '@glideapps/glide-data-grid'
 import { toast } from 'sonner'
+import { measureCellHeight } from './cell-text'
 import type { CellRange, CellStyle, Workbook } from './model/Workbook'
 
 /** The active grid's state that toolbar buttons and menu commands act on. */
@@ -8,7 +9,10 @@ export interface SheetController {
   readonly workbook: Workbook
   readonly sheetId: number
   readonly sheetName: string
+  /** The selection from its first to last cell, for row, column and sort actions. */
   readonly range: CellRange
+  /** The selection's visible cells as rectangles, for cell-by-cell actions such as formatting. */
+  readonly areas: readonly CellRange[]
   readonly cell: Item
   openFind(): void
 }
@@ -27,17 +31,27 @@ export function activeSheet(): SheetController | undefined {
   return active
 }
 
-type ToggleKey = 'bold' | 'italic' | 'underline'
+type ToggleKey = 'bold' | 'italic' | 'underline' | 'strike' | 'wrap'
 
 /** Toggles by the active cell, like Excel and Numbers: bold active cell → the whole range loses bold. */
 export function toggleStyle(controller: SheetController, key: ToggleKey): void {
   const on = controller.workbook.getStyle(controller.sheetId, controller.cell)[key] === true
-  controller.workbook.updateStyle(controller.sheetId, controller.range, { [key]: on ? undefined : true })
+  setStyle(controller, { [key]: on ? undefined : true })
 }
 
+/** Rows refit to their text when wrapping or the font changes. */
 export function setStyle(controller: SheetController, patch: Partial<CellStyle>): void {
-  controller.workbook.updateStyle(controller.sheetId, controller.range, patch)
+  controller.workbook.updateStyle(controller.sheetId, controller.areas, patch, measureCellHeight)
 }
+
+/** The selection's visible rows, for row height. */
+export function selectedRows(controller: SheetController): readonly number[] {
+  return [...new Set(controller.areas.flatMap(area => Array.from({ length: area.height }, (_, offset) => area.y + offset)))]
+}
+
+/** Font families on every Mac; a file's other fonts are kept and listed when a cell uses one. */
+export const fontFamilies = ['Helvetica Neue', 'Arial', 'Times New Roman', 'Georgia', 'Courier New', 'Menlo'] as const
+export const fontSizes = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 36, 48, 72] as const
 
 /**
  * Sorts the selected rows by the active cell's column. With a single cell selected it sorts the

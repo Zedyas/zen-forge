@@ -50,6 +50,7 @@ export function SheetTab({
             value={draft}
             onChange={event => setDraft(event.currentTarget.value)}
             onBlur={() => commitRename()}
+            maxLength={31}
             onKeyDown={event => {
               if (event.key === 'Escape') {
                 setDraft(sheet.name)

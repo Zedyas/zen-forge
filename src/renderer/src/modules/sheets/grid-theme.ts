@@ -1,6 +1,5 @@
 import type { Theme } from '@glideapps/glide-data-grid'
 
-export const rowHeight = 26
 export const headerHeight = 26
 export const cellFontSize = 13
 

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
+import { fillLines } from '../grid-mapping'
+import { sheetNameFrom, sheetNameProblem } from './address'
 import { blankWorkbookData, Workbook } from './Workbook'
-import type { WorkbookData } from './workbook-data'
+import type { CellStyle, WorkbookData } from './workbook-data'
 
 /** Four regions with revenue, cost, and a per-row margin formula; totals on row 6. */
 function regionsData(): WorkbookData {
@@ -87,7 +89,7 @@ describe('Workbook', () => {
     const sheetId = workbook.sheets()[0]?.id
     if (sheetId === undefined) throw new Error('Starter sheet is missing.')
 
-    workbook.setNumberFormat(sheetId, { x: 0, y: 0, width: 1, height: 1 }, 'currency')
+    workbook.setNumberFormat(sheetId, [{ x: 0, y: 0, width: 1, height: 1 }], 'currency')
     workbook.insertColumns(sheetId, 0)
     workbook.addSheet()
 
@@ -111,17 +113,33 @@ describe('Workbook', () => {
     workbook.setCellInput(sheetId, [0, 9], 2)
     workbook.setCellInput(sheetId, [0, 10], 3)
     workbook.setCellInput(sheetId, [1, 9], '=A10*2')
-    workbook.setNumberFormat(sheetId, { x: 1, y: 9, width: 1, height: 1 }, 'currency')
+    workbook.setNumberFormat(sheetId, [{ x: 1, y: 9, width: 1, height: 1 }], 'currency')
 
-    workbook.fillRange(
-      sheetId,
-      { x: 1, y: 9, width: 1, height: 1 },
-      { x: 1, y: 10, width: 1, height: 1 },
-    )
+    workbook.fillCells(sheetId, [{ seeds: [[1, 9]], targets: [[1, 10]] }], false)
 
     expect(workbook.getCellInput(sheetId, [1, 10])).toBe('=A11*2')
     expect(workbook.getCellValue(sheetId, [1, 10])).toBe(6)
     expect(workbook.getStyle(sheetId, [1, 10]).numberFormat).toBe('currency')
+  })
+
+  it('continues a series past a hidden row and fills up from the seeds, each as one undo step', () => {
+    const workbook = new Workbook()
+    const sheetId = workbook.sheets()[0]?.id ?? 0
+    workbook.setBlock(sheetId, [0, 5], [['1'], ['2']])
+    workbook.hideRows(sheetId, 8)
+    const { lines, backward } = fillLines(
+      { x: 0, y: 5, width: 1, height: 2 },
+      { x: 0, y: 5, width: 1, height: 4 },
+      [0],
+      [0, 1, 2, 3, 4, 5, 6, 7, 9, 10],
+    )
+
+    workbook.fillCells(sheetId, lines, backward)
+    workbook.fillCells(sheetId, [{ seeds: [[0, 5], [0, 6]], targets: [[0, 4], [0, 3]] }], true)
+
+    expect([3, 4, 7, 8, 9].map(row => workbook.getCellValue(sheetId, [0, row]))).toEqual([-1, 0, 3, null, 4])
+    workbook.undo()
+    expect(workbook.getCellValue(sheetId, [0, 4])).toBeNull()
   })
 
   it('finds, replaces, and resolves named cell ranges', () => {
@@ -136,6 +154,22 @@ describe('Workbook', () => {
     workbook.setCellInput(sheetId, [5, 0], '=TotalRevenue+1')
 
     expect(workbook.getCellValue(sheetId, [5, 0])).toBe(144_111)
+  })
+
+  it('moves a named range with its cut cells, through undo, redo and a reopen', () => {
+    const workbook = new Workbook()
+    const sheetId = workbook.sheets()[0]?.id ?? 0
+    workbook.setCellInput(sheetId, [0, 0], 7)
+    workbook.addNamedRange('Foo', sheetId, { x: 0, y: 0, width: 1, height: 1 })
+    workbook.setCellInput(sheetId, [1, 0], '=Foo')
+
+    workbook.moveCells(sheetId, { x: 0, y: 0, width: 1, height: 1 }, sheetId, [0, 4])
+    expect(workbook.namedRanges()[0]?.range).toEqual({ x: 0, y: 4, width: 1, height: 1 })
+    expect(new Workbook(workbook.toData()).getCellValue(sheetId, [1, 0])).toBe(7)
+    workbook.undo()
+    expect(workbook.namedRanges()[0]?.range).toEqual({ x: 0, y: 0, width: 1, height: 1 })
+    workbook.redo()
+    expect(workbook.getCellValue(sheetId, [1, 0])).toBe(7)
   })
 
   it('is clean again after undoing back to the saved state, and stays dirty once that state is unreachable', () => {
@@ -204,12 +238,63 @@ describe('Workbook', () => {
     expect(workbook.getCellValue(sheetId, [0, 3])).toBe(10)
   })
 
+  it('formats and clears every area of a selection that skips hidden rows, as one undo step', () => {
+    const workbook = regionsWorkbook()
+    const sheetId = workbook.sheets()[0]?.id ?? 0
+    workbook.hideRows(sheetId, 2)
+    const areas = [{ x: 1, y: 1, width: 1, height: 1 }, { x: 1, y: 3, width: 1, height: 1 }]
+
+    workbook.updateStyle(sheetId, areas, { bold: true })
+    workbook.clearContents(sheetId, areas)
+
+    expect(workbook.getStyle(sheetId, [1, 2]).bold).toBeUndefined()
+    expect([1, 2, 3].map(row => workbook.getCellValue(sheetId, [1, row]))).toEqual([null, 38_750, null])
+    expect(workbook.selectionStats(sheetId, areas).count).toBe(0)
+    workbook.undo()
+    expect(workbook.getCellValue(sheetId, [1, 3])).toBe(29_400)
+  })
+
+  it('renames sheets only to names Excel accepts', () => {
+    const workbook = regionsWorkbook()
+    const sheetId = workbook.sheets()[0]?.id ?? 0
+    workbook.addSheet()
+
+    expect(sheetNameProblem('Q1 [draft]', [])).toBe('A sheet name can’t contain / \\ ? * [ ] or :')
+    expect(sheetNameProblem("'Totals", [])).toBe('A sheet name can’t start or end with an apostrophe.')
+    expect(sheetNameProblem('x'.repeat(32), [])).toBe('A sheet name can be at most 31 characters.')
+    expect(workbook.renameSheet(sheetId, 'sheet2')).toBe(false)
+    expect(workbook.renameSheet(sheetId, 'a/b')).toBe(false)
+    expect(workbook.renameSheet(sheetId, 'sheet1')).toBe(true)
+    expect(workbook.sheets().map(sheet => sheet.name)).toEqual(['sheet1', 'Sheet2'])
+    expect(sheetNameFrom("Budget: 2026 [final]'")).toBe('Budget_ 2026 _final_')
+  })
+
+  it('fits rows to wrapped text in the same undo step as the wrap, and moves heights with inserted rows', () => {
+    const workbook = new Workbook()
+    const sheetId = workbook.sheets()[0]?.id ?? 0
+    // Wrapped text needs 20 px per 10 characters; anything else fits the default row.
+    const measure = (text: string, style: CellStyle): number => style.wrap === true ? Math.ceil(text.length / 10) * 20 : 26
+    workbook.setCellInput(sheetId, [0, 1], 'forty characters of text that need wrap')
+
+    workbook.updateStyle(sheetId, [{ x: 0, y: 1, width: 1, height: 1 }], { wrap: true }, measure)
+    expect(workbook.getRowHeight(sheetId, 1)).toBe(80)
+    workbook.insertRows(sheetId, 0)
+    expect(workbook.getRowHeight(sheetId, 2)).toBe(80)
+    workbook.undo()
+    workbook.undo()
+    expect(workbook.getRowHeight(sheetId, 1)).toBe(26)
+
+    workbook.setRowHeight(sheetId, [3, 4], 40)
+    workbook.fitRows(sheetId, [3], measure)
+    expect([3, 4].map(row => workbook.getRowHeight(sheetId, row))).toEqual([26, 40])
+  })
+
   it('clears a range in one undo step and keeps its formatting', () => {
     const workbook = regionsWorkbook()
     const sheetId = workbook.sheets()[0]?.id ?? 0
-    workbook.setNumberFormat(sheetId, { x: 1, y: 1, width: 1, height: 1 }, 'currency')
+    workbook.setNumberFormat(sheetId, [{ x: 1, y: 1, width: 1, height: 1 }], 'currency')
 
-    workbook.clearContents(sheetId, { x: 1, y: 1, width: 2, height: 4 })
+    workbook.clearContents(sheetId, [{ x: 1, y: 1, width: 2, height: 4 }])
     expect(workbook.getCellValue(sheetId, [1, 1])).toBeNull()
     expect(workbook.getCellValue(sheetId, [1, 5])).toBe(0)
     expect(workbook.getStyle(sheetId, [1, 1]).numberFormat).toBe('currency')

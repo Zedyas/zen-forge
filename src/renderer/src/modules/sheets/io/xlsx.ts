@@ -8,7 +8,8 @@
 import * as ExcelJS from 'exceljs'
 import { HyperFormula } from 'hyperformula'
 import type { ImportFindingInput } from '@shared/fidelity'
-import { sheetRangeReference } from '../model/address'
+import { columnIndex, sheetRangeReference } from '../model/address'
+import { textCellInput } from '../model/cell-parse'
 import {
   defaultCellStyle,
   defaultColumnCount,
@@ -23,7 +24,7 @@ import {
 import { aggregateFindings, type FindingEvent } from './findings'
 import { numberFormatPattern, numberFormatStyle } from './number-format'
 import { assertZipFitsInMemory } from '../../../services/zip'
-import { packageFindings, readWorkbookPackage, type DefaultFont } from './package-parts'
+import { customHeightRows, packageFindings, readWorkbookPackage, type DefaultFont } from './package-parts'
 
 export interface XlsxImport {
   readonly data: WorkbookData
@@ -112,13 +113,14 @@ function hexToArgb(hex: string): string {
   return `FF${hex.replace('#', '').toUpperCase()}`
 }
 
-function columnIndex(letters: string): number {
-  return [...letters.toUpperCase()].reduce((total, letter) => total * 26 + (letter.charCodeAt(0) - 64), 0) - 1
-}
-
 /** A column width in Excel's character units, as pixels the grid can show. */
 export function columnWidthPixels(characters: number): number {
   return Math.max(minimumColumnWidth, Math.min(maximumColumnWidth, Math.round(characters * 7 + 5)))
+}
+
+/** A row height in points, as pixels (96 per inch, so 4/3 per point). */
+export function rowHeightPixels(points: number): number {
+  return Math.max(12, Math.min(600, Math.round(points * 4 / 3)))
 }
 
 function cachedValue(result: ExcelJS.CellValue): string | number | boolean | null {
@@ -178,7 +180,7 @@ function readCellValue(cell: ExcelJS.Cell, context: CellContext): ImportedCell |
 
     case ExcelJS.ValueType.String:
     case ExcelJS.ValueType.SharedString:
-      return typeof value === 'string' ? { input: value, value } : undefined
+      return typeof value === 'string' ? { input: textCellInput(value), value } : undefined
 
     case ExcelJS.ValueType.Date: {
       if (!(value instanceof Date)) return undefined
@@ -190,13 +192,13 @@ function readCellValue(cell: ExcelJS.Cell, context: CellContext): ImportedCell |
       if (!isRichText(value)) return undefined
       cellEvent(context, 'Rich text formatting')
       const text = value.richText.map(run => run.text).join('')
-      return { input: text, value: text }
+      return { input: textCellInput(text), value: text }
     }
 
     case ExcelJS.ValueType.Hyperlink: {
       if (!isHyperlink(value)) return undefined
       cellEvent(context, 'Hyperlinks', 'dropped')
-      return { input: value.text, value: value.text }
+      return { input: textCellInput(value.text), value: value.text }
     }
 
     case ExcelJS.ValueType.Error:
@@ -226,15 +228,11 @@ function readFont(font: Partial<ExcelJS.Font>, context: CellContext, style: Cell
   if (font.underline !== undefined && font.underline !== false && font.underline !== 'none') {
     result = { ...result, underline: true }
   }
-  if (font.strike === true || font.outline === true || font.vertAlign !== undefined) {
-    cellEvent(context, 'Strikethrough, outline and script fonts')
-  }
-  if (
-    (font.name !== undefined && font.name !== defaultFont.name)
-    || (font.size !== undefined && font.size !== defaultFont.size)
-  ) {
-    cellEvent(context, 'Font family and size')
-  }
+  if (font.strike === true) result = { ...result, strike: true }
+  if (font.outline === true || font.vertAlign !== undefined) cellEvent(context, 'Outline and script fonts')
+  // The file's own default font is no font at all here, so those cells show in Ledger's default.
+  if (font.name !== undefined && font.name !== defaultFont.name) result = { ...result, fontFamily: font.name }
+  if (font.size !== undefined && font.size !== defaultFont.size) result = { ...result, fontSize: font.size }
 
   const color = font.color
   if (color === undefined) return result
@@ -285,7 +283,7 @@ function readAlignment(
     cellEvent(context, 'Other text alignment')
   }
 
-  if (alignment.wrapText === true) cellEvent(context, 'Text wrapping')
+  if (alignment.wrapText === true) result = { ...result, wrap: true }
   if (alignment.vertical !== undefined) cellEvent(context, 'Vertical alignment')
   if (
     (alignment.indent !== undefined && alignment.indent !== 0)
@@ -320,8 +318,10 @@ function readCellStyle(cell: ExcelJS.Cell, context: CellContext): CellStyle {
   return style
 }
 
-function readLayout(sheet: ExcelJS.Worksheet, events: FindingEvent[]): SheetData['layout'] {
+/** `customRows` lists the rows whose height the file marks as set on purpose. */
+function readLayout(sheet: ExcelJS.Worksheet, events: FindingEvent[], customRows: () => ReadonlySet<number> | undefined): SheetData['layout'] {
   const columnWidths: [number, number][] = []
+  const rowHeights: [number, number][] = []
   const hiddenColumns: number[] = []
   const hiddenRows: number[] = []
 
@@ -331,20 +331,14 @@ function readLayout(sheet: ExcelJS.Worksheet, events: FindingEvent[]): SheetData
     if (column.hidden === true) hiddenColumns.push(index)
   })
 
-  let customHeights = 0
+  // Excel writes a height on many rows that are simply at the sheet's default; those keep Ledger's
+  // default, unless the height was chosen (a row set to 20 px saves as Excel's default 15 pt).
+  const defaultHeight = sheet.properties.defaultRowHeight ?? 15
   sheet.eachRow({ includeEmpty: true }, (row, rowNumber) => {
     if (row.hidden === true) hiddenRows.push(rowNumber - 1)
-    if (typeof row.height === 'number') customHeights += 1
+    if (typeof row.height !== 'number') return
+    if (row.height !== defaultHeight || customRows()?.has(rowNumber - 1) === true) rowHeights.push([rowNumber - 1, rowHeightPixels(row.height)])
   })
-  if (customHeights > 0) {
-    events.push({
-      construct: 'Custom row heights',
-      severity: 'degraded',
-      location: sheet.name,
-      count: customHeights,
-      unit: 'rows',
-    })
-  }
 
   const view = (sheet.views ?? [])[0]
   if (view?.state === 'split') {
@@ -356,6 +350,7 @@ function readLayout(sheet: ExcelJS.Worksheet, events: FindingEvent[]): SheetData
     rowCount: Math.max(defaultRowCount, sheet.rowCount),
     columnCount: Math.max(defaultColumnCount, sheet.columnCount),
     columnWidths,
+    rowHeights,
     hiddenRows,
     hiddenColumns,
     freezeRows: frozen?.ySplit ?? 0,
@@ -472,6 +467,8 @@ export async function readXlsx(bytes: Uint8Array): Promise<XlsxImport> {
   const { parts, defaultFont } = readWorkbookPackage(bytes)
   const events: FindingEvent[] = [...packageFindings(parts)]
   const sheets: SheetData[] = []
+  // Read from the raw package only when a row is at the default height.
+  let customRows: ReadonlyMap<string, ReadonlySet<number>> | undefined
 
   for (const sheet of workbook.worksheets) {
     const context: CellContext = { sheetName: sheet.name, defaultFont, events }
@@ -494,7 +491,8 @@ export async function readXlsx(bytes: Uint8Array): Promise<XlsxImport> {
 
     readSheetConstructs(sheet, events)
     const { cells, values } = materialize(grid)
-    sheets.push({ name: sheet.name, cells, values, styles, layout: readLayout(sheet, events) })
+    const layout = readLayout(sheet, events, () => (customRows ??= customHeightRows(bytes)).get(sheet.name))
+    sheets.push({ name: sheet.name, cells, values, styles, layout })
   }
 
   events.push(...unsupportedFunctionEvents(sheets))
@@ -512,13 +510,19 @@ function writeCellStyle(cell: ExcelJS.Cell, style: CellStyle): void {
   if (style.bold === true) font.bold = true
   if (style.italic === true) font.italic = true
   if (style.underline === true) font.underline = true
+  if (style.strike === true) font.strike = true
+  if (style.fontFamily !== undefined) font.name = style.fontFamily
+  if (style.fontSize !== undefined) font.size = style.fontSize
   if (style.textColor !== undefined) font.color = { argb: hexToArgb(style.textColor) }
   if (Object.keys(font).length > 0) cell.font = font
 
   if (style.fillColor !== undefined) {
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: hexToArgb(style.fillColor) } }
   }
-  if (style.align !== undefined) cell.alignment = { horizontal: style.align }
+  const alignment: Partial<ExcelJS.Alignment> = {}
+  if (style.align !== undefined) alignment.horizontal = style.align
+  if (style.wrap === true) alignment.wrapText = true
+  if (Object.keys(alignment).length > 0) cell.alignment = alignment
 }
 
 function writeCellValue(
@@ -541,7 +545,8 @@ function writeCellValue(
     return
   }
 
-  cell.value = input
+  // The apostrophe only tells the engine the input is text; the file stores the text itself.
+  cell.value = typeof input === 'string' && input.startsWith("'") ? input.slice(1) : input
 }
 
 export async function writeXlsx(data: WorkbookData): Promise<Uint8Array> {
@@ -569,6 +574,9 @@ export async function writeXlsx(data: WorkbookData): Promise<Uint8Array> {
     })
     layout.hiddenColumns.forEach(column => {
       target.getColumn(column + 1).hidden = true
+    })
+    layout.rowHeights.forEach(([row, height]) => {
+      target.getRow(row + 1).height = height * 0.75
     })
     layout.hiddenRows.forEach(row => {
       target.getRow(row + 1).hidden = true

@@ -7,6 +7,7 @@
 
 import Papa from 'papaparse'
 import type { ImportFindingInput } from '@shared/fidelity'
+import { sheetNameFrom } from '../model/address'
 import { parseCellText } from '../model/cell-parse'
 import { defaultColumnCount, defaultRowCount, type CellInput, type CellStyle, type SheetData, type WorkbookData } from '../model/workbook-data'
 
@@ -85,13 +86,15 @@ export function readDelimited(bytes: Uint8Array, sheetName: string, format: Deli
   })
 
   const sheet: SheetData = {
-    name: sheetName,
+    // A file name can hold characters a sheet name cannot, such as [ ] or :, which .xlsx would refuse.
+    name: sheetNameFrom(sheetName),
     cells,
     styles,
     layout: {
       rowCount: Math.max(defaultRowCount, rows.length),
       columnCount: Math.max(defaultColumnCount, columnCount),
       columnWidths: [],
+      rowHeights: [],
       hiddenRows: [],
       hiddenColumns: [],
       freezeRows: 0,
@@ -120,14 +123,21 @@ export function readDelimited(bytes: Uint8Array, sheetName: string, format: Deli
   return { data: { sheets: [sheet], namedRanges: [] }, findings }
 }
 
-/**
- * RFC 4180 with a UTF-8 BOM, without which Excel for macOS mis-reads accented characters. A field is
- * quoted only when it holds the separator, a quote or a line break.
- */
-export function writeDelimited(rows: readonly (readonly string[])[], format: DelimitedFormat): Uint8Array {
+/** RFC 4180 text. A field is quoted only when it holds the separator, a quote or a line break. */
+export function delimitedText(rows: readonly (readonly string[])[], format: DelimitedFormat): string {
   const separator = separators[format]
   const quote = (field: string): string =>
     field.includes(separator) || /["\r\n]/.test(field) ? `"${field.replaceAll('"', '""')}"` : field
-  const body = rows.map(row => row.map(quote).join(separator)).join('\r\n')
-  return new TextEncoder().encode(`\uFEFF${body}`)
+  return rows.map(row => row.map(quote).join(separator)).join('\r\n')
+}
+
+/** Delimited text with a UTF-8 BOM, without which Excel for macOS mis-reads accented characters. */
+export function writeDelimited(rows: readonly (readonly string[])[], format: DelimitedFormat): Uint8Array {
+  return new TextEncoder().encode(`\uFEFF${delimitedText(rows, format)}`)
+}
+
+/** Tab-separated text, as spreadsheets and web tables put it on the clipboard, as rows of fields. */
+export function readTabbedText(text: string): readonly (readonly string[])[] {
+  const parsed = Papa.parse<string[]>(text.replace(/\r?\n$/, ''), { header: false, delimiter: separators.tsv, skipEmptyLines: false })
+  return parsed.data
 }

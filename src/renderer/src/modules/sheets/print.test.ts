@@ -25,7 +25,7 @@ describe('sheetPrintTable', () => {
     ])
     workbook.hideColumns(sheetId, 1)
     workbook.hideRows(sheetId, 2)
-    workbook.setNumberFormat(sheetId, { x: 2, y: 1, width: 1, height: 3 }, 'percent')
+    workbook.setNumberFormat(sheetId, [{ x: 2, y: 1, width: 1, height: 3 }], 'percent')
 
     const table = sheetPrintTable(workbook, sheetId)
 

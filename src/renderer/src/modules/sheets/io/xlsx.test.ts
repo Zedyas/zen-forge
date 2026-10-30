@@ -2,6 +2,7 @@ import * as ExcelJS from 'exceljs'
 import { unzipSync, zipSync } from 'fflate'
 import { describe, expect, it } from 'vitest'
 import { formatCellValue } from '../model/format'
+import { Workbook } from '../model/Workbook'
 import { defaultCellStyle, type WorkbookData } from '../model/workbook-data'
 import { readXlsx, writeXlsx } from './xlsx'
 
@@ -11,9 +12,9 @@ const workbook: WorkbookData = {
     {
       name: 'Sales',
       cells: [
-        ['Region', 'Revenue', 'Share', 'Booked'],
-        ['North', 42_100, '=B2/Totals!B1', 45_000],
-        ['South', 38_750, '=B3/Totals!B1', 45_001],
+        ["'Region", "'Revenue", "'Share", "'Booked"],
+        ["'North", 42_100, '=B2/Totals!B1', 45_000],
+        ["'South", 38_750, '=B3/Totals!B1', 45_001],
         [null, '=SUM(B2:B3)'],
       ],
       values: [
@@ -24,6 +25,7 @@ const workbook: WorkbookData = {
       ],
       styles: [
         [0, 0, { numberFormat: 'general', decimalPlaces: 2, bold: true, fillColor: '#eef2ff', align: 'center' }],
+        [1, 0, { numberFormat: 'general', decimalPlaces: 2, strike: true, wrap: true, fontFamily: 'Georgia', fontSize: 14 }],
         [0, 1, {
           numberFormat: 'general',
           decimalPlaces: 2,
@@ -43,6 +45,7 @@ const workbook: WorkbookData = {
         rowCount: 1_000,
         columnCount: 26,
         columnWidths: [[0, 160], [2, 90]],
+        rowHeights: [[1, 40], [3, 18]],
         hiddenRows: [2],
         hiddenColumns: [],
         freezeRows: 1,
@@ -51,13 +54,14 @@ const workbook: WorkbookData = {
     },
     {
       name: 'Totals',
-      cells: [['Target', 45_000]],
+      cells: [["'Target", 45_000]],
       values: [['Target', 45_000]],
       styles: [[1, 0, { numberFormat: 'number', decimalPlaces: 0 }]],
       layout: {
         rowCount: 1_000,
         columnCount: 26,
         columnWidths: [],
+        rowHeights: [],
         hiddenRows: [],
         hiddenColumns: [],
         freezeRows: 0,
@@ -119,6 +123,37 @@ describe('xlsx', () => {
 
     expect(cells?.map(row => row[1])).toEqual(['=A1*2', '=A2*2', '=A3*2'])
     expect(data.sheets[0]?.values?.map(row => row[1])).toEqual([2, 4, 6])
+  })
+
+  it('keeps every text cell text, whatever the engine would read it as, without showing the mark', async () => {
+    const source = new ExcelJS.Workbook()
+    const sheet = source.addWorksheet('Sheet1')
+    const texts = ['$-12', '12$', '00123', 'plain']
+    texts.forEach((text, row) => { sheet.getCell(row + 1, 1).value = text })
+    sheet.getCell('B1').value = { formula: 'COUNT(A1:A4)' }
+    const opened = new Workbook((await readXlsx(new Uint8Array(await source.xlsx.writeBuffer()))).data)
+    const sheetId = opened.sheets()[0]?.id ?? 0
+
+    expect(texts.map((_, row) => opened.getCellValue(sheetId, [0, row]))).toEqual(texts)
+    expect(opened.getCellValue(sheetId, [1, 0])).toBe(0)
+    // The formula bar shows the apostrophe only where typing the text alone would read as a number.
+    expect(texts.map((_, row) => opened.getCellInput(sheetId, [0, row]))).toEqual(["'$-12", "'12$", "'00123", 'plain'])
+    expect(opened.find('plain').map(match => match.input)).toEqual(['plain'])
+    const saved = await readXlsx(await writeXlsx(opened.toData()))
+    expect(saved.data.sheets[0]?.values?.map(row => row[0])).toEqual(texts)
+  })
+
+  it('keeps a row height set to Excel’s default height, and leaves rows the file did not size at Ledger’s', async () => {
+    const sheet = workbook.sheets[1]
+    if (sheet === undefined) throw new Error('Fixture sheet is missing.')
+    const saved = await writeXlsx({ sheets: [{ ...sheet, layout: { ...sheet.layout, rowHeights: [[0, 20]] } }], namedRanges: [] })
+    expect((await readXlsx(saved)).data.sheets[0]?.layout.rowHeights).toEqual([[0, 20]])
+
+    // Excel writes `ht` on rows it sized itself, without `customHeight`.
+    const entries = unzipSync(saved)
+    const xml = new TextDecoder().decode(entries['xl/worksheets/sheet1.xml'])
+    entries['xl/worksheets/sheet1.xml'] = new TextEncoder().encode(xml.replace(' customHeight="1"', ''))
+    expect((await readXlsx(zipSync(entries))).data.sheets[0]?.layout.rowHeights).toEqual([])
   })
 
   it('keeps the file number format, such as euros, through open and save', async () => {

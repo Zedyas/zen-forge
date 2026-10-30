@@ -18,6 +18,13 @@ export interface CellStyle {
   readonly bold?: boolean
   readonly italic?: boolean
   readonly underline?: boolean
+  readonly strike?: boolean
+  /** Long text breaks onto more lines, and the row grows to show them. */
+  readonly wrap?: boolean
+  /** A font family name; absent means the default font. */
+  readonly fontFamily?: string
+  /** In points, as Excel counts them; absent means `defaultFontSize`. */
+  readonly fontSize?: number
   /** `#rrggbb` */
   readonly textColor?: string
   /** `#rrggbb` */
@@ -31,6 +38,11 @@ export interface CellStyle {
 }
 
 export const defaultCellStyle: CellStyle = { numberFormat: 'general', decimalPlaces: 2 }
+
+/** Excel's default font size, in points; Ledger shows it at its standard cell text size. */
+export const defaultFontSize = 11
+/** In pixels. */
+export const defaultRowHeight = 26
 
 /** Every sheet shows at least this much grid, however little data it holds. */
 export const defaultRowCount = 1_000
@@ -53,6 +65,8 @@ export interface SheetLayoutData {
   readonly columnCount: number
   /** [column, width in px] */
   readonly columnWidths: readonly (readonly [number, number])[]
+  /** [row, height in px] for rows that are not `defaultRowHeight`. */
+  readonly rowHeights: readonly (readonly [number, number])[]
   readonly hiddenRows: readonly number[]
   readonly hiddenColumns: readonly number[]
   readonly freezeRows: number
@@ -77,3 +91,29 @@ export interface WorkbookData {
   readonly sheets: readonly SheetData[]
   readonly namedRanges: readonly NamedRange[]
 }
+
+/** A copied cell: its raw input (a formula stays a formula) and its style, if any. */
+export interface CopiedCell {
+  readonly input: CellInput
+  readonly style?: CellStyle
+}
+
+/** Copied cells, as they travel on the clipboard between Ledger tabs and windows. */
+export interface CopiedCells {
+  /** The workbook column and row of each copied column and row; hidden ones are left out, so they can skip numbers. */
+  readonly columns: readonly number[]
+  readonly rows: readonly number[]
+  /** Row-major, `rows.length` by `columns.length`. */
+  readonly cells: readonly (readonly CopiedCell[])[]
+}
+
+/** One cell a paste writes. */
+export interface PastedCell {
+  readonly target: readonly [number, number]
+  readonly input: CellInput
+  /** Replaces the target's style; absent means the default style. */
+  readonly style?: CellStyle
+  /** Where a copied formula came from: its relative references move by the distance to `target`. */
+  readonly source?: readonly [number, number]
+}
+
