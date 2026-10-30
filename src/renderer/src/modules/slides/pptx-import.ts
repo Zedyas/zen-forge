@@ -159,6 +159,8 @@ interface SlideXml {
   readonly paragraphs: ReadonlyMap<string, readonly ParagraphInfo[]>
   /** Tables by their graphic frame's `cNvPr` id. */
   readonly tables: ReadonlyMap<string, TableXml>
+  /** Where placeholders without a position of their own sit, from their layout or master, by `cNvPr` id. */
+  readonly frames: ReadonlyMap<string, Positioned>
   readonly animated: boolean
   readonly hidden: boolean
   readonly fields: boolean
@@ -171,7 +173,8 @@ function childNamed(parent: Element, name: string): Element | undefined {
   return Array.from(parent.children).find(child => child.tagName === name)
 }
 
-function listOf(properties: Element | undefined, bulletedPlaceholder: boolean): { list?: ListStyle; customList: boolean } {
+/** A paragraph's list from its own properties, or `inherited` when they do not say. */
+function listOf(properties: Element | undefined, inherited: ListStyle | undefined): { list?: ListStyle; customList: boolean } {
   const character = properties === undefined ? undefined : childNamed(properties, 'a:buChar')
   const numbering = properties === undefined ? undefined : childNamed(properties, 'a:buAutoNum')
   const picture = properties === undefined ? undefined : childNamed(properties, 'a:buBlip')
@@ -181,7 +184,56 @@ function listOf(properties: Element | undefined, bulletedPlaceholder: boolean): 
   if (numbering !== undefined) return { list: 'number', customList }
   if (character !== undefined || picture !== undefined) return { list: 'bullet', customList }
   if (properties !== undefined && childNamed(properties, 'a:buNone') !== undefined) return { list: 'none', customList }
-  return { list: bulletedPlaceholder ? 'bullet' : undefined, customList }
+  return { list: inherited, customList }
+}
+
+/** The list a level of the nearest list style that sets one gives, nearest first. */
+function inheritedList(styles: readonly (Element | undefined)[], level: number): ListStyle | undefined {
+  for (const style of styles) {
+    const properties = style === undefined ? undefined : childNamed(style, `a:lvl${level + 1}pPr`)
+    const { list } = listOf(properties, undefined)
+    if (list !== undefined) return list
+  }
+  return undefined
+}
+
+/** The shapes a slide placeholder takes its look from, nearest first: its layout's placeholder, then its master's. */
+type DesignPlaceholders = (placeholder: Element) => readonly (Element | undefined)[]
+
+/**
+ * The placeholder in a layout or master that a slide placeholder takes its look from: of the same kind
+ * (a title with titles, body text with body text), the one with the same index, or else the first.
+ * Indexes alone do not match across parts: a master's title and a layout's body can share one.
+ */
+function matchingPlaceholder(design: Document, placeholder: Element): Element | undefined {
+  const kindOf = (element: Element): string => {
+    const type = element.getAttribute('type') ?? 'obj'
+    return type === 'ctrTitle' ? 'title' : type === 'obj' || type === 'subTitle' ? 'body' : type
+  }
+  const kind = kindOf(placeholder)
+  const index = placeholder.getAttribute('idx')
+  const shapes = Array.from(design.getElementsByTagName('p:sp')).flatMap(shape => {
+    const own = shape.getElementsByTagName('p:ph')[0]
+    return own === undefined || kindOf(own) !== kind ? [] : [{ shape, own }]
+  })
+  const match = shapes.find(({ own }) => index !== null && own.getAttribute('idx') === index) ?? shapes[0]
+  return match?.shape
+}
+
+function lstStyleOf(shape: Element | undefined): Element | undefined {
+  const body = shape === undefined ? undefined : childNamed(shape, 'p:txBody')
+  return body === undefined ? undefined : childNamed(body, 'a:lstStyle')
+}
+
+/** A shape's own position and size, in points, when its XML states them. */
+function xfrmOf(shape: Element | undefined): Positioned | undefined {
+  const properties = shape === undefined ? undefined : childNamed(shape, 'p:spPr')
+  const xfrm = properties === undefined ? undefined : childNamed(properties, 'a:xfrm')
+  const offset = xfrm === undefined ? undefined : childNamed(xfrm, 'a:off')
+  const extent = xfrm === undefined ? undefined : childNamed(xfrm, 'a:ext')
+  if (offset === undefined || extent === undefined) return undefined
+  const points = (element: Element, name: string): number => Number(element.getAttribute(name) ?? 0) / 12700
+  return { left: points(offset, 'x'), top: points(offset, 'y'), width: points(extent, 'cx'), height: points(extent, 'cy') }
 }
 
 /** The text of a paragraph's runs, fields and breaks in order, as pptxtojson writes them into its HTML. */
@@ -239,10 +291,15 @@ function readTableXml(frame: Element): TableXml | undefined {
   return { ends, lists, highlight: table.getElementsByTagName('a:highlight').length > 0 }
 }
 
-function readSlideXml(xml: string): SlideXml {
-  const document = new DOMParser().parseFromString(xml, 'application/xml')
+function parseXml(xml: string): Document {
+  return new DOMParser().parseFromString(xml, 'application/xml')
+}
+
+function readSlideXml(xml: string, designPlaceholders: DesignPlaceholders): SlideXml {
+  const document = parseXml(xml)
   const paragraphs = new Map<string, ParagraphInfo[]>()
   const tables = new Map<string, TableXml>()
+  const frames = new Map<string, Positioned>()
   for (const frame of Array.from(document.getElementsByTagName('p:graphicFrame'))) {
     const id = frame.getElementsByTagName('p:cNvPr')[0]?.getAttribute('id')
     const table = readTableXml(frame)
@@ -250,17 +307,23 @@ function readSlideXml(xml: string): SlideXml {
   }
   for (const shape of Array.from(document.getElementsByTagName('p:sp'))) {
     const id = shape.getElementsByTagName('p:cNvPr')[0]?.getAttribute('id')
+    const placeholder = shape.getElementsByTagName('p:ph')[0]
+    const designs = placeholder === undefined ? [] : designPlaceholders(placeholder)
+    const inheritedFrame = xfrmOf(shape) === undefined ? designs.map(xfrmOf).find(frame => frame !== undefined) : undefined
+    if (id !== null && id !== undefined && inheritedFrame !== undefined) frames.set(id, inheritedFrame)
     const body = childNamed(shape, 'p:txBody')
     if (id === null || id === undefined || body === undefined) continue
-    // A content placeholder (one with no type) takes bullets from the master's body style.
-    const placeholder = shape.getElementsByTagName('p:ph')[0]
+    // A content placeholder (one with no type) takes bullets from the master's body style, unless
+    // its own, its layout's or its master placeholder's list style says otherwise.
     const bulletedPlaceholder = placeholder !== undefined && (placeholder.getAttribute('type') ?? 'obj') === 'obj'
+    const styles = [lstStyleOf(shape), ...designs.map(lstStyleOf)]
     paragraphs.set(id, Array.from(body.children).filter(child => child.tagName === 'a:p').map(paragraph => {
       const properties = childNamed(paragraph, 'a:pPr')
-      const level = Number(properties?.getAttribute('lvl') ?? 0)
+      const read = Number(properties?.getAttribute('lvl') ?? 0)
+      const level = Number.isFinite(read) ? Math.min(8, Math.max(0, read)) : 0
       return {
-        level: Number.isFinite(level) ? Math.min(8, Math.max(0, level)) : 0,
-        ...listOf(properties, bulletedPlaceholder),
+        level,
+        ...listOf(properties, inheritedList(styles, level) ?? (bulletedPlaceholder ? 'bullet' : undefined)),
         stretches: stretchesOf(paragraph),
         endStyle: endStyleOf(paragraph),
       }
@@ -270,6 +333,7 @@ function readSlideXml(xml: string): SlideXml {
   return {
     paragraphs,
     tables,
+    frames,
     animated: Array.from(document.getElementsByTagName('p:cTn')).some(node => node.hasAttribute('presetClass')),
     hidden: document.documentElement.getAttribute('show') === '0',
     fields: tagged('a:fld'),
@@ -318,24 +382,31 @@ function readRun(span: Element, context: TextContext): TextRun {
     underline: (style.get('text-decoration') ?? '').includes('underline'),
     color: parseColor(style.get('color')) ?? defaultTheme.text,
     size: Math.round((Number.isFinite(size) ? size : 18) * context.fontScale * 10) / 10,
-    font: (style.get('font-family') ?? '').replace(/["']/g, '').split(',')[0]?.trim() || defaultTheme.font,
+    // Only quotes around the whole name are CSS; a quote inside it is part of the name.
+    font: (style.get('font-family') ?? '').split(',')[0]?.trim().replace(/^(["'])(.*)\1$/, '$2') || defaultTheme.font,
   })
 }
 
 /**
- * pptxtojson writes a tab as four spaces. Where the XML has a tab and the runs have those spaces,
- * the tab comes back; if the two texts do not line up, the runs stay as they are.
+ * pptxtojson writes a tab as four spaces, and drops the first of several line breaks in a paragraph,
+ * which joins the words on either side. Walking the runs against the XML's text in one pass, a tab
+ * comes back where the XML has one and the runs have its four spaces, and the dropped break comes
+ * back as a space where the XML has one. If the two texts still do not line up, the runs stay as they are.
  */
-function withTabs(runs: readonly TextRun[], stretches: readonly Stretch[] | undefined): readonly TextRun[] {
+function withXmlText(runs: readonly TextRun[], stretches: readonly Stretch[] | undefined): readonly TextRun[] {
   const xml = stretches?.map(stretch => stretch.text).join('') ?? ''
-  if (!xml.includes('\t')) return runs
+  if (!xml.includes('\t') && xml.length !== runs.reduce((total, run) => total + run.text.length, 0) + 1) return runs
   let at = 0
+  let restoredSpace = false
   const restored = runs.map(run => {
     let text = ''
     for (let index = 0; index < run.text.length;) {
       if (xml[at] === '\t' && run.text.startsWith('    ', index)) {
         text += '\t'
         index += 4
+      } else if (!restoredSpace && xml[at] === ' ' && run.text[index] !== ' ') {
+        text += ' '
+        restoredSpace = true
       } else {
         text += run.text[index]
         index += 1
@@ -344,7 +415,8 @@ function withTabs(runs: readonly TextRun[], stretches: readonly Stretch[] | unde
     }
     return { ...run, text }
   })
-  return at === xml.length ? restored : runs
+  const agrees = restoredSpace ? restored.map(run => run.text).join('') === xml : at === xml.length
+  return agrees ? restored : runs
 }
 
 /** Splits runs where the XML's highlight changes, when the two agree on the paragraph's text. */
@@ -398,7 +470,7 @@ function readParagraphs(html: string, infos: readonly ParagraphInfo[] | undefine
       ? [textRun('', { size: 18, ...endStyle })]
       : empty
         ? read.map(run => ({ ...run, ...endStyle, text: '' }))
-        : withHighlight(withTabs(read, info?.stretches), info?.stretches, context)
+        : withHighlight(withXmlText(read, info?.stretches), info?.stretches, context)
     const htmlList: ListStyle = element.closest('ol') !== null ? 'number' : element.closest('li') !== null ? 'bullet' : 'none'
     return {
       runs,
@@ -433,12 +505,16 @@ interface ElementContext {
   readonly findings: Findings
   readonly slide: number
   readonly place: Placement
+  /** Whether the groups around the element, taken together, mirror it left to right or top to bottom. */
+  readonly flipH: boolean
+  readonly flipV: boolean
   readonly paragraphs: ReadonlyMap<string, readonly ParagraphInfo[]>
   readonly tables: ReadonlyMap<string, TableXml>
+  readonly frames: ReadonlyMap<string, Positioned>
 }
 
 /** Layout, master and SmartArt shapes come from other parts, whose XML is not read. */
-const noXml = { paragraphs: new Map<string, readonly ParagraphInfo[]>(), tables: new Map<string, TableXml>() }
+const noXml = { paragraphs: new Map<string, readonly ParagraphInfo[]>(), tables: new Map<string, TableXml>(), frames: new Map<string, Positioned>() }
 
 interface Positioned {
   readonly left: number
@@ -642,7 +718,12 @@ function tableOf(source: SourceTable, context: ElementContext): TableElement {
   const edges = source.data.flatMap(row => row.flatMap(cell => [cell.borders.top, cell.borders.bottom, cell.borders.left, cell.borders.right]))
   if (edges.some(cellEdge => cellEdge !== undefined && !sameEdge(cellEdge, edge))) context.findings.add('tableBorders', context.slide)
   const firstEnd = xml?.ends.flat().find(style => style.size !== undefined)
-  const color = commonColor(read.flatMap(row => row.map(cell => cell.cell.color))) ?? defaultTheme.text
+  // Counted below the first row, which may be a header in its own colour: the table's colour is what a row shows without one.
+  // A table of one header row has no such rows to count, so it takes the default text colour, not its header's.
+  const only = read.length === 1 ? read[0] : undefined
+  const headerOnly = only !== undefined && only.length > 0 && only.every(({ cell }) => cell.bold && cell.fill !== undefined)
+  const body = read.length > 1 ? read.slice(1) : read
+  const color = headerOnly ? defaultTheme.text : commonColor(body.flatMap(row => row.map(cell => cell.cell.color))) ?? commonColor(read.flatMap(row => row.map(cell => cell.cell.color))) ?? defaultTheme.text
   const rows = read.map((row, index) => ({
     height: source.rowHeights[index] ?? 32,
     cells: columns.map((_, column) => {
@@ -698,18 +779,32 @@ function convert(source: SourceElement, context: ElementContext): SlideElement[]
     case 'group': {
       findings.add('groups', slide)
       const centre = { x: source.left + source.width / 2, y: source.top + source.height / 2 }
-      const place: Placement = (child, rotation) =>
-        context.place(rotatePoint({ x: source.left + child.x, y: source.top + child.y }, centre, source.rotate), rotation + source.rotate)
-      return ordered(source.elements).flatMap(child => convert(child, { ...context, place }))
+      // A flipped group mirrors where its children sit, which way they turn, and the children themselves.
+      // Each group mirrors by its own flip only; the groups around it mirror the result in turn through `context.place`.
+      const mirror = (value: number, size: number, flipped: boolean): number => flipped ? size - value : value
+      const turn = source.isFlipH === source.isFlipV ? 1 : -1
+      const place: Placement = (child, rotation) => context.place(
+        rotatePoint({ x: source.left + mirror(child.x, source.width, source.isFlipH), y: source.top + mirror(child.y, source.height, source.isFlipV) }, centre, source.rotate),
+        turn * rotation + source.rotate,
+      )
+      const inside = { ...context, place, flipH: context.flipH !== source.isFlipH, flipV: context.flipV !== source.isFlipV }
+      // A group inside this one is mirrored by `place` like any other child; only shapes and pictures take the flip themselves.
+      const flipped = (child: SourceElement): SourceElement => 'isFlipH' in child && child.type !== 'group'
+        ? { ...child, isFlipH: child.isFlipH !== inside.flipH, isFlipV: child.isFlipV !== inside.flipV }
+        : child
+      return ordered(source.elements).flatMap(child => convert(flipped(child), inside))
     }
     case 'diagram': {
       findings.add('smartArt', slide)
       const place: Placement = (child, rotation) => context.place({ x: source.left + child.x, y: source.top + child.y }, rotation)
       return ordered(source.elements).flatMap(child => convert(child, { ...context, ...noXml, place }))
     }
-    case 'math':
+    case 'math': {
       findings.add('equations', slide)
-      return source.picBase64 === '' ? [] : imageOf(source.picBase64, source, 0, context)
+      // An equation in a placeholder has no size of its own; it takes its layout's place.
+      const frame = source.width > 0 && source.height > 0 ? source : context.frames.get(source.id)
+      return source.picBase64 === '' || frame === undefined ? [] : imageOf(source.picBase64, frame, 0, context)
+    }
     case 'chart':
       findings.add('charts', slide)
       return []
@@ -745,6 +840,42 @@ function presentationOrder(parts: Readonly<Record<string, Uint8Array>>, files: r
   const order = Array.from(strFromU8(presentation).matchAll(/<p:sldId\b[^>]*\br:id="([^"]+)"/g), ([, id]) => targets.get(id ?? '') ?? '')
   const same = order.length === files.length && [...order].sort().join() === [...files].sort().join()
   return same ? order : undefined
+}
+
+/** The part a relationship of `type` (`slideLayout`, `slideMaster`) points to from part `from`, as a zip path. */
+function relatedPart(parts: Readonly<Record<string, Uint8Array>>, from: string, type: string): string | undefined {
+  const slash = from.lastIndexOf('/')
+  const folder = from.slice(0, slash)
+  const relations = parts[`${folder}/_rels/${from.slice(slash + 1)}.rels`]
+  if (relations === undefined) return undefined
+  const tag = Array.from(strFromU8(relations).matchAll(/<Relationship\b[^>]*>/g), ([match]) => match)
+    .find(candidate => new RegExp(`\\bType="[^"]*/${type}"`).test(candidate))
+  const target = tag === undefined ? undefined : /\bTarget="([^"]+)"/.exec(tag)?.[1]
+  if (target === undefined) return undefined
+  const path = target.startsWith('/') ? [] : folder.split('/')
+  for (const segment of target.replace(/^\//, '').split('/')) {
+    if (segment === '..') path.pop()
+    else if (segment !== '.') path.push(segment)
+  }
+  return path.join('/')
+}
+
+/** Reads each slide's layout and master once, and finds the placeholders a slide placeholder takes its look from. */
+function designPlaceholdersOf(parts: Readonly<Record<string, Uint8Array>>): (slideFile: string | undefined) => DesignPlaceholders {
+  const documents = new Map<string, Document>()
+  const documentOf = (name: string | undefined): Document | undefined => {
+    const data = name === undefined ? undefined : parts[name]
+    if (name === undefined || data === undefined) return undefined
+    const document = documents.get(name) ?? parseXml(strFromU8(data))
+    documents.set(name, document)
+    return document
+  }
+  return slideFile => {
+    const layout = slideFile === undefined ? undefined : relatedPart(parts, slideFile, 'slideLayout')
+    const master = layout === undefined ? undefined : relatedPart(parts, layout, 'slideMaster')
+    const designs = [documentOf(layout), documentOf(master)].filter(design => design !== undefined)
+    return placeholder => designs.map(design => matchingPlaceholder(design, placeholder))
+  }
 }
 
 /** The built-in theme whose background most slides use, so a deck made with a theme keeps following it. */
@@ -789,6 +920,7 @@ export async function readPptx(bytes: Uint8Array): Promise<ImportedPresentation>
   }
   const slideFiles = listedSlideFiles(parts)
   const findings = new Findings()
+  const designPlaceholders = designPlaceholdersOf(parts)
 
   // Pair each pptxtojson slide with its file, then put them in the presentation's own order.
   const order = presentationOrder(parts, slideFiles)
@@ -798,8 +930,8 @@ export async function readPptx(bytes: Uint8Array): Promise<ImportedPresentation>
   const slides = inOrder.flatMap(({ slide: sourceSlide, file }, index): Slide[] => {
     if (sourceSlide === undefined) return []
     const number = index + 1
-    const xml = readSlideXml(file === undefined ? '<p:sld/>' : strFromU8(parts[file] ?? new Uint8Array()))
-    const context: ElementContext = { findings, slide: number, place: onSlide, paragraphs: xml.paragraphs, tables: xml.tables }
+    const xml = readSlideXml(file === undefined ? '<p:sld/>' : strFromU8(parts[file] ?? new Uint8Array()), designPlaceholders(file))
+    const context: ElementContext = { findings, slide: number, place: onSlide, flipH: false, flipV: false, paragraphs: xml.paragraphs, tables: xml.tables, frames: xml.frames }
     if (xml.animated) findings.add('animations', number)
     if (sourceSlide.transition !== undefined && sourceSlide.transition !== null && sourceSlide.transition.type !== 'none') findings.add('transitions', number)
     if (xml.hidden) findings.add('hiddenSlides', number)

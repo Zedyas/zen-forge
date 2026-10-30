@@ -37,41 +37,71 @@ function lineOf(border: Border | undefined, arrow: boolean): PptxGenJS.ShapeLine
 }
 
 /**
- * One text object per run. pptxgenjs starts a paragraph after a run with `breakLine`, and reads a
- * paragraph's bullet and level from its first run.
+ * One text object per run, or per line of a run holding line breaks. pptxgenjs starts a paragraph after
+ * a run with `breakLine`, and reads a paragraph's bullet and level from its first run.
  */
 function textRuns(paragraphs: readonly Paragraph[]): PptxGenJS.TextProps[] {
-  return paragraphs.flatMap((paragraph, index) => paragraph.runs.map((run, position): PptxGenJS.TextProps => ({
-    text: run.text,
-    options: {
-      bold: run.bold,
-      italic: run.italic,
-      underline: run.underline ? { style: 'sng' } : undefined,
-      color: hex(run.color),
-      transparency: transparency(run.color),
-      highlight: run.highlight === undefined ? undefined : hex(run.highlight),
-      fontSize: run.size,
-      fontFace: run.font,
-      align: paragraph.align,
-      ...(position === 0 ? {
-        bullet: paragraph.list === 'bullet' ? true : paragraph.list === 'number' ? { type: 'number' } : false,
-        indentLevel: paragraph.level,
-        lineSpacingMultiple: paragraph.lineSpacing === 1 ? undefined : paragraph.lineSpacing,
-      } : {}),
-      breakLine: position === paragraph.runs.length - 1 && index < paragraphs.length - 1,
-    },
-  })))
+  return paragraphs.flatMap((paragraph, index) => paragraph.runs.flatMap((run, position) => {
+    const lines = run.text.split(lineBreak)
+    return lines.map((line, part): PptxGenJS.TextProps => ({
+      text: xmlText(line),
+      options: {
+        bold: run.bold,
+        italic: run.italic,
+        underline: run.underline ? { style: 'sng' } : undefined,
+        color: hex(run.color),
+        transparency: transparency(run.color),
+        highlight: run.highlight === undefined ? undefined : hex(run.highlight),
+        fontSize: run.size,
+        fontFace: fontName(run.font),
+        align: paragraph.align,
+        ...(position === 0 && part === 0 ? {
+          bullet: paragraph.list === 'bullet' ? true : paragraph.list === 'number' ? { type: 'number' } : false,
+          indentLevel: paragraph.level,
+          lineSpacingMultiple: paragraph.lineSpacing === 1 ? undefined : paragraph.lineSpacing,
+        } : {}),
+        softBreakBefore: part > 0,
+        breakLine: part === lines.length - 1 && position === paragraph.runs.length - 1 && index < paragraphs.length - 1,
+      },
+    }))
+  }))
 }
 
 function hex(color: string): string | undefined {
   return opaqueHex(color)?.slice(1)
 }
 
-/** A table with its column widths, row heights and each cell's look; every cell edge takes the table's border. */
+/** PowerPoint copies a line break inside a paragraph as a vertical tab. */
+const lineBreak = '\u000b'
+
+/**
+ * Text without the control characters XML cannot hold, which would make PowerPoint refuse the file.
+ * Pasted text brings them. Line breaks are split out before this, and written as line breaks.
+ */
+function xmlText(text: string): string {
+  return text.replace(/[^\t\n\r\u0020-\uFFFD\u{10000}-\u{10FFFF}]/gu, '')
+}
+
+/** A table cell's text, as one string or, when it holds line breaks, a run for each line. */
+function cellText(text: string): string | PptxGenJS.TextProps[] {
+  const lines = text.split(lineBreak)
+  return lines.length === 1 ? xmlText(text) : lines.map((line, part): PptxGenJS.TextProps => ({ text: xmlText(line), options: { softBreakBefore: part > 0 } }))
+}
+
+/** pptxgenjs writes font names into its XML as they are, where `&`, `<` and `"` would break the file. */
+function fontName(font: string): string {
+  return xmlText(font).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
+/**
+ * A table with its column widths, row heights and each cell's look; every cell edge takes the table's
+ * border. pptxgenjs writes no border transparency, so an invisible border is written as none.
+ */
 function addTable(slide: PptxGenJS.Slide, table: TableElement): void {
-  const edge: PptxGenJS.BorderProps = { type: 'solid', pt: table.border.width, color: hex(table.border.color) }
+  const visible = table.border.width > 0 && transparency(table.border.color) < 100
+  const edge: PptxGenJS.BorderProps = visible ? { type: 'solid', pt: table.border.width, color: hex(table.border.color) } : { type: 'none' }
   const rows: PptxGenJS.TableRow[] = table.rows.map(row => row.cells.map((cell): PptxGenJS.TableCell => ({
-    text: cell.text,
+    text: cellText(cell.text),
     options: {
       bold: cell.bold,
       color: hex(cell.color ?? table.color),
@@ -79,7 +109,7 @@ function addTable(slide: PptxGenJS.Slide, table: TableElement): void {
       align: cell.align,
       valign: cell.verticalAlign,
       fontSize: table.size,
-      fontFace: table.font,
+      fontFace: fontName(table.font),
       border: [edge, edge, edge, edge],
     },
   })))
@@ -239,7 +269,7 @@ function endParagraphProperties(style: RunStyle): string {
   const hex = opaqueHex(style.color)?.slice(1) ?? '000000'
   const opacity = 100 - transparency(style.color)
   const alpha = opacity < 100 ? `<a:alpha val="${opacity * 1000}"/>` : ''
-  const font = style.font.replace(/[<>&"]/g, '')
+  const font = fontName(style.font)
   return `<a:endParaRPr lang="en-US" sz="${Math.round(style.size * 100)}" b="${style.bold ? 1 : 0}" i="${style.italic ? 1 : 0}" u="${style.underline ? 'sng' : 'none'}" dirty="0">`
     + `<a:solidFill><a:srgbClr val="${hex}">${alpha}</a:srgbClr></a:solidFill><a:latin typeface="${font}"/></a:endParaRPr>`
 }
@@ -298,7 +328,7 @@ export async function writePptx(presentation: Presentation): Promise<Uint8Array>
     const output = pptx.addSlide()
     output.background = slide.backgroundImage === undefined ? fillOf(slide.background) : { data: withoutScheme(slide.backgroundImage) }
     slide.elements.forEach(element => addElement(output, element))
-    if (slide.notes.trim() !== '') output.addNotes(slide.notes)
+    if (slide.notes.trim() !== '') output.addNotes(xmlText(slide.notes.replaceAll(lineBreak, '\n')))
   }
   const written = await pptx.write({ outputType: 'uint8array' })
   if (!(written instanceof Uint8Array)) throw new Error('The presentation could not be written.')
