@@ -21,8 +21,9 @@ export function updateMarkup(documentId: string, pageKey: string, markupId: stri
   })))
 }
 
+/** Does nothing when the markup is already gone, as when an undo took away the one still selected. */
 export function removeMarkup(documentId: string, pageKey: string, markupId: string): void {
-  commitPdf(documentId, snapshot => onPage(snapshot, pageKey, page => ({
+  commitPdf(documentId, snapshot => findMarkup(snapshot, pageKey, markupId) === undefined ? snapshot : onPage(snapshot, pageKey, page => ({
     ...page,
     markups: page.markups.filter(placed => placed.id !== markupId),
   })))

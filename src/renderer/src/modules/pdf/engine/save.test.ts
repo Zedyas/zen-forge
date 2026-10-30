@@ -1,4 +1,4 @@
-import { PDFDocument, PDFName, PDFNumber, StandardFonts, degrees, type PDFPage } from '@cantoo/pdf-lib'
+import { PDFDocument, PDFName, PDFNumber, PDFString, StandardFonts, degrees, type PDFPage } from '@cantoo/pdf-lib'
 import { describe, expect, it } from 'vitest'
 import type { Rect } from './geometry'
 import { redactPages } from './redact'
@@ -70,6 +70,69 @@ describe('deleted content', () => {
 
     expect(await extractPageTexts(output)).toEqual(['ALPHA'])
     expect(await fileContainsText(output, 'SALARYTABLE')).toBe(false)
+  })
+
+  it('leaves nothing of a deleted page from another file that a kept page links to', async () => {
+    const donor = await PDFDocument.load(await documentWith(['KEPT', 'DELETEDPAGE']))
+    const [kept, deleted] = donor.getPages()
+    const link = donor.context.obj({ Type: 'Annot', Subtype: 'Link', Rect: [40, 40, 120, 60], Dest: [deleted.ref, 'Fit'] })
+    kept.node.addAnnot(donor.context.register(link))
+
+    const output = await savePdf({
+      sources: [await documentWith(['ALPHA']), await donor.save()],
+      pages: [{ source: 0, index: 0, rotation: 0, edits: [] }, { source: 1, index: 0, rotation: 0, edits: [] }],
+    })
+
+    expect(await extractPageTexts(output)).toEqual(['ALPHA', 'KEPT'])
+    expect(await fileContainsText(output, 'DELETEDPAGE')).toBe(false)
+  })
+
+  it('removes the form fields of a deleted page, values included, and keeps the others', async () => {
+    const doc = await PDFDocument.create()
+    const [first, second] = [doc.addPage([400, 600]), doc.addPage([400, 600])]
+    const form = doc.getForm()
+    const fields = [['name', 'KEEPNAME', first], ['salary', 'SALARYVALUE', second]] as const
+    for (const [name, value, page] of fields) {
+      const field = form.createTextField(name)
+      field.setText(value)
+      field.addToPage(page, { x: 40, y: 500, width: 150, height: 20 })
+    }
+
+    const output = await savePdf({ sources: [await doc.save()], pages: [{ source: 0, index: 0, rotation: 0, edits: [] }] })
+
+    expect(await fileContainsText(output, 'SALARYVALUE')).toBe(false)
+    expect((await PDFDocument.load(output)).getForm().getFields().map(field => field.getName())).toEqual(['name'])
+  })
+
+  it('removes the form fields of a deleted page from another file that share a parent with a kept page\'s', async () => {
+    const donor = await PDFDocument.create()
+    const [first, second] = [donor.addPage([400, 600]), donor.addPage([400, 600])]
+    const form = donor.getForm()
+    const fields = [['employee.name', 'KEEPNAME', first], ['employee.salary', 'SALARYVALUE', second]] as const
+    for (const [name, value, page] of fields) {
+      const field = form.createTextField(name)
+      field.setText(value)
+      field.addToPage(page, { x: 40, y: 500, width: 150, height: 20 })
+    }
+
+    const output = await savePdf({
+      sources: [await documentWith(['ALPHA']), await donor.save()],
+      pages: [{ source: 0, index: 0, rotation: 0, edits: [] }, { source: 1, index: 0, rotation: 0, edits: [] }],
+    })
+
+    expect(await fileContainsText(output, 'SALARYVALUE')).toBe(false)
+    expect(await fileContainsText(output, 'KEEPNAME')).toBe(true)
+  })
+
+  it('saves a page whose application data has a type written as text', async () => {
+    const doc = await PDFDocument.load(await documentWith(['ALPHA']))
+    const { context } = doc
+    const data = context.register(context.obj({ Type: PDFString.of('custom'), Private: PDFString.of('DATA') }))
+    doc.getPages()[0]?.node.set(PDFName.of('PieceInfo'), context.obj({ App: { Private: data } }))
+
+    const output = await savePdf({ sources: [await doc.save()], pages: [{ source: 0, index: 0, rotation: 0, edits: [] }] })
+
+    expect(await extractPageTexts(output)).toEqual(['ALPHA'])
   })
 })
 

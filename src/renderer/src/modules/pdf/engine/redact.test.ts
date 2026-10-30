@@ -1,4 +1,4 @@
-import { PDFDict, PDFDocument, PDFName, PDFString, StandardFonts, degrees } from '@cantoo/pdf-lib'
+import { PDFDict, PDFDocument, PDFName, PDFRawStream, PDFString, StandardFonts, degrees } from '@cantoo/pdf-lib'
 import { describe, expect, it } from 'vitest'
 import { pageGeometry, rectToDisplayed } from './geometry'
 import { redactPages } from './redact'
@@ -37,6 +37,17 @@ describe('redactPages', () => {
     expect(page?.getRotation().angle).toBe(rotation)
   })
 
+  it('removes a drawn line that crosses the box edge and keeps lines away from it', async () => {
+    const { doc, page, box, shown } = await statement()
+    // The box spans x 36–206 at y 494–518: the first line starts inside it and runs past its edge.
+    page.drawLine({ start: { x: 120, y: 506 }, end: { x: 377, y: 506 } })
+    page.drawLine({ start: { x: 40, y: 111 }, end: { x: 359, y: 111 } })
+    const output = await redactPages(await doc.save(), [{ index: 0, shown, boxes: [box] }], keepHidden)
+
+    expect(await fileContainsText(output, '377')).toBe(false)
+    expect(await fileContainsText(output, '359')).toBe(true)
+  })
+
   it('refuses boxes drawn on a page that differs from the page it would redact', async () => {
     const { doc, box, shown } = await statement(90)
     const request = { index: 0, shown: { ...shown, rotation: 0 as const }, boxes: [box] }
@@ -59,6 +70,46 @@ describe('redactPages', () => {
     expect(await fileContainsText(output, 'IBANSECRET')).toBe(false)
     const fields = (await PDFDocument.load(output)).getForm().getFields().map(field => field.getName())
     expect(fields).toEqual(['name'])
+  })
+
+  it('clears a choice whose chosen button is under a box, and keeps the other buttons', async () => {
+    const { doc, page, box, shown } = await statement()
+    const form = doc.getForm()
+    const plan = form.createRadioGroup('plan')
+    plan.addOptionToPage('Covered', page, { x: 220, y: 498, width: 15, height: 15 })
+    plan.addOptionToPage('Basic', page, { x: 220, y: 300, width: 15, height: 15 })
+    plan.addOptionToPage('Premium', page, { x: 220, y: 200, width: 15, height: 15 })
+    plan.select('Covered')
+    const consent = form.createCheckBox('consent')
+    consent.addToPage(page, { x: 250, y: 498, width: 15, height: 15 })
+    consent.addToPage(page, { x: 250, y: 300, width: 15, height: 15 })
+    consent.check()
+
+    const output = await redactPages(await doc.save(), [{ index: 0, shown, boxes: [{ ...box, width: 360 }] }], keepHidden)
+
+    const saved = (await PDFDocument.load(output)).getForm()
+    expect(saved.getRadioGroup('plan').getSelected()).toBeUndefined()
+    expect(saved.getRadioGroup('plan').acroField.getWidgets()).toHaveLength(2)
+    expect(saved.getCheckBox('consent').isChecked()).toBe(false)
+  })
+
+  it('removes the option of a button under a box, so the other buttons keep their own options', async () => {
+    const { doc, page, box, shown } = await statement()
+    const plan = doc.getForm().createRadioGroup('plan')
+    plan.addOptionToPage('Covered', page, { x: 220, y: 498, width: 15, height: 15 })
+    plan.addOptionToPage('Basic', page, { x: 220, y: 300, width: 15, height: 15 })
+    plan.addOptionToPage('Premium', page, { x: 220, y: 200, width: 15, height: 15 })
+
+    const output = await redactPages(await doc.save(), [{ index: 0, shown, boxes: [{ ...box, width: 360 }] }], keepHidden)
+
+    expect(await fileContainsText(output, 'Covered')).toBe(false)
+    const saved = (await PDFDocument.load(output)).getForm().getRadioGroup('plan')
+    expect(saved.getOptions()).toEqual(['Basic', 'Premium'])
+    const widgets = saved.acroField.getWidgets()
+    for (const [index, option] of ['Basic', 'Premium'].entries()) {
+      saved.select(option)
+      expect(widgets.map(widget => widget.getAppearanceState() !== PDFName.of('Off'))).toEqual([index === 0, index === 1])
+    }
   })
 
   it('removes copies of the text outside the page content, and hidden information on request', async () => {
@@ -97,6 +148,66 @@ describe('redactPages', () => {
     expect(await fileContainsText(cleaned, 'SECRET')).toBe(false)
     const [text] = await extractPageTexts(cleaned)
     expect(text).toContain('KEEP ME')
+  })
+
+  it('removes text quoted by marked content on a redacted page, inline, named or in a form', async () => {
+    const box = { x: 36, y: 82, width: 170, height: 24 }
+    const { doc, page } = await layeredPdf([
+      '/Span <</MCID 0 /ActualText (SECRET-INLINE)>> BDC BT /F1 14 Tf 40 500 Td (XXXX) Tj ET EMC',
+      '/Span /Quoted BDC BT /F1 14 Tf 120 500 Td (YYYY) Tj ET EMC',
+      '/Quoting Do BT /F1 14 Tf 40 300 Td (KEEP ME) Tj ET',
+    ].join('\n'), { Quoting: { content: '/Figure <</Alt (SECRET-FORM)>> BDC BT /F1 14 Tf 40 505 Td (ZZZZ) Tj ET EMC' } })
+    page.node.Resources()?.lookup(PDFName.of('Properties'), PDFDict).set(PDFName.of('Quoted'), doc.context.obj({ ActualText: PDFString.of('SECRET-NAMED') }))
+    const bytes = await doc.save({ useObjectStreams: false })
+
+    const output = await redactPages(bytes, [{ index: 0, shown: plainPage, boxes: [box] }], keepHidden)
+    for (const secret of ['SECRET-INLINE', 'SECRET-NAMED', 'SECRET-FORM']) expect(await fileContainsText(output, secret)).toBe(false)
+    expect(await fileContainsText(output, '/MCID 0')).toBe(true)
+    const [text] = await extractPageTexts(output)
+    expect(text).toContain('KEEP ME')
+  })
+
+  it('removes the quoted text of a property list another page shares only from the redacted page', async () => {
+    const doc = await PDFDocument.create()
+    const { context } = doc
+    const font = await doc.embedFont(StandardFonts.Helvetica)
+    const quoted = context.register(context.obj({ ActualText: PDFString.of('SHARED-QUOTE') }))
+    for (let index = 0; index < 2; index += 1) {
+      const page = doc.addPage([400, 600])
+      page.node.set(PDFName.of('Resources'), context.obj({ Font: { F1: font.ref }, Properties: { Quoted: quoted } }))
+      page.node.set(PDFName.of('Contents'), context.register(context.stream('/Span /Quoted BDC BT /F1 14 Tf 40 300 Td (KEEP ME) Tj ET EMC')))
+    }
+
+    // The box covers a blank corner of the first page.
+    const output = await redactPages(await doc.save({ useObjectStreams: false }), [{ index: 0, shown: plainPage, boxes: [{ x: 300, y: 10, width: 20, height: 20 }] }], keepHidden)
+
+    const quotes = (await PDFDocument.load(output)).getPages().map(page =>
+      page.node.Resources()?.lookup(PDFName.of('Properties'), PDFDict).lookup(PDFName.of('Quoted'), PDFDict).get(PDFName.of('ActualText'))?.toString())
+    expect(quotes).toEqual([undefined, '(SHARED-QUOTE)'])
+  })
+
+  it('removes the application data and metadata of a form drawn on a redacted page', async () => {
+    const box = { x: 36, y: 82, width: 170, height: 24 }
+    const { doc, page } = await layeredPdf('/Drawn Do BT /F1 14 Tf 40 300 Td (KEEP ME) Tj ET', { Drawn: { content: 'BT /F1 14 Tf 40 505 Td (ZZZZ) Tj ET' } })
+    const form = doc.context.lookup(page.node.Resources()?.lookup(PDFName.of('XObject'), PDFDict).get(PDFName.of('Drawn')))
+    if (!(form instanceof PDFRawStream)) throw new Error('No form')
+    form.dict.set(PDFName.of('PieceInfo'), doc.context.obj({ App: { Private: PDFString.of('SECRET-PIECE') } }))
+    form.dict.set(PDFName.of('Metadata'), doc.context.register(doc.context.stream('<x:xmpmeta>SECRET-XMP</x:xmpmeta>')))
+
+    const output = await redactPages(await doc.save({ useObjectStreams: false }), [{ index: 0, shown: plainPage, boxes: [box] }], keepHidden)
+    for (const secret of ['SECRET-PIECE', 'SECRET-XMP']) expect(await fileContainsText(output, secret)).toBe(false)
+  })
+
+  it.each(['inline', 'indirect'])('removes tag alt text whose page only its marked-content reference names (%s reference)', async storage => {
+    const { doc, page, box, shown } = await statement()
+    const { context } = doc
+    const inline = context.obj({ Type: 'MCR', Pg: page.ref, MCID: 0 })
+    const reference = storage === 'inline' ? inline : context.register(inline)
+    const element = context.register(context.obj({ Type: 'StructElem', S: 'Figure', K: [reference], Alt: PDFString.of('SECRET-ALT') }))
+    doc.catalog.set(PDFName.of('StructTreeRoot'), context.register(context.obj({ Type: 'StructTreeRoot', K: [element] })))
+
+    const output = await redactPages(await doc.save({ useObjectStreams: false }), [{ index: 0, shown, boxes: [box] }], keepHidden)
+    expect(await fileContainsText(output, 'SECRET-ALT')).toBe(false)
   })
 
   it('removes covered text in a hidden layer, marked in the page content or on a form XObject', async () => {

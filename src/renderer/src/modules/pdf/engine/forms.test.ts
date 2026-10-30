@@ -44,4 +44,17 @@ describe('AcroForm fields', () => {
     expect(await listFormFields(flattened)).toEqual([])
     expect((await extractPageTexts(flattened))[0]).toContain('Jane Quill')
   })
+
+  it('keeps typed text within a text field\'s maximum length instead of failing the save', async () => {
+    const doc = await PDFDocument.create()
+    const code = doc.getForm().createTextField('postcode')
+    code.setMaxLength(5)
+    code.addToPage(doc.addPage([400, 600]), { x: 50, y: 500, width: 200, height: 20 })
+    const bytes = await doc.save()
+    expect((await listFormFields(bytes))[0]?.maxLength).toBe(5)
+
+    const saved = await savePdf({ sources: [bytes], pages: onePage, formValues: { postcode: '1234567' } })
+
+    expect((await listFormFields(saved))[0]?.value).toBe('12345')
+  })
 })
