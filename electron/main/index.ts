@@ -8,9 +8,10 @@ import { attachSpellingMenu, registerLinkIpc } from './document-editing'
 import { registerFileIpc } from './file-ipc'
 import { NodeFileService } from './node-file-service'
 import { registerPrintIpc } from './print-ipc'
-import { applySecurity, appPageUrl, handle, registerAppScheme } from './security'
+import { applySecurity, handle, registerAppScheme, rendererUrl } from './security'
 import { applyStoredAppearance, copyZendoData, getAppearance, readSession, readSettings, setAppearance, setCheckForUpdates, writeSession } from './settings'
 import { currentUpdateStatus, registerUpdates, scheduleUpdateCheck } from './updates'
+import { closeWaitsForPage, historyItems, targetFor, windowWith } from './windows'
 
 /** Every window is the same kind: a row of tabs that starts on Home. */
 interface WindowRecord {
@@ -56,12 +57,18 @@ function currentWindow(): WindowRecord | undefined {
   return recordFor(BrowserWindow.getFocusedWindow()) ?? lastFocused ?? records.at(-1)
 }
 
-/** The window a file or command from outside goes to; a new one when none is open. */
-function targetWindow(): WindowRecord {
-  const record = currentWindow() ?? createWindow()
+function bringForward(record: WindowRecord): WindowRecord {
   if (record.window.isMinimized()) record.window.restore()
   record.window.focus()
   return record
+}
+
+/**
+ * The window a file or command from outside goes to; a new one when none can take it. A file already
+ * open in a window goes to that window, so one file never has tabs in two windows.
+ */
+function targetWindow(path?: string): WindowRecord {
+  return bringForward(targetFor(records, currentWindow(), path) ?? createWindow())
 }
 
 /** Remembers each open window's saved tabs for the next launch. Skipped while quitting so closing windows do not erase it. */
@@ -109,7 +116,7 @@ function menuItems(menu: MenuId, record: WindowRecord | undefined): MenuItemCons
 }
 
 function sendRecentsRequest(request: RecentsRequest): void {
-  send(targetWindow(), 'shell:recents-request', request)
+  send(targetWindow(request.action === 'open' ? request.path : undefined), 'shell:recents-request', request)
 }
 
 /** File > Open Recent. Choosing a file asks a window to open it; that window owns the list and reports a file that is gone. */
@@ -194,7 +201,7 @@ function buildMenu(record: WindowRecord | undefined): Menu {
     {
       label: 'Edit',
       submenu: [
-        ...edit.filter(item => item.id === 'edit.undo' || item.id === 'edit.redo'),
+        ...historyItems(edit),
         { type: 'separator' },
         { role: 'cut' },
         { role: 'copy' },
@@ -243,11 +250,6 @@ function refreshMenu(): void {
   Menu.setApplicationMenu(buildMenu(currentWindow()))
 }
 
-function loadRenderer(window: BrowserWindow): void {
-  const developmentUrl = process.env['ELECTRON_RENDERER_URL']
-  void window.loadURL(developmentUrl ?? appPageUrl)
-}
-
 function createWindow(restore?: WindowSession): WindowRecord {
   const window = new BrowserWindow({
     width: 1280,
@@ -279,7 +281,7 @@ function createWindow(restore?: WindowSession): WindowRecord {
   }
   records.push(record)
   attachSpellingMenu(window.webContents)
-  loadRenderer(window)
+  void window.loadURL(rendererUrl())
   const update = currentUpdateStatus()
   if (update.state !== 'none') send(record, 'update:status', update)
 
@@ -289,7 +291,7 @@ function createWindow(restore?: WindowSession): WindowRecord {
     refreshMenu()
   })
   window.on('close', event => {
-    if (!record.state.hasUnsaved || record.closeApproved) return
+    if (!closeWaitsForPage(record)) return
     // The renderer walks its unsaved documents with Save / Don't Save / Cancel, then calls resolveClose.
     event.preventDefault()
     send(record, 'shell:close-requested')
@@ -311,7 +313,7 @@ function openDocument(file: FileReference): void {
   const application = applicationForExtension(file.extension)
   if (application === undefined || !findApplication(application).available) return
   app.addRecentDocument(file.path)
-  send(targetWindow(), 'shell:document-opened', file)
+  send(targetWindow(file.path), 'shell:document-opened', file)
 }
 
 /** Finder has no window to show a toast in, so a file it hands over that cannot be read is reported in a message box. */
@@ -339,6 +341,14 @@ handle('shell:new-window', () => {
 })
 handle('shell:open-in-new-window', (_event, file: FileReference) => {
   send(createWindow(), 'shell:document-opened', file)
+})
+handle('shell:show-in-other-window', async (event, path: unknown) => {
+  if (typeof path !== 'string') return false
+  const holder = windowWith(records, path, event.sender)
+  if (holder === undefined) return false
+  // Sent as an opened document, which selects the tab there without asking about other windows again.
+  send(bringForward(holder), 'shell:document-opened', await fileService.describeFile(path))
+  return true
 })
 handle('shell:take-session', event => {
   const record = senderRecord(event)
@@ -415,8 +425,7 @@ app.whenReady().then(() => {
   if (!app.isPackaged) app.dock?.setIcon(join(__dirname, '../../build/icon.png'))
   applySecurity()
   applyStoredAppearance()
-  registerFileIpc((event, path) => records.some(record =>
-    record.window.webContents !== event.sender && record.state.session.paths.includes(path)))
+  registerFileIpc((event, path) => windowWith(records, path, event.sender) !== undefined)
   registerUpdates(broadcast)
   registerPrintIpc()
   registerLinkIpc()

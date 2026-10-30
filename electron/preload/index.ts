@@ -64,6 +64,7 @@ const shellBridge: ShellBridge = {
   platform: process.platform,
   newWindow: () => ipcRenderer.invoke('shell:new-window'),
   openInNewWindow: file => ipcRenderer.invoke('shell:open-in-new-window', file),
+  showInOtherWindow: path => ipcRenderer.invoke('shell:show-in-other-window', path),
   takeSession: () => ipcRenderer.invoke('shell:take-session'),
   showOpenDialog: options => ipcRenderer.invoke('file:show-open-dialog', options),
   showSaveDialog: options => ipcRenderer.invoke('file:show-save-dialog', options),

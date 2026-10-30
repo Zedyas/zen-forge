@@ -1,5 +1,5 @@
 import type { FileReference, OpenFileOptions, SaveFileOptions, ShellBridge } from '@shared/shell'
-import type { FileService } from './FileService'
+import type { DroppedFiles, FileService, SkippedItem } from './FileService'
 
 /** Returns the isolated preload API; direct bridge access stays in this directory. */
 export function getBridge(): ShellBridge | undefined {
@@ -39,9 +39,18 @@ export class IpcFileService implements FileService {
     return mainProcessMessage(requireBridge('Reading files').describeFile(path))
   }
 
-  describeDroppedFiles(files: FileList): Promise<readonly FileReference[]> {
+  /** One item that cannot be read, such as a folder, is skipped; the others still open. */
+  async describeDroppedFiles(files: ArrayLike<File>): Promise<DroppedFiles> {
     const bridge = requireBridge('Dropped files')
-    return mainProcessMessage(Promise.all(Array.from(files).map(file => bridge.describeFile(bridge.pathForDroppedFile(file)))))
+    const items = Array.from(files)
+    const results = await Promise.allSettled(items.map(file => mainProcessMessage(bridge.describeFile(bridge.pathForDroppedFile(file)))))
+    const described: FileReference[] = []
+    const skipped: SkippedItem[] = []
+    results.forEach((result, index) => {
+      if (result.status === 'fulfilled') described.push(result.value)
+      else skipped.push({ name: items[index]?.name ?? '', reason: result.reason instanceof Error ? result.reason.message : 'It could not be read.' })
+    })
+    return { files: described, skipped }
   }
 
   read(path: string): Promise<Uint8Array> {

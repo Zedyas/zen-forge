@@ -22,10 +22,14 @@ function isOpenable(file: FileReference): boolean {
   return kind !== undefined && findApplication(kind).available
 }
 
-/** Opens files as tabs in this window and records them in recents. */
+/**
+ * Opens files as tabs in this window and records them in recents. A file another window has open
+ * is shown in that window instead: two tabs on one file would save over each other's changes.
+ */
 export async function openFiles(files: readonly FileReference[]): Promise<void> {
   for (const file of files) {
     if (!isOpenable(file)) throw new Error(`.${file.extension || 'unknown'} files cannot be opened yet.`)
+    if (await platformClient.showInOtherWindow(file.path)) continue
     useDocumentsStore.getState().openFile(file)
     await recordRecent(file)
   }
@@ -45,9 +49,15 @@ export async function chooseAndOpenFiles(kind?: EditorApplicationId): Promise<vo
   await openFiles(await fileService.chooseFiles({ extensions: openableExtensions(kind), allowMultiple: true }))
 }
 
-export async function openDroppedFiles(files: FileList): Promise<void> {
-  const openable = (await fileService.describeDroppedFiles(files)).filter(isOpenable)
-  if (openable.length === 0) {
+/** Opens the dropped files that can be opened. Items that are not files, such as folders, are skipped and named in a warning. */
+export async function openDroppedFiles(files: ArrayLike<File>): Promise<void> {
+  const dropped = await fileService.describeDroppedFiles(files)
+  const openable = dropped.files.filter(isOpenable)
+  if (dropped.skipped.length > 0) {
+    toast.warning(`Skipped ${dropped.skipped.map(item => `“${item.name}”`).join(', ')}`, {
+      description: [...new Set(dropped.skipped.map(item => item.reason))].join(' '),
+    })
+  } else if (openable.length === 0) {
     throw new Error(`Drop a ${openableExtensions().map(extension => `.${extension}`).join(', ')} file.`)
   }
   await openFiles(openable)
@@ -105,19 +115,45 @@ function flushTyping(id: string): void {
   if (document !== undefined) editorFor(document.kind)?.flush?.(id)
 }
 
+/**
+ * Saves a document and resolves the id its tab has afterwards, or undefined when it was not saved.
+ * A first save or a saved copy re-keys the tab to its new path in one update, in the same position.
+ * Watching for that update finds the tab even when tabs open or close while the file is written.
+ */
+async function saveForClose(id: string): Promise<string | undefined> {
+  let current = id
+  const unsubscribe = useDocumentsStore.subscribe((state, previous) => {
+    if (state.documents.length !== previous.documents.length || state.documents.some(candidate => candidate.id === current)) return
+    const rekeyed = state.documents[previous.documents.findIndex(candidate => candidate.id === current)]
+    if (rekeyed !== undefined) current = rekeyed.id
+  })
+  try {
+    return (await saveDocument(id, false)) ? current : undefined
+  } finally {
+    unsubscribe()
+  }
+}
+
 /** Closes a tab, asking Save / Don't Save / Cancel first when it has unsaved changes. */
 export async function closeDocument(id: string): Promise<boolean> {
   flushTyping(id)
   const document = findDocument(id)
   if (document === undefined) return true
+  let closing = id
   if (document.dirty) {
     useDocumentsStore.getState().select(id)
     const choice = await platformClient.confirmClose(document.name)
     if (choice === 'cancel') return false
-    if (choice === 'save' && !(await saveDocument(id, false))) return false
+    if (choice === 'save') {
+      const saved = await saveForClose(id)
+      if (saved === undefined) return false
+      // Typing during the save is not in the file; closing now would throw it away, so ask again.
+      if (findDocument(saved)?.dirty === true) return closeDocument(saved)
+      closing = saved
+    }
   }
-  editorFor(document.kind)?.release(id)
-  useDocumentsStore.getState().remove(id)
+  editorFor(document.kind)?.release(closing)
+  useDocumentsStore.getState().remove(closing)
   return true
 }
 
@@ -137,15 +173,27 @@ export async function moveToNewWindow(id: string): Promise<void> {
   useDocumentsStore.getState().remove(id)
 }
 
+/**
+ * True while the window is asking about its unsaved documents. A quit sends the close request
+ * again whenever another window closes; asking twice would show each question twice.
+ */
+let resolvingClose = false
+
 /** Resolves every unsaved document before the window closes or the app quits. */
 export async function resolveWindowClose(): Promise<void> {
-  useDocumentsStore.getState().documents.forEach(document => flushTyping(document.id))
-  const unsaved = useDocumentsStore.getState().documents.filter(document => document.dirty)
-  for (const document of unsaved) {
-    if (!(await closeDocument(document.id))) {
-      await platformClient.resolveClose(false)
-      return
+  if (resolvingClose) return
+  resolvingClose = true
+  try {
+    useDocumentsStore.getState().documents.forEach(document => flushTyping(document.id))
+    const unsaved = useDocumentsStore.getState().documents.filter(document => document.dirty)
+    for (const document of unsaved) {
+      if (!(await closeDocument(document.id))) {
+        await platformClient.resolveClose(false)
+        return
+      }
     }
+    await platformClient.resolveClose(true)
+  } finally {
+    resolvingClose = false
   }
-  await platformClient.resolveClose(true)
 }
