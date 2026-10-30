@@ -1,7 +1,8 @@
+// @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest'
 import { a4Paper, letterPaper } from '@shared/print'
 import { blankWorkbookData, Workbook } from './model/Workbook'
-import { planSheetPages, sheetPrintTable, type PrintCell } from './print'
+import { planSheetPages, sheetPrintout, sheetPrintTable, type PrintCell } from './print'
 
 function workbookWith(cells: (string | number)[][]): { workbook: Workbook; sheetId: number } {
   const blank = blankWorkbookData()
@@ -16,6 +17,15 @@ function workbookWith(cells: (string | number)[][]): { workbook: Workbook; sheet
 const texts = (rows: readonly (readonly PrintCell[])[]): string[][] => rows.map(row => row.map(cell => cell.text))
 
 describe('sheetPrintTable', () => {
+  it('stops at the last cell with content, not at the end of a range a formula reads', () => {
+    const { workbook, sheetId } = workbookWith([['Total', '=SUM(A2:A1000)', '=VLOOKUP(1,D1:E300,2,0)']])
+
+    const table = sheetPrintTable(workbook, sheetId)
+
+    expect(table?.columnWidths).toHaveLength(3)
+    expect(table?.bodyRows).toHaveLength(1)
+  })
+
   it('leaves out hidden rows and columns and prints values as the grid shows them', () => {
     const { workbook, sheetId } = workbookWith([
       ['Item', 'Note', 'Share'],
@@ -47,6 +57,57 @@ describe('sheetPrintTable', () => {
 
     expect(texts(table?.headRows ?? [])).toEqual([['Month']])
     expect(texts(table?.bodyRows ?? [])).toEqual([['Jan'], ['Feb']])
+  })
+
+  it('prints a merged cell as one cell across its columns and rows', () => {
+    const { workbook, sheetId } = workbookWith([['Quarterly report for every region'], ['North', 'Q1', 10], ['', 'Q2', 20]])
+    workbook.mergeCells(sheetId, { x: 0, y: 0, width: 3, height: 1 }, false)
+    workbook.mergeCells(sheetId, { x: 0, y: 1, width: 1, height: 2 }, false)
+
+    const table = sheetPrintTable(workbook, sheetId)
+    const content = table === undefined ? undefined : sheetPrintout(table, letterPaper).content
+    const printed = content instanceof HTMLElement ? content.querySelector('table') : null
+    const rows = [...printed?.rows ?? []].map(row => [...row.cells].map(cell => [cell.textContent, cell.colSpan, cell.rowSpan]))
+
+    expect(rows).toEqual([
+      [['Quarterly report for every region', 3, 1]],
+      [['North', 1, 2], ['Q1', 1, 1], ['10', 1, 1]],
+      [['Q2', 1, 1], ['20', 1, 1]],
+    ])
+  })
+
+  it('prints a sheet whose only content is a title merged across several cells at the merge\'s size', () => {
+    const { workbook, sheetId } = workbookWith([['Quarterly report']])
+    workbook.mergeCells(sheetId, { x: 0, y: 0, width: 3, height: 2 }, false)
+
+    const table = sheetPrintTable(workbook, sheetId)
+
+    expect(table?.columnWidths).toHaveLength(3)
+    expect(table?.bodyRows).toHaveLength(2)
+    expect(table?.bodyRows[0]?.[0]?.block).toEqual({ x: 0, y: 0, width: 3, height: 2 })
+  })
+
+  it('prints a merged title from its upper-left cell when that column is hidden', () => {
+    const { workbook, sheetId } = workbookWith([['Title', '', ''], ['', '', 5]])
+    workbook.updateStyle(sheetId, [{ x: 0, y: 0, width: 1, height: 1 }], { bold: true })
+    workbook.mergeCells(sheetId, { x: 0, y: 0, width: 2, height: 1 }, false)
+    workbook.hideColumns(sheetId, 0)
+
+    const table = sheetPrintTable(workbook, sheetId)
+
+    expect(table?.bodyRows[0]?.[0]).toMatchObject({ text: 'Title', style: { bold: true }, block: { x: 0, y: 0, width: 1, height: 1 } })
+  })
+
+  it('prints a merged title at the start of each page across', () => {
+    const { workbook, sheetId } = workbookWith([['Title', ...Array.from({ length: 29 }, () => '')], Array.from({ length: 30 }, (_, index) => index)])
+    workbook.mergeCells(sheetId, { x: 0, y: 0, width: 30, height: 1 }, false)
+
+    const table = sheetPrintTable(workbook, sheetId)
+    const content = table === undefined ? undefined : sheetPrintout(table, letterPaper).content
+    const titles = [...content instanceof HTMLElement ? content.querySelectorAll('table') : []].map(printed => printed.rows[0]?.cells[0]?.textContent)
+
+    expect(titles.length).toBeGreaterThan(1)
+    expect(titles.every(title => title === 'Title')).toBe(true)
   })
 
   it('has nothing to print when the visible cells are empty', () => {

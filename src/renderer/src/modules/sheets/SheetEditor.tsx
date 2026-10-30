@@ -290,12 +290,13 @@ export function SheetEditor({ document, workbook }: SheetEditorProps) {
     return { ...next, current: { ...current, cell, range } }
   }
 
-  const selectedRows = selection.rows.toArray()
-  const selectedColumns = selection.columns.toArray()
-  const viewRange = selectedRows.length > 0
-    ? { x: 0, y: Math.min(...selectedRows), width: Math.max(1, visibleColumns.length), height: Math.max(...selectedRows) - Math.min(...selectedRows) + 1 }
-    : selectedColumns.length > 0
-      ? { x: Math.min(...selectedColumns), y: 0, width: Math.max(...selectedColumns) - Math.min(...selectedColumns) + 1, height: Math.max(1, visibleRows.length) }
+  // first() and last(), not a spread of toArray(): selecting more than about 125,000 rows would overflow the call stack.
+  const [firstRow, lastRow] = [selection.rows.first(), selection.rows.last()]
+  const [firstColumn, lastColumn] = [selection.columns.first(), selection.columns.last()]
+  const viewRange = firstRow !== undefined && lastRow !== undefined
+    ? { x: 0, y: firstRow, width: Math.max(1, visibleColumns.length), height: lastRow - firstRow + 1 }
+    : firstColumn !== undefined && lastColumn !== undefined
+      ? { x: firstColumn, y: 0, width: lastColumn - firstColumn + 1, height: Math.max(1, visibleRows.length) }
       : selection.current?.range ?? { x: 0, y: 0, width: 1, height: 1 }
   const range = mapRange(viewRange, visibleColumns, visibleRows)
   // Cell-by-cell actions (clear, format, statistics) skip hidden rows and columns inside the selection.

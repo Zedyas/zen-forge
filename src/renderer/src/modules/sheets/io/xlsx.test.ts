@@ -126,6 +126,107 @@ describe('xlsx', () => {
     expect(data.sheets[0]?.values?.map(row => row[1])).toEqual([2, 4, 6])
   })
 
+  it('calculates functions Excel saves with a _xlfn. prefix, and writes the prefix back for Excel', async () => {
+    const source = new ExcelJS.Workbook()
+    const sheet = source.addWorksheet('Sheet1')
+    sheet.getCell('A1').value = 5
+    sheet.getCell('A2').value = 7
+    sheet.getCell('B1').value = { formula: '_xlfn.IFS(A1>6,"big",TRUE,"_xlfn.IFS(")', result: '_xlfn.IFS(' }
+    sheet.getCell('B2').value = { formula: '_xlfn.STDEV.S(A1:A2)+_xlfn.CONCAT("a")', result: 0 }
+    const opened = new Workbook((await readXlsx(new Uint8Array(await source.xlsx.writeBuffer()))).data)
+    const sheetId = opened.sheets()[0]?.id ?? 0
+
+    expect(opened.getCellInput(sheetId, [1, 0])).toBe('=IFS(A1>6,"big",TRUE,"_xlfn.IFS(")')
+    expect(opened.getCellValue(sheetId, [1, 0])).toBe('_xlfn.IFS(')
+    // CONCAT is not one the engine has, so it keeps its prefix, unchanged for Excel.
+    expect(opened.getCellInput(sheetId, [1, 1])).toBe('=STDEV.S(A1:A2)+_xlfn.CONCAT("a")')
+    opened.setCellInput(sheetId, [1, 2], '=maxifs(A1:A2,A1:A2,">0")')
+
+    const sheetXml = new TextDecoder().decode(unzipSync(await writeXlsx(opened.toData()))['xl/worksheets/sheet1.xml'])
+    const formulas = [...sheetXml.matchAll(/<f>([^<]*)<\/f>/g)].map(match => match[1]?.replaceAll('&quot;', '"').replaceAll('&gt;', '>'))
+    expect(formulas).toEqual([
+      '_xlfn.IFS(A1>6,"big",TRUE,"_xlfn.IFS(")',
+      '_xlfn.STDEV.S(A1:A2)+_xlfn.CONCAT("a")',
+      '_xlfn.MAXIFS(A1:A2,A1:A2,">0")',
+    ])
+  })
+
+  it('calculates ISO.CEILING from a file and writes its prefix back', async () => {
+    const source = new ExcelJS.Workbook()
+    source.addWorksheet('Sheet1').getCell('A1').value = { formula: '_xlfn.ISO.CEILING(4.3,2)', result: 6 }
+    const { data, findings } = await readXlsx(new Uint8Array(await source.xlsx.writeBuffer()))
+    const opened = new Workbook(data)
+    const sheetId = opened.sheets()[0]?.id ?? 0
+
+    expect(findings).toEqual([])
+    expect(opened.getCellInput(sheetId, [0, 0])).toBe('=ISO.CEILING(4.3,2)')
+    expect(opened.getCellValue(sheetId, [0, 0])).toBe(6)
+    const sheetXml = new TextDecoder().decode(unzipSync(await writeXlsx(opened.toData()))['xl/worksheets/sheet1.xml'])
+    expect(sheetXml).toContain('<f>_xlfn.ISO.CEILING(4.3,2)</f>')
+  })
+
+  it('opens a sheet with more rows than a function call can take arguments', async () => {
+    const source = new ExcelJS.Workbook()
+    const sheet = source.addWorksheet('Sheet1')
+    for (let row = 1; row <= 130_000; row += 1) sheet.getCell(row, 1).value = row
+
+    const { data } = await readXlsx(new Uint8Array(await source.xlsx.writeBuffer()))
+
+    expect(data.sheets[0]?.cells).toHaveLength(130_000)
+    expect(data.sheets[0]?.cells.at(-1)).toEqual([130_000])
+  }, 30_000)
+
+  it('keeps an error value an error, not text, through open and save', async () => {
+    const source = new ExcelJS.Workbook()
+    const sheet = source.addWorksheet('Sheet1')
+    sheet.getCell('A1').value = { error: ExcelJS.ErrorValue.NotApplicable }
+    sheet.getCell('B1').value = { formula: 'ISNA(A1)', result: true }
+    const opened = new Workbook((await readXlsx(new Uint8Array(await source.xlsx.writeBuffer()))).data)
+
+    const reopened = new Workbook((await readXlsx(await writeXlsx(opened.toData()))).data)
+    const sheetId = reopened.sheets()[0]?.id ?? 0
+
+    expect(reopened.getCellInput(sheetId, [0, 0])).toBe('#N/A')
+    expect(reopened.getCellValue(sheetId, [1, 0])).toBe(true)
+  })
+
+  it('saves a formula result as an error only when the formula calculates an error, not text that looks like one', async () => {
+    const saved = new Workbook()
+    const sheetId = saved.sheets()[0]?.id ?? 0
+    saved.setCellInput(sheetId, [0, 0], '="#N/A"')
+    saved.setCellInput(sheetId, [1, 0], '=NA()')
+
+    const part = unzipSync(await writeXlsx(saved.toData()))['xl/worksheets/sheet1.xml']
+    const xml = new TextDecoder().decode(part)
+
+    expect(xml).toMatch(/<c r="A1"[^>]*t="str"[^>]*><f>&quot;#N\/A&quot;<\/f><v>#N\/A<\/v>/)
+    expect(xml).toMatch(/<c r="B1"[^>]*t="e"[^>]*><f>NA\(\)<\/f><v>#N\/A<\/v>/)
+  })
+
+  it('keeps links to places in the workbook as places, not as links to files', async () => {
+    const source = new ExcelJS.Workbook()
+    const sheet = source.addWorksheet('Sheet1')
+    source.addWorksheet('Sheet2')
+    ;['A1', 'A2', 'A3'].forEach(address => { sheet.getCell(address).value = 'go' })
+    const entries = unzipSync(new Uint8Array(await source.xlsx.writeBuffer()))
+    const part = 'xl/worksheets/sheet1.xml'
+    entries[part] = new TextEncoder().encode(new TextDecoder().decode(entries[part]).replace('<pageMargins',
+      '<hyperlinks><hyperlink ref="A1" location="Sheet2!$A$1"/><hyperlink ref="A2" location="Totals"/></hyperlinks><pageMargins'))
+
+    const opened = new Workbook((await readXlsx(zipSync(entries))).data)
+    const sheetId = opened.sheets()[0]?.id ?? 0
+    opened.updateStyle(sheetId, [{ x: 0, y: 2, width: 1, height: 1 }], { link: '#Sheet2!B2' })
+    expect([0, 1, 2].map(row => opened.getStyle(sheetId, [0, row]).link)).toEqual(['#Sheet2!$A$1', '#Totals', '#Sheet2!B2'])
+
+    const saved = unzipSync(await writeXlsx(opened.toData()))
+    const sheetXml = new TextDecoder().decode(saved[part])
+    expect([...sheetXml.matchAll(/<hyperlink\b[^>]*>/g)].map(([tag]) => tag)).toEqual([
+      '<hyperlink ref="A1" location="Sheet2!$A$1"/>',
+      '<hyperlink ref="A2" location="Totals"/>',
+      '<hyperlink ref="A3" location="Sheet2!B2"/>',
+    ])
+  })
+
   it('keeps every text cell text, whatever the engine would read it as, without showing the mark', async () => {
     const source = new ExcelJS.Workbook()
     const sheet = source.addWorksheet('Sheet1')

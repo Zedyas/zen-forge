@@ -1,5 +1,6 @@
 import type { Item } from '@glideapps/glide-data-grid'
 import {
+  DetailedCellError,
   HyperFormula,
   type CellValue,
   type FunctionDetails,
@@ -17,6 +18,7 @@ import {
   defaultRowCount,
   defaultRowHeight,
   isDefaultStyle,
+  type CachedValue,
   type CellInput,
   type CellRange,
   type CellStyle,
@@ -83,6 +85,9 @@ interface MutableCellRange {
 const workbookConfig = {
   licenseKey: 'gpl-v3',
   precisionRounding: 10,
+  // Excel's grid; the engine's own default stops at 40,000 rows, so a larger file would not open.
+  maxRows: 1_048_576,
+  maxColumns: 16_384,
   // Undo history is owned by the snapshot stacks below; the engine keeps none.
   undoLimit: 0,
 } as const
@@ -152,6 +157,10 @@ function shownCellInput(serialized: RawCellContent): string {
 function plainValue(value: CellValue): string | number | boolean | null {
   if (value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value
   return value.toString()
+}
+
+function cachedValue(value: CellValue): CachedValue {
+  return value instanceof DetailedCellError ? { error: value.value } : value
 }
 
 /** Numbers sort before text, empty cells always last; text compares naturally ("Item 2" < "Item 10"). */
@@ -232,6 +241,8 @@ export class Workbook {
   readonly #undoStack: WorkbookData[] = []
   readonly #redoStack: WorkbookData[] = []
   #revision = 0
+  /** The used sizes read at one revision, since finding them walks the whole sheet. */
+  #usedSizes: { revision: number; sizes: Map<number, { readonly width: number; readonly height: number }> } = { revision: -1, sizes: new Map() }
   #sheetOrder: string[] = []
   /** Undo steps from the loaded state; the document is dirty when it differs from the saved depth. */
   #depth = 0
@@ -310,7 +321,9 @@ export class Workbook {
   #fitRows(sheetId: number, rows: readonly number[], measure: CellMeasure, growOnly: boolean): void {
     const layout = this.#layout(sheetId)
     const styles = this.#styles.get(this.#sheetName(sheetId))
-    const columns = Math.max(this.#engine.getSheetDimensions(sheetId).width, ...[...styles?.keys() ?? []].map(key => parseStyleKey(key)[0] + 1))
+    // A loop, not Math.max(...styles): a spread of more than about 125,000 styled cells overflows the call stack.
+    let columns = this.#engine.getSheetDimensions(sheetId).width
+    styles?.forEach((_, key) => { columns = Math.max(columns, parseStyleKey(key)[0] + 1) })
     new Set(rows).forEach(row => {
       let needed = defaultRowHeight
       for (let col = 0; col < columns; col += 1) {
@@ -438,12 +451,15 @@ export class Workbook {
       }
       const styles = this.#sheetStyles(this.#sheetName(sheetId))
       const written = cells.filter(({ target }) => !this.isCovered(sheetId, target))
-      this.#engine.batch(() => written.forEach(({ target: [col, row], input, style, source }) => {
-        const moved = typeof input === 'string' && source !== undefined ? shiftFormula(input, col - source[0], row - source[1]) : input
-        this.#engine.setCellContents({ sheet: sheetId, col, row }, [[moved]])
+      this.#engine.batch(() => this.#writeCells(sheetId, written.map(({ target: [col, row], input, source }) => ({
+        col,
+        row,
+        input: typeof input === 'string' && source !== undefined ? shiftFormula(input, col - source[0], row - source[1]) : input,
+      }))))
+      written.forEach(({ target: [col, row], style }) => {
         if (style === undefined || isDefaultStyle(style)) styles.delete(styleKey(col, row))
         else styles.set(styleKey(col, row), style)
-      }))
+      })
     })
   }
 
@@ -512,6 +528,38 @@ export class Workbook {
     })
   }
 
+  /**
+   * Writes cells to one sheet in as few rectangular blocks as they form: neighbouring cells in a row make
+   * a run, and runs over the same columns in consecutive rows make one block. The engine slows with every
+   * separate write in a batch, so a large paste written cell by cell would freeze the app.
+   */
+  #writeCells(sheetId: number, cells: readonly { readonly col: number; readonly row: number; readonly input: RawCellContent }[]): void {
+    const byRow = new Map<number, Map<number, RawCellContent>>()
+    cells.forEach(({ col, row, input }) => byRow.set(row, (byRow.get(row) ?? new Map<number, RawCellContent>()).set(col, input)))
+    const blocks: Array<{ readonly col: number; readonly row: number; readonly rows: RawCellContent[][] }> = []
+    const open = new Map<string, (typeof blocks)[number]>()
+    ;[...byRow.keys()].sort((a, b) => a - b).forEach(row => {
+      const cols = byRow.get(row) ?? new Map<number, RawCellContent>()
+      const runs: Array<{ readonly col: number; readonly values: RawCellContent[] }> = []
+      ;[...cols.keys()].sort((a, b) => a - b).forEach(col => {
+        const last = runs.at(-1)
+        if (last !== undefined && last.col + last.values.length === col) last.values.push(cols.get(col) ?? null)
+        else runs.push({ col, values: [cols.get(col) ?? null] })
+      })
+      runs.forEach(run => {
+        const key = `${run.col}:${run.values.length}`
+        const block = open.get(key)
+        if (block !== undefined && block.row + block.rows.length === row) block.rows.push(run.values)
+        else {
+          const created = { col: run.col, row, rows: [run.values] }
+          blocks.push(created)
+          open.set(key, created)
+        }
+      })
+    })
+    blocks.forEach(block => this.#engine.setCellContents({ sheet: sheetId, col: block.col, row: block.row }, block.rows))
+  }
+
   #clearValues(sheetId: number, areas: readonly CellRange[]): void {
     this.#engine.batch(() => areas.forEach(area => this.#engine.setCellContents(
       { sheet: sheetId, col: area.x, row: area.y },
@@ -546,13 +594,16 @@ export class Workbook {
     if (writes.length === 0) return true
     this.#commit(() => {
       const styles = this.#sheetStyles(this.#sheetName(sheetId))
-      this.#engine.batch(() => writes.forEach(({ target: [col, row], source, input }) => {
-        const moved = typeof input === 'string' ? shiftFormula(input, col - source[0], row - source[1]) : input
-        this.#engine.setCellContents({ sheet: sheetId, col, row }, [[moved]])
+      this.#engine.batch(() => this.#writeCells(sheetId, writes.map(({ target: [col, row], source, input }) => ({
+        col,
+        row,
+        input: typeof input === 'string' ? shiftFormula(input, col - source[0], row - source[1]) : input,
+      }))))
+      writes.forEach(({ target: [col, row], source }) => {
         const style = styles.get(styleKey(source[0], source[1]))
         if (style === undefined) styles.delete(styleKey(col, row))
         else styles.set(styleKey(col, row), style)
-      }))
+      })
     })
     return true
   }
@@ -721,9 +772,13 @@ export class Workbook {
     this.#commit(() => { layout.freezeRows = next })
   }
 
+  /** Named Sheet and the next number no sheet uses; the engine's own choice can be taken (Sheet1 and Sheet3 make Sheet3). */
   addSheet(): WorkbookSheet {
+    const taken = new Set(this.#sheetOrder.map(name => name.toLowerCase()))
+    let number = this.#sheetOrder.length + 1
+    while (taken.has(`sheet${number}`)) number += 1
     return this.#commit(() => {
-      const name = this.#engine.addSheet()
+      const name = this.#engine.addSheet(`Sheet${number}`)
       const id = this.#sheetId(name)
       this.#sheetOrder = [...this.#sheetOrder, name]
       this.#layouts.set(name, layoutFromData(blankLayout))
@@ -809,14 +864,15 @@ export class Workbook {
     if (matches.length === 0) return 0
     const pattern = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), caseSensitive ? 'g' : 'gi')
     this.#commit(() => {
-      this.#engine.batch(() => matches.forEach(match => {
+      const bySheet = new Map<number, Array<{ readonly col: number; readonly row: number; readonly input: RawCellContent }>>()
+      matches.forEach(match => {
         // A replacer function inserts the text literally; a replacement string would expand "$&" and "$1".
-        const next = match.input.replace(pattern, () => replacement)
-        this.#engine.setCellContents(
-          { sheet: match.sheetId, col: match.cell[0], row: match.cell[1] },
-          [[next]],
-        )
-      }))
+        const write = { col: match.cell[0], row: match.cell[1], input: match.input.replace(pattern, () => replacement) }
+        const writes = bySheet.get(match.sheetId)
+        if (writes === undefined) bySheet.set(match.sheetId, [write])
+        else writes.push(write)
+      })
+      this.#engine.batch(() => bySheet.forEach((writes, sheetId) => this.#writeCells(sheetId, writes)))
     })
     return matches.length
   }
@@ -933,9 +989,24 @@ export class Workbook {
     return false
   }
 
-  /** The used area of a sheet, for exports. */
+  /**
+   * The used area of a sheet, for exports: up to the last cell holding a value or formula. The engine's
+   * own dimensions also reach every empty cell a formula reads (=SUM(A2:A1000) makes 1,000 rows).
+   */
   usedSize(sheetId: number): { readonly width: number; readonly height: number } {
-    return this.#engine.getSheetDimensions(sheetId)
+    if (this.#usedSizes.revision !== this.#revision) this.#usedSizes = { revision: this.#revision, sizes: new Map() }
+    const known = this.#usedSizes.sizes.get(sheetId)
+    if (known !== undefined) return known
+    let width = 0
+    let height = 0
+    this.#engine.getSheetSerialized(sheetId).forEach((row, rowIndex) => row.forEach((input, col) => {
+      if (input === null || input === undefined || input === '') return
+      width = Math.max(width, col + 1)
+      height = rowIndex + 1
+    }))
+    const size = { width, height }
+    this.#usedSizes.sizes.set(sheetId, size)
+    return size
   }
 
   /** The workbook as plain data, with computed values, for saving to a file. */
@@ -1124,7 +1195,7 @@ export class Workbook {
         return {
           name,
           cells: this.#engine.getSheetSerialized(id).map(row => row.map(serializedInput)),
-          values: withValues ? this.#engine.getSheetValues(id).map(row => row.map(plainValue)) : undefined,
+          values: withValues ? this.#engine.getSheetValues(id).map(row => row.map(cachedValue)) : undefined,
           styles: [...(this.#styles.get(name)?.entries() ?? [])].map(([key, style]) => {
             const [col, row] = parseStyleKey(key)
             return [col, row, style] as const
@@ -1150,6 +1221,9 @@ export class Workbook {
   #load(data: WorkbookData): void {
     const engine = HyperFormula.buildEmpty(workbookConfig)
     engine.batch(() => {
+      // Excel formulas write TRUE and FALSE as plain words (VLOOKUP(…, FALSE)); the engine knows only TRUE() and FALSE().
+      engine.addNamedExpression('TRUE', '=TRUE()')
+      engine.addNamedExpression('FALSE', '=FALSE()')
       data.sheets.forEach(sheet => engine.addSheet(sheet.name))
       data.namedRanges.forEach(namedRange => {
         const formula = namedRangeFormula(namedRange)

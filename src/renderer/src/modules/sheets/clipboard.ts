@@ -169,7 +169,8 @@ function copiedCells(copied: CopiedCells, target: PasteTarget): PastedCell[] {
 
 function textCells(text: string, target: PasteTarget): PastedCell[] {
   const fields = readTabbedText(text)
-  const width = Math.max(0, ...fields.map(row => row.length))
+  // A loop, not Math.max(...): a spread of more than about 125,000 lines overflows the call stack.
+  const width = fields.reduce((widest, row) => Math.max(widest, row.length), 0)
   if (fields.length === 0 || width === 0) return []
   return pasteTargets(fields.length, width, target.selection, target.columns, target.rows).flatMap(({ target: at, row, column }) => {
     const field = fields[row]?.[column]

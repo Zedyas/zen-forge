@@ -61,6 +61,7 @@ export function SheetInspector({ controller }: { readonly controller: SheetContr
   const style = workbook.getStyle(sheetId, cell)
   const frozenRows = workbook.getFrozenRowCount(sheetId)
   const frozenColumns = workbook.getFrozenColumnCount(sheetId)
+  const usedArea = workbook.usedSize(sheetId)
   const hiddenRows = workbook.getRowCount(sheetId) - workbook.visibleRows(sheetId).length
   const hiddenColumns = workbook.getColumnCount(sheetId) - workbook.visibleColumns(sheetId).length
 
@@ -122,7 +123,7 @@ export function SheetInspector({ controller }: { readonly controller: SheetContr
       </InspectorSection>
 
       <InspectorSection title="Sheet">
-        <InspectorRow label="Used area"><span>{workbook.usedSize(sheetId).height} rows × {workbook.usedSize(sheetId).width} columns</span></InspectorRow>
+        <InspectorRow label="Used area"><span>{usedArea.height} rows × {usedArea.width} columns</span></InspectorRow>
         {hiddenRows > 0 && (
           <InspectorRow label={`${hiddenRows} hidden ${hiddenRows === 1 ? 'row' : 'rows'}`}>
             <button type="button" className="button is-quiet" onClick={() => workbook.showAllRows(sheetId)}>Show</button>

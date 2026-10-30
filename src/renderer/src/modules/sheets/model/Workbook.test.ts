@@ -40,6 +40,62 @@ describe('Workbook', () => {
     expect(workbook.getCellValue(sheetId, [1, 5])).toBe(152_010)
   })
 
+  it('reads TRUE and FALSE in formulas as Excel does, and keeps them out of the named ranges', () => {
+    const workbook = regionsWorkbook()
+    const sheetId = workbook.sheets()[0]?.id ?? 0
+
+    workbook.setCellInput(sheetId, [5, 0], '=VLOOKUP("South",A2:B5,2,FALSE)')
+    workbook.setCellInput(sheetId, [5, 1], '=IF(B2>0,TRUE,false)')
+
+    expect(workbook.getCellValue(sheetId, [5, 0])).toBe(38_750)
+    expect(workbook.getCellValue(sheetId, [5, 1])).toBe(true)
+    expect(workbook.getCellInput(sheetId, [5, 0])).toBe('=VLOOKUP("South",A2:B5,2,FALSE)')
+    expect(workbook.namedRanges()).toEqual([])
+    expect(workbook.toData().namedRanges).toEqual([])
+  })
+
+  it('fits a row to wrapped text on a sheet with more styled cells than a function call can take arguments', () => {
+    const blank = blankWorkbookData()
+    const sheet = blank.sheets[0]
+    if (sheet === undefined) throw new Error('Blank workbook has no sheet.')
+    const wrapped: CellStyle = { numberFormat: 'general', decimalPlaces: 2, wrap: true }
+    const styles = Array.from({ length: 130_000 }, (_, index) => [index % 5, Math.floor(index / 5), wrapped] as const)
+    const workbook = new Workbook({ ...blank, sheets: [{ ...sheet, styles }] })
+    const sheetId = workbook.sheets()[0]?.id ?? 0
+
+    workbook.setCellInput(sheetId, [0, 0], 'long wrapped text', () => 60)
+
+    expect(workbook.getRowHeight(sheetId, 0)).toBe(60)
+  })
+
+  it('holds as many rows as Excel, beyond the engine’s default limit of 40,000', () => {
+    const blank = blankWorkbookData()
+    const sheet = blank.sheets[0]
+    if (sheet === undefined) throw new Error('Blank workbook has no sheet.')
+    const cells = Array.from({ length: 50_000 }, (_, row) => [row + 1])
+    const workbook = new Workbook({ ...blank, sheets: [{ ...sheet, cells }] })
+    const sheetId = workbook.sheets()[0]?.id ?? 0
+
+    workbook.setCellInput(sheetId, [1, 0], '=SUM(A:A)')
+
+    expect(workbook.getCellValue(sheetId, [0, 49_999])).toBe(50_000)
+    expect(workbook.getCellValue(sheetId, [1, 0])).toBe(1_250_025_000)
+  })
+
+  it('adds a sheet under a free name when the next number is taken', () => {
+    const blank = blankWorkbookData()
+    const sheet = blank.sheets[0]
+    if (sheet === undefined) throw new Error('Blank workbook has no sheet.')
+    const workbook = new Workbook({ ...blank, sheets: [sheet, { ...sheet, name: 'Sheet3' }] })
+
+    workbook.addSheet()
+    const renamed = workbook.sheets()[0]?.id ?? 0
+    workbook.renameSheet(renamed, 'sheet5')
+    workbook.addSheet()
+
+    expect(workbook.sheets().map(candidate => candidate.name)).toEqual(['sheet5', 'Sheet3', 'Sheet4', 'Sheet6'])
+  })
+
   it('calculates references across added and renamed sheets', () => {
     const workbook = regionsWorkbook()
     const firstSheet = workbook.sheets()[0]
@@ -154,6 +210,56 @@ describe('Workbook', () => {
     workbook.setCellInput(sheetId, [5, 0], '=TotalRevenue+1')
 
     expect(workbook.getCellValue(sheetId, [5, 0])).toBe(144_111)
+  })
+
+  it('keeps the used area up to date through edits, undo and structure changes', () => {
+    const workbook = new Workbook()
+    const sheetId = workbook.sheets()[0]?.id ?? 0
+    const sizeOf = (): string => `${workbook.usedSize(sheetId).width}x${workbook.usedSize(sheetId).height}`
+    expect(sizeOf()).toBe('0x0')
+
+    workbook.setCellInput(sheetId, [2, 4], '=SUM(A1:Z500)')
+    expect(sizeOf()).toBe('3x5')
+    workbook.setCellInput(sheetId, [5, 1], 'x')
+    expect(sizeOf()).toBe('6x5')
+    workbook.insertRows(sheetId, 0)
+    expect(sizeOf()).toBe('6x6')
+    workbook.clearContents(sheetId, [{ x: 2, y: 5, width: 1, height: 1 }])
+    expect(sizeOf()).toBe('6x3')
+
+    workbook.undo()
+    expect(sizeOf()).toBe('6x6')
+    workbook.undo()
+    expect(sizeOf()).toBe('6x5')
+    workbook.redo()
+    expect(sizeOf()).toBe('6x6')
+  })
+
+  it('replaces text in 60,000 cells in well under the test timeout', () => {
+    const blank = blankWorkbookData()
+    const sheet = blank.sheets[0]
+    if (sheet === undefined) throw new Error('Blank workbook has no sheet.')
+    const cells = Array.from({ length: 20_000 }, () => ['old a', 'old b', 'old c'])
+    const workbook = new Workbook({ ...blank, sheets: [{ ...sheet, cells }] })
+    const sheetId = workbook.sheets()[0]?.id ?? 0
+
+    expect(workbook.replaceAll('old', 'new')).toBe(60_000)
+
+    expect(workbook.getCellValue(sheetId, [2, 19_999])).toBe('new c')
+  })
+
+  it('pastes 150,000 cells in well under the test timeout, leaving a skipped row as it was', () => {
+    const workbook = new Workbook()
+    const sheetId = workbook.sheets()[0]?.id ?? 0
+    workbook.setCellInput(sheetId, [0, 500], 'kept')
+    // Row 500 is left out, as a hidden row is: the rows around it still go in as blocks.
+    const cells = Array.from({ length: 75_000 }, (_, row) => row).filter(row => row !== 500)
+      .flatMap(row => [{ target: [0, row] as const, input: row }, { target: [1, row] as const, input: `=A${row + 1}*2` }])
+    workbook.pasteCells(sheetId, cells)
+
+    expect(workbook.getCellValue(sheetId, [0, 74_999])).toBe(74_999)
+    expect(workbook.getCellValue(sheetId, [1, 74_999])).toBe(149_998)
+    expect(workbook.getCellValue(sheetId, [0, 500])).toBe('kept')
   })
 
   it('never writes the cells a merged cell covers', () => {

@@ -15,6 +15,7 @@ import {
   defaultColumnCount,
   defaultRowCount,
   isDefaultStyle,
+  type CachedValue,
   type CellInput,
   type CellRange,
   type CellStyle,
@@ -22,6 +23,7 @@ import {
   type SheetData,
   type WorkbookData,
 } from '../model/workbook-data'
+import { engineFormula, fileFormula } from './excel-functions'
 import { aggregateFindings, type FindingEvent } from './findings'
 import { numberFormatPattern, numberFormatStyle } from './number-format'
 import { assertZipFitsInMemory } from '../../../services/zip'
@@ -210,7 +212,7 @@ function readCellValue(cell: ExcelJS.Cell, context: CellContext): ImportedCell |
       }
       const formula = cell.formula
       if (typeof formula !== 'string' || formula === '') return undefined
-      return { input: `=${formula}`, value: isFormula(value) ? cachedValue(value.result) : null }
+      return { input: `=${engineFormula(formula)}`, value: isFormula(value) ? cachedValue(value.result) : null }
     }
 
     default:
@@ -459,7 +461,9 @@ function materialize(grid: ReadonlyMap<number, ReadonlyMap<number, ImportedCell>
   readonly cells: CellInput[][]
   readonly values: (string | number | boolean | null)[][]
 } {
-  const lastRow = Math.max(-1, ...grid.keys())
+  // A loop, not Math.max(...rows): a spread of more than about 125,000 rows overflows the call stack.
+  let lastRow = -1
+  grid.forEach((_, row) => { lastRow = Math.max(lastRow, row) })
   const cells: CellInput[][] = []
   const values: (string | number | boolean | null)[][] = []
 
@@ -551,23 +555,41 @@ function writeCellStyle(cell: ExcelJS.Cell, style: CellStyle): void {
   if (style.note !== undefined) cell.note = style.note
 }
 
+/** An error value (`#N/A`) as the file stores one, so it stays an error rather than text. */
+function errorValue(input: CellInput): ExcelJS.CellErrorValue | undefined {
+  const error = Object.values(ExcelJS.ErrorValue).find(value => typeof input === 'string' && value === input.toUpperCase())
+  return error === undefined ? undefined : { error }
+}
+
+/** A formula's cached result; only an error the engine calculated is stored as an error. */
+function cachedResult(cached: CachedValue): ExcelJS.CellFormulaValue['result'] {
+  if (cached === null) return undefined
+  return typeof cached === 'object' ? errorValue(cached.error) ?? cached.error : cached
+}
+
 function writeCellValue(
   cell: ExcelJS.Cell,
   input: CellInput,
-  cached: string | number | boolean | null,
+  cached: CachedValue,
   style: CellStyle | undefined,
 ): void {
   if (input === null || input === '') return
 
   if (typeof input === 'string' && input.startsWith('=')) {
     // A cached result lets Excel, Numbers and Google Sheets show values before they recalculate.
-    const result = style?.numberFormat === 'date' && typeof cached === 'number' ? serialToDate(cached) : cached
-    cell.value = { formula: input.slice(1), result: result === null ? undefined : result }
+    const result = style?.numberFormat === 'date' && typeof cached === 'number' ? serialToDate(cached) : cachedResult(cached)
+    cell.value = { formula: fileFormula(input.slice(1)), result }
     return
   }
 
   if (style?.numberFormat === 'date' && typeof input === 'number') {
     cell.value = serialToDate(input)
+    return
+  }
+
+  const error = errorValue(input)
+  if (error !== undefined) {
+    cell.value = error
     return
   }
 

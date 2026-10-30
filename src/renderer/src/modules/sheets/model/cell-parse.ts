@@ -49,11 +49,12 @@ function plainNumber(text: string): number | undefined {
 }
 
 /**
- * An ISO date with a time (`2026-08-13 14:30:00`, or with a `T` and without seconds), as a CSV export
- * writes one, as a date serial of that wall-clock time; undefined for anything else.
+ * An ISO date (`2026-08-13`), or one with a time (`2026-08-13 14:30:00`, or with a `T` and without
+ * seconds), as a CSV export writes one, as a date serial of that wall-clock time; undefined for anything
+ * else. The engine reads neither form itself.
  */
 function isoDateTimeSerial(text: string): number | undefined {
-  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?$/)
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?)?$/)
   if (match === null) return undefined
   const [year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0] = match.slice(1).map(part => Number(part ?? 0))
   const time = Date.UTC(year, month - 1, day, hour, minute, second)
@@ -73,11 +74,12 @@ export function parseCellText(value: string): { readonly input: CellInput; reado
   if (trimmed.startsWith('=')) return { input: value }
   if (/^(true|false)$/i.test(trimmed)) return { input: trimmed.toLowerCase() === 'true' }
 
-  const currency = trimmed.match(/^\(?\s*[$€£]\s*([\d,]+(?:\.\d+)?)\s*\)?$/)
+  // A negative amount shows as -$12.50 (Excel, Google Sheets) or ($12.50) (accounting).
+  const currency = trimmed.match(/^-?\(?\s*[$€£]\s*([\d,]+(?:\.\d+)?)\s*\)?$/)
   const currencyAmount = currency === null ? undefined : groupedNumber(currency[1] ?? '')
   if (currency !== null && currencyAmount !== undefined) {
     return {
-      input: currencyAmount * (trimmed.startsWith('(') ? -1 : 1),
+      input: currencyAmount * (trimmed.startsWith('(') || trimmed.startsWith('-') ? -1 : 1),
       style: { numberFormat: 'currency', decimalPlaces: decimalPlaces(currency[1] ?? '') },
     }
   }
