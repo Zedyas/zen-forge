@@ -1,6 +1,6 @@
 import { ContextMenu } from '@base-ui/react/context-menu'
 import type { ReactNode } from 'react'
-import { sortByActiveColumn, type SheetController } from './sheet-commands'
+import { mergeSelection, openCellLink, setNote, setStyle, sortByActiveColumn, type SheetController } from './sheet-commands'
 
 interface SheetContextMenuProps {
   readonly controller: SheetController
@@ -9,7 +9,12 @@ interface SheetContextMenuProps {
 
 /** Right-click menu over the grid; acts on the selection the right-click left in place. */
 export function SheetContextMenu({ controller, children }: SheetContextMenuProps) {
-  const { workbook, sheetId, range, areas } = controller
+  const { workbook, sheetId, range, areas, cell } = controller
+  const { link, note } = workbook.getStyle(sheetId, cell)
+  const linkItems: ReadonlyArray<readonly [string, () => void]> = link === undefined ? [] : [
+    ['Open link', () => openCellLink(link)],
+    ['Remove link', () => setStyle(controller, { link: undefined })],
+  ]
   const rows = `${range.height} ${range.height === 1 ? 'row' : 'rows'}`
   const columns = `${range.width} ${range.width === 1 ? 'column' : 'columns'}`
   const groups: ReadonlyArray<ReadonlyArray<readonly [string, () => void]>> = [
@@ -28,6 +33,12 @@ export function SheetContextMenu({ controller, children }: SheetContextMenuProps
       ['Sort Z to A by this column', () => sortByActiveColumn(controller, false)],
     ],
     [
+      ['Merge cells', () => void mergeSelection(controller, false)],
+      ['Merge across', () => void mergeSelection(controller, true)],
+      ['Unmerge cells', () => workbook.unmergeCells(sheetId, range)],
+    ],
+    [...linkItems, ...(note === undefined ? [] : [['Delete note', () => setNote(controller, '')] as const])],
+    [
       ['Clear contents', () => workbook.clearContents(sheetId, areas)],
       ['Clear formatting', () => workbook.clearFormatting(sheetId, areas)],
     ],
@@ -38,7 +49,7 @@ export function SheetContextMenu({ controller, children }: SheetContextMenuProps
       <ContextMenu.Portal>
         <ContextMenu.Positioner>
           <ContextMenu.Popup className="menu-popup">
-            {groups.map((group, index) => (
+            {groups.filter(group => group.length > 0).map((group, index) => (
               <ContextMenu.Group key={group[0]?.[0]}>
                 {index > 0 && <ContextMenu.Separator className="menu-separator" />}
                 {group.map(([label, action]) => (

@@ -156,6 +156,18 @@ describe('Workbook', () => {
     expect(workbook.getCellValue(sheetId, [5, 0])).toBe(144_111)
   })
 
+  it('never writes the cells a merged cell covers', () => {
+    const workbook = new Workbook()
+    const sheetId = workbook.sheets()[0]?.id ?? 0
+    workbook.setCellInput(sheetId, [0, 0], 5)
+    workbook.mergeCells(sheetId, { x: 0, y: 1, width: 1, height: 2 }, false)
+
+    expect(workbook.setCellInput(sheetId, [0, 2], 7)).toBe(false)
+    expect(workbook.fillCells(sheetId, [{ seeds: [[0, 0]], targets: [[0, 1], [0, 2]] }], false)).toBe(false)
+    workbook.pasteCells(sheetId, [{ target: [0, 1], input: 1 }, { target: [0, 2], input: 2 }])
+    expect([1, 2].map(row => workbook.getCellValue(sheetId, [0, row]))).toEqual([1, null])
+  })
+
   it('moves a named range with its cut cells, through undo, redo and a reopen', () => {
     const workbook = new Workbook()
     const sheetId = workbook.sheets()[0]?.id ?? 0
@@ -254,6 +266,17 @@ describe('Workbook', () => {
     expect(workbook.getCellValue(sheetId, [1, 3])).toBe(29_400)
   })
 
+  it('keeps a format code set with the number format, and drops it once the format changes', () => {
+    const workbook = regionsWorkbook()
+    const sheetId = workbook.sheets()[0]?.id ?? 0
+    const areas = [{ x: 1, y: 1, width: 1, height: 1 }]
+
+    workbook.updateStyle(sheetId, areas, { numberFormat: 'general', decimalPlaces: 2, formatCode: '0.00E+00' })
+    expect(workbook.getStyle(sheetId, [1, 1]).formatCode).toBe('0.00E+00')
+    workbook.changeDecimalPlaces(sheetId, areas, 1)
+    expect(workbook.getStyle(sheetId, [1, 1])).toEqual({ numberFormat: 'number', decimalPlaces: 3 })
+  })
+
   it('renames sheets only to names Excel accepts', () => {
     const workbook = regionsWorkbook()
     const sheetId = workbook.sheets()[0]?.id ?? 0
@@ -287,6 +310,34 @@ describe('Workbook', () => {
     workbook.setRowHeight(sheetId, [3, 4], 40)
     workbook.fitRows(sheetId, [3], measure)
     expect([3, 4].map(row => workbook.getRowHeight(sheetId, row))).toEqual([26, 40])
+  })
+
+  it('merges keeping only the top-left value, and keeps merges consistent through inserts, deletes and sorts', () => {
+    const workbook = regionsWorkbook()
+    const sheetId = workbook.sheets()[0]?.id ?? 0
+    const block = { x: 0, y: 1, width: 2, height: 2 }
+
+    expect(workbook.mergeDiscards(sheetId, block, false)).toBe(3)
+    expect(workbook.mergeDiscards(sheetId, block, true)).toBe(2)
+    workbook.mergeCells(sheetId, block, false)
+    expect(workbook.getCellValue(sheetId, [0, 1])).toBe('North')
+    expect([[1, 1], [0, 2], [1, 2]].map(([col = 0, row = 0]) => workbook.getCellValue(sheetId, [col, row]))).toEqual([null, null, null])
+    expect(workbook.mergeAt(sheetId, [1, 2])).toEqual(block)
+
+    workbook.insertRows(sheetId, 2)
+    expect(workbook.merges(sheetId)).toEqual([{ x: 0, y: 1, width: 2, height: 3 }])
+    workbook.deleteRows(sheetId, 0, 2)
+    expect(workbook.merges(sheetId)).toEqual([{ x: 0, y: 0, width: 2, height: 2 }])
+    expect(workbook.sortRows(sheetId, { x: 0, y: 0, width: 4, height: 5 }, 1, true)).toBe('merged')
+
+    workbook.unmergeCells(sheetId, { x: 1, y: 1, width: 1, height: 1 })
+    expect(workbook.merges(sheetId)).toEqual([])
+    workbook.undo()
+    workbook.undo()
+    workbook.undo()
+    workbook.undo()
+    expect(workbook.merges(sheetId)).toEqual([])
+    expect(workbook.getCellValue(sheetId, [1, 1])).toBe(42_100)
   })
 
   it('clears a range in one undo step and keeps its formatting', () => {

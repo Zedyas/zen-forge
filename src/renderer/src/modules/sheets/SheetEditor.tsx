@@ -1,13 +1,17 @@
-import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type KeyboardEvent } from 'react'
+import { createPortal } from 'react-dom'
 import { closestCenter, DndContext, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { horizontalListSortingStrategy, SortableContext } from '@dnd-kit/sortable'
 import DataEditor, {
   CompactSelection,
   GridCellKind,
+  type CellClickedEventArgs,
   type DrawCellCallback,
   type EditableGridCell,
   type GridCell,
   type GridColumn,
+  type GridKeyEventArgs,
+  type GridMouseEventArgs,
   type GridSelection,
   type DataEditorRef,
   type Highlight,
@@ -25,13 +29,13 @@ import { Tip } from '../../ui/Tip'
 import { cancelCut, copyCells, pasteCells, usePendingCut } from './clipboard'
 import { FindBar } from './FindBar'
 import { FormulaBar } from './FormulaBar'
-import { drawCellText, drawsOwnText, fontStack, fontStyle, measureCellHeight } from './cell-text'
+import { drawCellText, drawNoteMarker, drawsOwnText, fontStack, fontStyle, measureCellHeight } from './cell-text'
 import { gridTheme, headerHeight, isLightColor } from './grid-theme'
-import { fillLines, mapCell, mapRange, viewRange as viewRangeOf, visibleAreas } from './grid-mapping'
+import { coverBlocks, fillLines, mapCell, mapRange, snapCell, viewRange as viewRangeOf, visibleAreas } from './grid-mapping'
 import { columnName, sheetNameProblem } from './model/address'
-import { formatCellValue, formatStatistic } from './model/format'
+import { formatCellValue, formatColor, formatStatistic } from './model/format'
 import type { FindMatch, Workbook, WorkbookSheet } from './model/Workbook'
-import { setActiveSheet, type SheetController } from './sheet-commands'
+import { openCellLink, refuseMergedPart, setActiveSheet, type SheetController } from './sheet-commands'
 import { SheetContextMenu } from './SheetContextMenu'
 import { SheetInspector } from './SheetInspector'
 import { SheetTab } from './SheetTab'
@@ -111,6 +115,15 @@ function selectionFromRows(selection: GridSelection, rowOffset: number): GridSel
  * narrower one than the grid below it and their columns would not line up. Both use the width Glide
  * picks for the largest row number shown.
  */
+/** Beside the cell, or to its left when the right edge of the window is too close. */
+function noteCardPosition(bounds: Rectangle): CSSProperties {
+  const gap = 6
+  const maxWidth = 260
+  return bounds.x + bounds.width + gap + maxWidth > window.innerWidth
+    ? { top: bounds.y, right: window.innerWidth - bounds.x + gap }
+    : { top: bounds.y, left: bounds.x + bounds.width + gap }
+}
+
 function rowMarkerWidth(largestRowNumber: number): number {
   return largestRowNumber > 10_000 ? 48 : largestRowNumber > 1_000 ? 44 : largestRowNumber > 100 ? 36 : 32
 }
@@ -143,6 +156,9 @@ export function SheetEditor({ document, workbook }: SheetEditorProps) {
   const [selection, setSelection] = useState<GridSelection>(() => selectionForCell([0, 0]))
   const [findOpen, setFindOpen] = useState(false)
   const frozenGridRef = useRef<DataEditorRef>(null)
+  const scrollingGridRef = useRef<DataEditorRef>(null)
+  const [hoveredNote, setHoveredNote] = useState<{ readonly text: string; readonly bounds: Rectangle }>()
+  const [selectedNoteBounds, setSelectedNoteBounds] = useState<Rectangle>()
   const activeSheet = requiredSheet(sheets, activeSheetName)
   const sheetId = activeSheet.id
 
@@ -160,12 +176,27 @@ export function SheetEditor({ document, workbook }: SheetEditorProps) {
     width: workbook.getColumnWidth(sheetId, modelColumn),
   })), [sheetId, revision, visibleColumns, workbook])
 
+  // Merged blocks, each with where it shows in the grid (view coordinates across both grids).
+  const merges = useMemo(() => workbook.merges(sheetId).flatMap(model => {
+    const view = viewRangeOf(model, visibleColumns, visibleRows)
+    return view === undefined ? [] : [{ model, view }]
+  }), [sheetId, revision, visibleColumns, visibleRows, workbook])
+  const mergeOf = useCallback((cell: Item) => {
+    const model = workbook.mergeAt(sheetId, cell)
+    return model === undefined ? undefined : merges.find(merge => merge.model === model)
+  }, [merges, sheetId, workbook])
+
+  /**
+   * Every cell of a merged block shows the block's top-left cell. Each row of the block is one span
+   * across its columns; `spanBelow` (patched into Glide) leaves out the grid line between its rows.
+   */
   const getCell = useCallback((viewCell: Item, rows: readonly number[]): GridCell => {
-    const cell = mapCell(viewCell, visibleColumns, rows)
+    const merge = mergeOf(mapCell(viewCell, visibleColumns, rows))
+    const cell: Item = merge === undefined ? mapCell(viewCell, visibleColumns, rows) : [merge.model.x, merge.model.y]
     const value = workbook.getCellValue(sheetId, cell)
     const style = workbook.getStyle(sheetId, cell)
     const displayed = formatCellValue(value, style)
-    const textColor = style.textColor ?? (style.fillColor !== undefined && isLightColor(style.fillColor) ? '#1d1f23' : undefined)
+    const textColor = formatColor(value, style) ?? style.textColor ?? (style.link !== undefined ? theme.linkColor : undefined) ?? (style.fillColor !== undefined && isLightColor(style.fillColor) ? '#1d1f23' : undefined)
     return {
       kind: GridCellKind.Text,
       allowOverlay: true,
@@ -175,6 +206,10 @@ export function SheetEditor({ document, workbook }: SheetEditorProps) {
       contentAlign: style.align ?? (typeof value === 'number' ? 'right' : 'left'),
       // The cell editor then wraps too, and takes Return for a new line with ⌥.
       allowWrapping: style.wrap === true,
+      ...(merge === undefined ? {} : {
+        span: [merge.view.x, merge.view.x + merge.view.width - 1] as const,
+        spanBelow: (rows[viewCell[1] + 1] ?? Number.POSITIVE_INFINITY) < merge.model.y + merge.model.height,
+      }),
       themeOverride: {
         baseFontStyle: fontStyle(style),
         ...(style.fontFamily === undefined || theme.fontFamily === undefined ? {} : { fontFamily: fontStack(style.fontFamily, theme.fontFamily) }),
@@ -182,20 +217,51 @@ export function SheetEditor({ document, workbook }: SheetEditorProps) {
         ...(style.fillColor === undefined ? {} : { bgCell: style.fillColor }),
       },
     }
-  }, [sheetId, revision, theme, visibleColumns, workbook])
+  }, [mergeOf, sheetId, revision, theme, visibleColumns, workbook])
+
+  /** The model cell a view cell shows: its merged block's top-left cell, or itself. */
+  const ownerCell = useCallback((viewCell: Item, rows: readonly number[]): Item => {
+    const merge = mergeOf(mapCell(viewCell, visibleColumns, rows))
+    return merge === undefined ? mapCell(viewCell, visibleColumns, rows) : [merge.model.x, merge.model.y]
+  }, [mergeOf, visibleColumns])
 
   const editCell = useCallback((viewCell: Item, value: EditableGridCell, rows: readonly number[]) => {
-    const cell = mapCell(viewCell, visibleColumns, rows)
+    const cell = ownerCell(viewCell, rows)
     if (value.kind === GridCellKind.Text) workbook.setCellInput(sheetId, cell, value.data, measureCellHeight)
     if (value.kind === GridCellKind.Number) workbook.setCellInput(sheetId, cell, value.data ?? null, measureCellHeight)
-  }, [sheetId, visibleColumns, workbook])
+  }, [ownerCell, sheetId, workbook])
 
-  /** Glide draws plain text; wrapped, underlined and struck-through text Ledger draws itself (cell-text.ts). */
+  /**
+   * Glide draws plain text. Wrapped, underlined and struck-through text Ledger draws itself (cell-text.ts),
+   * and so is a merged block's, laid out across the whole block while each row draws its own slice.
+   */
   const drawCell = useCallback((args: Parameters<DrawCellCallback>[0], drawContent: () => void, rows: readonly number[]) => {
-    const style = workbook.getStyle(sheetId, mapCell([args.col, args.row], visibleColumns, rows))
-    if (args.cell.kind === GridCellKind.Text && drawsOwnText(style)) drawCellText(args, args.cell.displayData, style)
-    else drawContent()
-  }, [sheetId, revision, visibleColumns, workbook])
+    const merge = mergeOf(mapCell([args.col, args.row], visibleColumns, rows))
+    const own = workbook.getStyle(sheetId, merge === undefined ? mapCell([args.col, args.row], visibleColumns, rows) : [merge.model.x, merge.model.y])
+    // A linked cell shows as a link: underlined, in the link colour that getCell gives it.
+    const style = own.link === undefined ? own : { ...own, underline: true }
+    if (args.cell.kind !== GridCellKind.Text || (merge === undefined && !drawsOwnText(style))) {
+      drawContent()
+      if (style.note !== undefined) drawNoteMarker(args.ctx, args.rect)
+      return
+    }
+    let { y: top, height } = args.rect
+    if (merge !== undefined) {
+      const inBlock = (index: number): boolean => {
+        const row = rows[index]
+        return row !== undefined && row >= merge.model.y && row < merge.model.y + merge.model.height
+      }
+      for (let index = args.row - 1; inBlock(index); index -= 1) {
+        const above = workbook.getRowHeight(sheetId, rows[index] ?? 0)
+        top -= above
+        height += above
+      }
+      for (let index = args.row + 1; inBlock(index); index += 1) height += workbook.getRowHeight(sheetId, rows[index] ?? 0)
+    }
+    drawCellText(args, args.cell.displayData, style, { ...args.rect, y: top, height })
+    // A merged block's marker sits on its top row only.
+    if (style.note !== undefined && top === args.rect.y) drawNoteMarker(args.ctx, args.rect)
+  }, [mergeOf, sheetId, revision, visibleColumns, workbook])
   const drawScrollingCell = useCallback<DrawCellCallback>((args, draw) => drawCell(args, draw, scrollingRows), [drawCell, scrollingRows])
   const drawFrozenCell = useCallback<DrawCellCallback>((args, draw) => drawCell(args, draw, frozenRows), [drawCell, frozenRows])
   const scrollingRowHeight = useCallback((row: number) => workbook.getRowHeight(sheetId, scrollingRows[row] ?? 0), [sheetId, revision, scrollingRows, workbook])
@@ -210,6 +276,19 @@ export function SheetEditor({ document, workbook }: SheetEditorProps) {
   const scrollingRowNumber = useCallback((row: number) => (scrollingRows[row] ?? 0) + 1, [scrollingRows])
   const frozenRowNumber = useCallback((row: number) => (frozenRows[row] ?? 0) + 1, [frozenRows])
   const markerWidth = rowMarkerWidth((visibleRows.at(-1) ?? 0) + 1)
+
+  /** Set by an arrow, Tab or Return key, so the selection change it causes steps out of a merged block. */
+  const stepped = useRef(false)
+  const snapToMerges = (next: GridSelection): GridSelection => {
+    const current = next.current
+    const blocks = merges.map(merge => merge.view)
+    if (current === undefined || blocks.length === 0) return next
+    const cell = snapCell(current.cell, selection.current?.cell, stepped.current, blocks)
+    stepped.current = false
+    const single = current.range.width === 1 && current.range.height === 1
+    const range = coverBlocks(single ? { x: cell[0], y: cell[1], width: 1, height: 1 } : current.range, blocks)
+    return { ...next, current: { ...current, cell, range } }
+  }
 
   const selectedRows = selection.rows.toArray()
   const selectedColumns = selection.columns.toArray()
@@ -274,6 +353,33 @@ export function SheetEditor({ document, workbook }: SheetEditorProps) {
   }, [])
   const activeStyle = workbook.getStyle(sheetId, selectedCell)
 
+  /*
+   * A note shows beside its cell while the pointer is over the cell, else beside the selected cell.
+   * The card is placed once from the cell's bounds and hidden on scroll, so it never trails the grid.
+   */
+  const activeViewCell = selection.current?.cell
+  useEffect(() => {
+    if (activeViewCell === undefined || activeStyle.note === undefined) {
+      setSelectedNoteBounds(undefined)
+      return
+    }
+    const frozen = activeViewCell[1] < frozenRowCount
+    const grid = frozen ? frozenGridRef.current : scrollingGridRef.current
+    setSelectedNoteBounds(grid?.getBounds(activeViewCell[0], frozen ? activeViewCell[1] : activeViewCell[1] - frozenRowCount))
+  }, [activeViewCell?.[0], activeViewCell?.[1], activeStyle.note, frozenRowCount, inspectorShown])
+  const hoverNote = (args: GridMouseEventArgs, rows: readonly number[]): void => {
+    const note = args.kind === 'cell' ? workbook.getStyle(sheetId, ownerCell(args.location, rows)).note : undefined
+    setHoveredNote(note === undefined || args.kind !== 'cell' ? undefined : { text: note, bounds: args.bounds })
+  }
+  const noteCard = hoveredNote ?? (activeStyle.note === undefined || selectedNoteBounds === undefined ? undefined : { text: activeStyle.note, bounds: selectedNoteBounds })
+
+  /** ⌘-click opens a cell's link; a plain click only selects, so a link never gets in the way of editing. */
+  const openLinkOnClick = (viewCell: Item, event: CellClickedEventArgs, rows: readonly number[]): void => {
+    if (!event.metaKey) return
+    const { link } = workbook.getStyle(sheetId, ownerCell(viewCell, rows))
+    if (link !== undefined) openCellLink(link)
+  }
+
   const handleSheetDragEnd = (event: DragEndEvent): void => {
     if (event.over === null) return
     const from = sheets.findIndex(sheet => sheet.id === event.active.id)
@@ -320,6 +426,9 @@ export function SheetEditor({ document, workbook }: SheetEditorProps) {
     width: '100%',
     height: '100%',
     theme,
+    onKeyDown: (event: GridKeyEventArgs) => {
+      stepped.current = !event.shiftKey && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab', 'Enter'].includes(event.key)
+    },
     // Copy, cut and paste are Ledger's own (see clipboard.ts), so they keep formulas and styles.
     keybindings: { copy: false, cut: false, paste: false },
     freezeColumns: workbook.getFrozenColumnCount(sheetId),
@@ -342,7 +451,7 @@ export function SheetEditor({ document, workbook }: SheetEditorProps) {
         {findOpen && <FindBar workbook={workbook} revision={revision} onClose={() => setFindOpen(false)} onSelectMatch={selectMatch} />}
         <SheetContextMenu controller={controller}>
           {frozenRowCount > 0 && (
-            <div className="sheet-frozen-rows" style={{ height: headerHeight + frozenHeight + 1 }}>
+            <div className="sheet-frozen-rows" style={{ height: headerHeight + frozenHeight + 1 }} onMouseLeave={() => setHoveredNote(undefined)}>
               <DataEditor
                 {...sharedGridProps}
                 ref={frozenGridRef}
@@ -353,21 +462,24 @@ export function SheetEditor({ document, workbook }: SheetEditorProps) {
                 rowHeight={frozenRowHeight}
                 onCellEdited={editFrozenCell}
                 gridSelection={selectionForRows(selection, 0, frozenRowCount)}
-                onGridSelectionChange={next => setSelection(selectionFromRows(next, 0))}
+                onGridSelectionChange={next => setSelection(snapToMerges(selectionFromRows(next, 0)))}
                 highlightRegions={cutOutline(0, frozenRowCount)}
                 onFillPattern={event => {
                   event.preventDefault()
                   const { lines, backward } = fillLines(event.patternSource, event.fillDestination, visibleColumns, frozenRows)
-                  workbook.fillCells(sheetId, lines, backward)
+                  if (!workbook.fillCells(sheetId, lines, backward)) refuseMergedPart()
                 }}
                 rowMarkers={{ kind: 'number', rowNumber: frozenRowNumber, width: markerWidth }}
                 onCellContextMenu={cell => selectOnContextMenu(cell, 0)}
+                onItemHovered={args => hoverNote(args, frozenRows)}
+                onCellClicked={(cell, event) => openLinkOnClick(cell, event, frozenRows)}
               />
             </div>
           )}
-          <div className="sheet-scrolling-rows">
+          <div className="sheet-scrolling-rows" onMouseLeave={() => setHoveredNote(undefined)}>
             <DataEditor
               {...sharedGridProps}
+              ref={scrollingGridRef}
               headerHeight={frozenRowCount > 0 ? 0 : headerHeight}
               rows={scrollingRows.length}
               getCellContent={getScrollingCell}
@@ -375,18 +487,22 @@ export function SheetEditor({ document, workbook }: SheetEditorProps) {
               rowHeight={scrollingRowHeight}
               onCellEdited={editScrollingCell}
               gridSelection={selectionForRows(selection, frozenRowCount, scrollingRows.length)}
-              onGridSelectionChange={next => setSelection(selectionFromRows(next, frozenRowCount))}
+              onGridSelectionChange={next => setSelection(snapToMerges(selectionFromRows(next, frozenRowCount)))}
               highlightRegions={cutOutline(frozenRowCount, scrollingRows.length)}
               onFillPattern={event => {
                 event.preventDefault()
                 const { lines, backward } = fillLines(event.patternSource, event.fillDestination, visibleColumns, scrollingRows)
-                workbook.fillCells(sheetId, lines, backward)
+                if (!workbook.fillCells(sheetId, lines, backward)) refuseMergedPart()
               }}
               rowMarkers={{ kind: 'number', rowNumber: scrollingRowNumber, width: markerWidth }}
               onCellContextMenu={cell => selectOnContextMenu(cell, frozenRowCount)}
+              onItemHovered={args => hoverNote(args, scrollingRows)}
+              onCellClicked={(cell, event) => openLinkOnClick(cell, event, scrollingRows)}
               smoothScrollY
               onVisibleRegionChanged={region => {
                 if (frozenRowCount > 0) frozenGridRef.current?.scrollTo(region.x, 0, 'horizontal')
+                setHoveredNote(undefined)
+                setSelectedNoteBounds(undefined)
               }}
             />
           </div>
@@ -442,6 +558,10 @@ export function SheetEditor({ document, workbook }: SheetEditorProps) {
         </footer>
       </div>
       {inspectorShown && <SheetInspector controller={controller} />}
+      {noteCard !== undefined && createPortal(
+        <div className="sheet-note-card" role="note" style={noteCardPosition(noteCard.bounds)}>{noteCard.text}</div>,
+        window.document.body,
+      )}
     </div>
   )
 }

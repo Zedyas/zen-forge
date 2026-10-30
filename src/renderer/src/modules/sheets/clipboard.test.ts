@@ -1,9 +1,12 @@
 // @vitest-environment happy-dom
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { askConfirm } from '../../ui/ConfirmDialog'
 import { copyCells, pasteCells, pasteTargets } from './clipboard'
 import { Workbook } from './model/Workbook'
 
 const all = Array.from({ length: 30 }, (_, index) => index)
+
+vi.mock('../../ui/ConfirmDialog', () => ({ askConfirm: vi.fn(async () => ({ value: 'paste', optionChecked: false })) }))
 
 function sheetWith(cells: readonly (readonly (string | number)[])[]): { workbook: Workbook; sheetId: number } {
   const workbook = new Workbook()
@@ -69,6 +72,23 @@ describe('Ledger clipboard', () => {
 
     expect([0, 1, 2].map(row => other.workbook.getCellValue(other.sheetId, [0, row]))).toEqual([null, null, 1])
     expect([0, 1, 2].map(row => workbook.getCellValue(sheetId, [0, row]))).toEqual([null, 2, 3])
+  })
+
+  it('refuses a paste into part of a merged cell, and keeps only the top-left value of a block pasted onto one', async () => {
+    const { workbook, sheetId } = sheetWith([[1, 2], [3, 4]])
+    workbook.mergeCells(sheetId, { x: 3, y: 0, width: 2, height: 2 }, false)
+    const block = (): unknown[] => [[3, 0], [4, 0], [3, 1], [4, 1]].map(([col = 0, row = 0]) => workbook.getCellValue(sheetId, [col, row]))
+    const merged = { workbook, sheetId, selection: { x: 3, y: 0, width: 2, height: 2 }, columns: all, rows: all }
+    const data = new DataTransfer()
+
+    copyCells(data, { workbook, sheetId, columns: [0, 1], rows: [0], range: { x: 0, y: 0, width: 2, height: 1 } }, false)
+    pasteCells(data, merged)
+    expect(block()).toEqual([null, null, null, null])
+
+    copyCells(data, { workbook, sheetId, columns: [0, 1], rows: [0, 1], range: { x: 0, y: 0, width: 2, height: 2 } }, false)
+    pasteCells(data, merged)
+    await vi.waitFor(() => expect(block()).toEqual([1, null, null, null]))
+    expect(askConfirm).toHaveBeenCalledOnce()
   })
 
   it('pastes tab-separated text from other apps as typed values', () => {

@@ -25,7 +25,7 @@ If another app changes a file while it is open in Zen Suzu, saving asks first: o
 
 ![Ledger: bold headers, currency format, AutoSum, recalculation and the inspector](docs/media/ledger.gif)
 
-- Excel formulas and formatting, including wrapped text, fonts, strikethrough and row heights
+- Excel formulas and formatting, including wrapped text, fonts, strikethrough, row heights, merged cells, custom number formats (`#,##0.00`, `[Red]`, `yyyy-mm-dd`), notes and links
 - Sort, AutoSum, fill series (1, 2, 3 · Jan, Feb · Item 1, Item 2), and find and replace
 - Copy, cut and paste that keep formulas and styles; relative references move with the paste
 - Text such as IDs and ZIP codes stays text, and CSV files save full values and ISO dates
@@ -62,11 +62,12 @@ If another app changes a file while it is open in Zen Suzu, saving asks first: o
 
 In order, with the next item first:
 
-1. Templates for documents and presentations
-2. More Ledger tools: borders, filters, conditional formatting, dropdown lists and charts
-3. iPhone photos (`.heic`) in PDF from images
-4. Notarized builds, so Zen Suzu opens without the Open Anyway step and installs its own updates
-5. Windows support: the same app, adjusted to run and fit on Windows
+1. Autosave and crash recovery: unsaved documents come back after a crash
+2. Templates for documents and presentations
+3. More Ledger tools: borders, filters, conditional formatting, dropdown lists and charts
+4. iPhone photos (`.heic`) in PDF from images
+5. Notarized builds, so Zen Suzu opens without the Open Anyway step and installs its own updates
+6. Windows support: the same app, adjusted to run and fit on Windows
 
 Not planned: `.xlsb` and other macro-enabled formats, and Apple Pages or Keynote files.
 
@@ -118,6 +119,7 @@ Every command is also in the menu bar and in the command palette (⌘K). Hover a
 |---|---|
 | ⌘B / ⌘I / ⌘U / ⇧⌘X | Bold / Italic / Underline / Strikethrough |
 | ⌘X / ⌘C / ⌘V | Cut / Copy / Paste cells with their formulas and styles |
+| ⌘-click | Open a cell's web link |
 | ⌘F | Find and replace |
 
 | Hanko | |

@@ -31,6 +31,10 @@ describe('parseCellText', () => {
   ])('keeps %s as text', (text, input) => {
     expect(parseCellText(text).input).toBe(input)
   })
+
+  it('reads an empty field as an empty cell, not empty text', () => {
+    expect(parseCellText(' ').input).toBeNull()
+  })
 })
 
 describe('textCellInput', () => {

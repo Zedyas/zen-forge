@@ -6,7 +6,7 @@ import type { EditorHandler } from '../../app/editors'
 import { recordPreview } from '../../services/index/document-index'
 import { WindowEmpty } from '../../ui/WindowEmpty'
 import { renderPreview } from './preview'
-import { activeSheet, toggleStyle } from './sheet-commands'
+import { activeSheet, mergeSelection, toggleStyle } from './sheet-commands'
 import { SheetEditor } from './SheetEditor'
 import { exportSheetCsv, exportSheetPdf, printSheet, releaseWorkbook, saveWorkbook, useWorkbookEntry } from './workbook-documents'
 
@@ -40,6 +40,12 @@ function runSheetCommand(command: CommandId): void | Promise<void> {
       return toggleStyle(controller, 'strike')
     case 'format.wrapText':
       return toggleStyle(controller, 'wrap')
+    case 'format.merge':
+      return mergeSelection(controller, false)
+    case 'format.mergeAcross':
+      return mergeSelection(controller, true)
+    case 'format.unmerge':
+      return controller.workbook.unmergeCells(controller.sheetId, controller.range)
     case 'format.clear':
       return controller.workbook.clearFormatting(controller.sheetId, controller.areas)
     case 'file.exportCsv':

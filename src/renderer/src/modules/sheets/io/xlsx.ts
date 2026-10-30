@@ -8,7 +8,7 @@
 import * as ExcelJS from 'exceljs'
 import { HyperFormula } from 'hyperformula'
 import type { ImportFindingInput } from '@shared/fidelity'
-import { columnIndex, sheetRangeReference } from '../model/address'
+import { cellName, columnIndex, sheetRangeReference } from '../model/address'
 import { textCellInput } from '../model/cell-parse'
 import {
   defaultCellStyle,
@@ -16,6 +16,7 @@ import {
   defaultRowCount,
   isDefaultStyle,
   type CellInput,
+  type CellRange,
   type CellStyle,
   type NamedRange,
   type SheetData,
@@ -24,7 +25,7 @@ import {
 import { aggregateFindings, type FindingEvent } from './findings'
 import { numberFormatPattern, numberFormatStyle } from './number-format'
 import { assertZipFitsInMemory } from '../../../services/zip'
-import { customHeightRows, packageFindings, readWorkbookPackage, type DefaultFont } from './package-parts'
+import { customHeightRows, packageFindings, readWorkbookPackage, takeHyperlinks, withHyperlinks, type DefaultFont } from './package-parts'
 
 export interface XlsxImport {
   readonly data: WorkbookData
@@ -195,11 +196,9 @@ function readCellValue(cell: ExcelJS.Cell, context: CellContext): ImportedCell |
       return { input: textCellInput(text), value: text }
     }
 
-    case ExcelJS.ValueType.Hyperlink: {
-      if (!isHyperlink(value)) return undefined
-      cellEvent(context, 'Hyperlinks', 'dropped')
-      return { input: textCellInput(value.text), value: value.text }
-    }
+    case ExcelJS.ValueType.Hyperlink:
+      // The address is part of the cell's style (readCellStyle).
+      return isHyperlink(value) ? { input: textCellInput(value.text), value: value.text } : undefined
 
     case ExcelJS.ValueType.Error:
       if (!isError(value)) return undefined
@@ -315,7 +314,26 @@ function readCellStyle(cell: ExcelJS.Cell, context: CellContext): CellStyle {
     cellEvent(context, 'Cell borders')
   }
 
+  // ExcelJS gives a plain note as a string and a formatted one as rich text runs; undefined when there is none.
+  const note: string | ExcelJS.Comment | undefined = cell.note
+  const noteText = typeof note === 'string' ? note : note?.texts?.map(run => run.text).join('')
+  if (noteText !== undefined && noteText !== '') style = { ...style, note: noteText }
+
   return style
+}
+
+/** `B2` as a zero-based column and row; undefined for anything else. */
+function readAddress(address: string): readonly [number, number] | undefined {
+  const match = address.match(/^\$?([A-Z]+)\$?(\d+)$/i)
+  return match === null ? undefined : [columnIndex(match[1] ?? ''), Number(match[2]) - 1]
+}
+
+/** `B2:D4` as a range; undefined for anything else. */
+function readMerge(reference: string): CellRange | undefined {
+  const match = reference.match(/^\$?([A-Z]+)\$?(\d+):\$?([A-Z]+)\$?(\d+)$/i)
+  if (match === null) return undefined
+  const [x, y, endX, endY] = [columnIndex(match[1] ?? ''), Number(match[2]) - 1, columnIndex(match[3] ?? ''), Number(match[4]) - 1]
+  return endX < x || endY < y ? undefined : { x, y, width: endX - x + 1, height: endY - y + 1 }
 }
 
 /** `customRows` lists the rows whose height the file marks as set on purpose. */
@@ -355,17 +373,13 @@ function readLayout(sheet: ExcelJS.Worksheet, events: FindingEvent[], customRows
     hiddenColumns,
     freezeRows: frozen?.ySplit ?? 0,
     freezeColumns: frozen?.xSplit ?? 0,
+    merges: (sheet.model.merges ?? []).flatMap(reference => readMerge(reference) ?? []),
   }
 }
 
 function readSheetConstructs(sheet: ExcelJS.Worksheet, events: FindingEvent[]): void {
   const detail = sheet.model as ExcelJS.WorksheetModel & WorksheetDetail
   const location = sheet.name
-
-  const merges = detail.merges?.length ?? 0
-  if (merges > 0) {
-    events.push({ construct: 'Merged cells', severity: 'degraded', location, count: merges, unit: 'ranges' })
-  }
 
   const rules = detail.conditionalFormattings?.length ?? 0
   if (rules > 0) {
@@ -461,8 +475,9 @@ function materialize(grid: ReadonlyMap<number, ReadonlyMap<number, ImportedCell>
 
 export async function readXlsx(bytes: Uint8Array): Promise<XlsxImport> {
   assertZipFitsInMemory(bytes)
+  const { bytes: unlinked, links } = takeHyperlinks(bytes)
   const workbook = new ExcelJS.Workbook()
-  await (workbook.xlsx as unknown as ByteXlsx).load(bytes)
+  await (workbook.xlsx as unknown as ByteXlsx).load(unlinked)
 
   const { parts, defaultFont } = readWorkbookPackage(bytes)
   const events: FindingEvent[] = [...packageFindings(parts)]
@@ -474,6 +489,8 @@ export async function readXlsx(bytes: Uint8Array): Promise<XlsxImport> {
     const context: CellContext = { sheetName: sheet.name, defaultFont, events }
     const grid = new Map<number, Map<number, ImportedCell>>()
     const styles: [number, number, CellStyle][] = []
+    // A link can sit on a cell the file has no element for; those are added after the cells.
+    const unread = new Map(links.get(sheet.name))
 
     sheet.eachRow({ includeEmpty: true }, (row, rowNumber) => {
       row.eachCell({ includeEmpty: true }, (cell, columnNumber) => {
@@ -484,9 +501,15 @@ export async function readXlsx(bytes: Uint8Array): Promise<XlsxImport> {
           grid.set(rowNumber - 1, line)
         }
 
-        const style = readCellStyle(cell, context)
+        const link = unread.get(cell.address)
+        unread.delete(cell.address)
+        const style = { ...readCellStyle(cell, context), ...(link === undefined ? {} : { link }) }
         if (!isDefaultStyle(style)) styles.push([columnNumber - 1, rowNumber - 1, style])
       })
+    })
+    unread.forEach((link, address) => {
+      const cell = readAddress(address)
+      if (cell !== undefined) styles.push([cell[0], cell[1], { ...defaultCellStyle, link }])
     })
 
     readSheetConstructs(sheet, events)
@@ -522,7 +545,10 @@ function writeCellStyle(cell: ExcelJS.Cell, style: CellStyle): void {
   const alignment: Partial<ExcelJS.Alignment> = {}
   if (style.align !== undefined) alignment.horizontal = style.align
   if (style.wrap === true) alignment.wrapText = true
-  if (Object.keys(alignment).length > 0) cell.alignment = alignment
+  // ExcelJS writes no element for an empty cell without formatting, and reads a note back only onto a
+  // written cell; an empty alignment makes it write one.
+  if (Object.keys(alignment).length > 0 || (style.note !== undefined && cell.type === ExcelJS.ValueType.Null)) cell.alignment = alignment
+  if (style.note !== undefined) cell.note = style.note
 }
 
 function writeCellValue(
@@ -549,8 +575,13 @@ function writeCellValue(
   cell.value = typeof input === 'string' && input.startsWith("'") ? input.slice(1) : input
 }
 
+/** Links are written into the package after ExcelJS, which can link only text cells (see `withHyperlinks`). */
 export async function writeXlsx(data: WorkbookData): Promise<Uint8Array> {
   const workbook = new ExcelJS.Workbook()
+  const links = new Map(data.sheets.map(sheet => [
+    sheet.name,
+    new Map(sheet.styles.flatMap(([column, row, style]) => style.link === undefined ? [] : [[cellName([column, row]), style.link] as const])),
+  ]))
 
   for (const sheet of data.sheets) {
     const target = workbook.addWorksheet(sheet.name)
@@ -581,6 +612,10 @@ export async function writeXlsx(data: WorkbookData): Promise<Uint8Array> {
     layout.hiddenRows.forEach(row => {
       target.getRow(row + 1).hidden = true
     })
+    // After the values: ExcelJS empties a block's other cells as it merges them.
+    layout.merges.forEach(merge => {
+      target.mergeCells(`${cellName([merge.x, merge.y])}:${cellName([merge.x + merge.width - 1, merge.y + merge.height - 1])}`)
+    })
     if (layout.freezeRows > 0 || layout.freezeColumns > 0) {
       target.views = [{ state: 'frozen', xSplit: layout.freezeColumns, ySplit: layout.freezeRows }]
     }
@@ -590,5 +625,5 @@ export async function writeXlsx(data: WorkbookData): Promise<Uint8Array> {
     workbook.definedNames.add(sheetRangeReference(namedRange.sheetName, namedRange.range), namedRange.name)
   }
 
-  return new Uint8Array(await (workbook.xlsx as unknown as ByteXlsx).writeBuffer())
+  return withHyperlinks(new Uint8Array(await (workbook.xlsx as unknown as ByteXlsx).writeBuffer()), links)
 }

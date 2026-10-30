@@ -7,6 +7,7 @@ import {
   ArrowUpZA,
   Baseline,
   Bold,
+  Braces,
   Calendar,
   Check,
   ChevronDown,
@@ -14,8 +15,10 @@ import {
   DecimalsArrowLeft,
   DecimalsArrowRight,
   DollarSign,
+  ExternalLink,
   Hash,
   Italic,
+  Link2,
   PaintBucket,
   Percent,
   Redo2,
@@ -23,19 +26,31 @@ import {
   Rows3,
   Search,
   Sigma,
+  StickyNote,
   Strikethrough,
+  TableCellsMerge,
+  TableCellsSplit,
   Underline,
   Undo2,
   WrapText,
 } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
-import { defaultFontSize, type HorizontalAlign } from './model/workbook-data'
+import { CellPopover } from './CellPopover'
+import { numberFormatPattern } from './io/number-format'
+import { formatCellValue } from './model/format'
+import { formatWithCode } from './model/format-code'
+import { defaultCellStyle, defaultFontSize, type HorizontalAlign } from './model/workbook-data'
 import type { NumberFormat } from './model/Workbook'
 import {
   autoSum,
   fillColors,
   fontFamilies,
   fontSizes,
+  mergeSelection,
+  openCellLink,
+  setFormatCode,
+  setLink,
+  setNote,
   setStyle,
   sortByActiveColumn,
   textColors,
@@ -169,6 +184,91 @@ function FontMenus({ controller }: { readonly controller: SheetController }) {
   )
 }
 
+const formatCodeExamples = ['#,##0.00;[Red]-#,##0.00', '0.0%', '€#,##0.00', '0.00E+00', '0.0,,"M"', 'd mmm yyyy', 'dddd', 'h:mm AM/PM']
+
+/** "Custom…" number format: an Excel format code, previewed on the active cell's value. */
+function FormatCodeTool({ controller }: { readonly controller: SheetController }) {
+  const { workbook, sheetId, cell } = controller
+  const style = workbook.getStyle(sheetId, cell)
+  const value = workbook.getCellValue(sheetId, cell)
+  const sample = value === null || value === '' ? 1234.5 : value
+  return (
+    <CellPopover
+      icon={Braces}
+      label="Custom number format"
+      pressed={style.formatCode !== undefined}
+      initial={style.formatCode ?? numberFormatPattern(style) ?? 'General'}
+      placeholder="Excel format code, like #,##0.00"
+      submitLabel="Apply"
+      onSubmit={code => {
+        setFormatCode(controller, code)
+        return true
+      }}
+    >
+      {(draft, setDraft) => (
+        <>
+          <p className="sheet-cell-popover-note">
+            {draft.trim() === '' || draft.trim().toLowerCase() === 'general'
+              ? formatCellValue(sample, defaultCellStyle)
+              : formatWithCode(sample, draft)?.text ?? 'Ledger shows this code as General, and keeps it in the file.'}
+          </p>
+          <div className="sheet-format-examples">
+            {formatCodeExamples.map(example => (
+              <button key={example} type="button" className="button is-quiet" onClick={() => setDraft(example)}><code>{example}</code></button>
+            ))}
+          </div>
+        </>
+      )}
+    </CellPopover>
+  )
+}
+
+/** A link on the selected cells: typed, removed, or opened from here as well as with ⌘-click. */
+function LinkTool({ controller }: { readonly controller: SheetController }) {
+  const { link } = controller.workbook.getStyle(controller.sheetId, controller.cell)
+  return (
+    <CellPopover
+      icon={Link2}
+      label={link === undefined ? 'Link' : 'Edit link'}
+      pressed={link !== undefined}
+      initial={link ?? ''}
+      placeholder="Web or email address"
+      submitLabel={link === undefined ? 'Link' : 'Update'}
+      onSubmit={address => setLink(controller, address)}
+      {...(link === undefined ? {} : { onRemove: () => setStyle(controller, { link: undefined }) })}
+    >
+      {() => link !== undefined && (
+        <p className="sheet-cell-popover-note">
+          <button type="button" className="button is-quiet" onClick={() => openCellLink(link)}>
+            <ExternalLink {...smallIcon} /> Open in browser (⌘-click the cell)
+          </button>
+        </p>
+      )}
+    </CellPopover>
+  )
+}
+
+/** The active cell's note. */
+function NoteTool({ controller }: { readonly controller: SheetController }) {
+  const { note } = controller.workbook.getStyle(controller.sheetId, controller.cell)
+  return (
+    <CellPopover
+      icon={StickyNote}
+      label={note === undefined ? 'Add note' : 'Edit note'}
+      pressed={note !== undefined}
+      initial={note ?? ''}
+      placeholder="Note"
+      multiline
+      submitLabel="Save"
+      onSubmit={text => {
+        setNote(controller, text)
+        return true
+      }}
+      {...(note === undefined ? {} : { onRemove: () => setNote(controller, '') })}
+    />
+  )
+}
+
 interface SheetToolbarProps {
   readonly controller: SheetController
   readonly findOpen: boolean
@@ -226,6 +326,9 @@ export function SheetToolbar({ controller, findOpen }: SheetToolbarProps) {
           />
         ))}
         <ToolButton icon={WrapText} label="Wrap text" command="format.wrapText" pressed={style.wrap === true} onClick={() => toggleStyle(controller, 'wrap')} />
+        {workbook.mergeAt(sheetId, cell) === undefined
+          ? <ToolButton icon={TableCellsMerge} label="Merge cells" command="format.merge" onClick={() => void mergeSelection(controller, false)} />
+          : <ToolButton icon={TableCellsSplit} label="Unmerge cells" command="format.unmerge" onClick={() => workbook.unmergeCells(sheetId, controller.range)} />}
         <ToolSeparator />
         {numberFormats.map(format => (
           <ToolButton
@@ -233,16 +336,20 @@ export function SheetToolbar({ controller, findOpen }: SheetToolbarProps) {
             icon={format.icon}
             text={format.text}
             label={format.label}
-            pressed={style.numberFormat === format.value}
+            pressed={style.numberFormat === format.value && style.formatCode === undefined}
             onClick={() => setStyle(controller, { numberFormat: format.value })}
           />
         ))}
+        <FormatCodeTool controller={controller} />
         <ToolButton icon={DecimalsArrowLeft} label="Fewer decimal places" onClick={() => workbook.changeDecimalPlaces(sheetId, controller.areas, -1)} />
         <ToolButton icon={DecimalsArrowRight} label="More decimal places" onClick={() => workbook.changeDecimalPlaces(sheetId, controller.areas, 1)} />
         <ToolSeparator />
         <ToolButton icon={Sigma} label="AutoSum" onClick={() => autoSum(controller)} />
         <ToolButton icon={ArrowDownAZ} label="Sort A to Z by this column" onClick={() => sortByActiveColumn(controller, true)} />
         <ToolButton icon={ArrowUpZA} label="Sort Z to A by this column" onClick={() => sortByActiveColumn(controller, false)} />
+        <ToolSeparator />
+        <LinkTool controller={controller} />
+        <NoteTool controller={controller} />
         <ToolSeparator />
         <StructureMenu controller={controller} axis="rows" />
         <StructureMenu controller={controller} axis="columns" />

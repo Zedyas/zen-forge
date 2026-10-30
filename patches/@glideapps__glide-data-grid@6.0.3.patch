@@ -11,6 +11,19 @@ index 6194a163cf221484e448b1bdb792fec1eb389299..da3c1b57cc611e2b0f6602961cc4571d
      width?: number;
      theme?: Partial<Theme>;
  }
+diff --git a/dist/dts/internal/data-grid/data-grid-types.d.ts b/dist/dts/internal/data-grid/data-grid-types.d.ts
+index 4007ec6485ebdf8a5c60c30e3e82fb9468e6eba8..3f228bc5e87ab040cd94bc06930348b5aac86887 100644
+--- a/dist/dts/internal/data-grid/data-grid-types.d.ts
++++ b/dist/dts/internal/data-grid/data-grid-types.d.ts
+@@ -197,6 +197,8 @@ export interface BaseGridCell {
+     readonly style?: "normal" | "faded";
+     readonly themeOverride?: Partial<Theme>;
+     readonly span?: readonly [start: number, end: number];
++    /** Patched: the span continues in the next row, as part of a block merged down, so no grid line is drawn under it. */
++    readonly spanBelow?: boolean;
+     readonly contentAlign?: "left" | "right" | "center";
+     readonly cursor?: CSSProperties["cursor"];
+     readonly copyData?: string;
 diff --git a/dist/esm/data-editor/data-editor.js b/dist/esm/data-editor/data-editor.js
 index ec05aa9866c70032fc5509ff557cb8c542e384ed..5467d1c87be56fb7b6698b86c2d05b886cfb9bb2 100644
 --- a/dist/esm/data-editor/data-editor.js
@@ -52,3 +65,17 @@ index ec05aa9866c70032fc5509ff557cb8c542e384ed..5467d1c87be56fb7b6698b86c2d05b88
          onRowMoved,
          rowMarkerOffset,
          trailingRowOptions?.hint,
+diff --git a/dist/esm/internal/data-grid/render/data-grid-render.cells.js b/dist/esm/internal/data-grid/render/data-grid-render.cells.js
+index 0f08841e6dd276040068b9221a8629c517c8ab00..3c46b6756433da80a274154b22625da49eba13ba 100644
+--- a/dist/esm/internal/data-grid/render/data-grid-render.cells.js
++++ b/dist/esm/internal/data-grid/render/data-grid-render.cells.js
+@@ -140,7 +140,8 @@ export function drawCells(ctx, effectiveColumns, allColumns, height, totalHeader
+                             x: area.x + d,
+                             y: drawY,
+                             width: area.width - d,
+-                            height: rh,
++                            // Patched: a span that continues in the next row (a block merged down) also covers the grid line under it.
++                            height: rh + (cell.spanBelow === true ? 1 : 0),
+                         });
+                         ctx.clip();
+                         drawingSpan = true;
