@@ -79,8 +79,11 @@ interface ExportContext {
   readonly headings: readonly ContentsEntry[]
   /** Headings written so far, which numbers each one's bookmark. */
   headingCount: number
-  /** Start values of the numbered lists, one numbering definition each. */
-  readonly listStarts: Set<number>
+  /**
+   * Each numbered list's own numbering definition and its start value. Word counts on across lists
+   * that share a definition, and only a list's first level can restart, so a nested list needs its own.
+   */
+  readonly numberedLists: Map<string, number>
   /** Each numbered list restarts at its start value, so each gets its own numbering instance. */
   listInstances: number
   skippedImages: number
@@ -199,16 +202,19 @@ function runOptions(node: JSONContent, inLink: boolean): IRunOptions {
   }
 }
 
+/** One line of text as a run's children. Tabs are their own element in Word; inside w:t they show as a space. */
+function tabbed(line: string): Array<Tab | string> {
+  return xmlText(line).split('\t').flatMap((part, index) => [...(index > 0 ? [new Tab()] : []), ...(part === '' ? [] : [part])])
+}
+
 /**
- * A text node as runs. Tabs are their own element in Word (inside w:t they show as a space); a
- * vertical tab or line end pasted into the text becomes a line break, a form feed a page break.
+ * A text node as runs. A vertical tab or line end pasted into the text becomes a line break, a
+ * form feed a page break.
  */
 function textRuns(node: JSONContent, text: string, inLink: boolean): Array<TextRun | PageBreak> {
   return text.split('\f').flatMap((page, pageIndex) => {
-    const lines = page.split(/\r\n|[\v\n\r]/).map((line, lineIndex) => {
-      const children = xmlText(line).split('\t').flatMap((part, index) => [...(index > 0 ? [new Tab()] : []), ...(part === '' ? [] : [part])])
-      return new TextRun({ ...runOptions(node, inLink), ...(lineIndex > 0 ? { break: 1 } : {}), children })
-    })
+    const lines = page.split(/\r\n|[\v\n\r]/).map((line, lineIndex) =>
+      new TextRun({ ...runOptions(node, inLink), ...(lineIndex > 0 ? { break: 1 } : {}), children: tabbed(line) }))
     return pageIndex > 0 ? [new PageBreak(), ...lines] : lines
   })
 }
@@ -361,7 +367,7 @@ function continuation(node: JSONContent, context: ExportContext, level: number, 
   if (node.type === 'paragraph') {
     return [new Paragraph({ ...paragraphOptions(node, false), style: style ?? 'ListContinue', numbering, children: runs(node.content ?? [], context) })]
   }
-  if (node.type === 'codeBlock') return codeLines(node).map(line => new Paragraph({ style: 'Code', numbering, children: line === '' ? [] : [new TextRun(line)] }))
+  if (node.type === 'codeBlock') return codeLines(node).map(line => new Paragraph({ style: 'Code', numbering, children: codeRuns(line) }))
   if (node.type === 'bulletList' || node.type === 'orderedList') return listBlocks(node, context, level + 1, style)
   if (node.type === 'taskList') return checklistBlocks(node, context, level + 1)
   return blocks([node], context, style)
@@ -370,10 +376,10 @@ function continuation(node: JSONContent, context: ExportContext, level: number, 
 /** Bulleted and numbered lists; each list is its own Word list, so neighbouring lists stay apart. */
 function listBlocks(list: JSONContent, context: ExportContext, level: number, style?: DocxStyleId): Block[] {
   const ordered = list.type === 'orderedList'
-  const start = numberAttr(list, 'start') ?? 1
-  if (ordered) context.listStarts.add(start)
   context.listInstances += 1
-  const numbering = { reference: ordered ? `numbered-${start}` : 'bulleted', level: Math.min(level, 8), instance: context.listInstances }
+  const reference = ordered ? `numbered-${context.listInstances}` : 'bulleted'
+  if (ordered) context.numberedLists.set(reference, numberAttr(list, 'start') ?? 1)
+  const numbering = { reference, level: Math.min(level, 8), instance: context.listInstances }
   return (list.content ?? []).flatMap(item => (item.content ?? []).flatMap((child, index) => {
     if (index === 0 && child.type === 'paragraph') {
       return [new Paragraph({ ...paragraphOptions(child, false), numbering, ...(style === undefined ? {} : { style }), children: runs(child.content ?? [], context) })]
@@ -394,6 +400,10 @@ function checklistBlocks(list: JSONContent, context: ExportContext, level: numbe
 
 function codeLines(node: JSONContent): string[] {
   return xmlText((node.content ?? []).map(child => child.text ?? '').join('').replace(/\r\n|[\v\r\f]/g, '\n')).split('\n')
+}
+
+function codeRuns(line: string): TextRun[] {
+  return line === '' ? [] : [new TextRun({ children: tabbed(line) })]
 }
 
 /** Column widths in twips: the widths the first row's cells were given, the rest sharing what is left of the text width. */
@@ -431,6 +441,8 @@ function table(node: JSONContent, context: ExportContext): Table {
           ? { ...child, attrs: { ...child.attrs, textAlign: align } }
           : child)
         const children = blocks(content, context, 'TableText')
+        // Word needs a paragraph after a table that ends a cell; this one is marked so the reader knows it is only that.
+        if (content[content.length - 1]?.type === 'table') children.push(new Paragraph({ style: 'TableEnd' }))
         return new TableCell({
           ...(columnSpan > 1 ? { columnSpan } : {}),
           ...(rowSpan > 1 ? { rowSpan } : {}),
@@ -464,7 +476,7 @@ function blocks(nodes: readonly JSONContent[], context: ExportContext, style?: D
         return blocks(node.content ?? [], context, 'Quote')
       case 'codeBlock':
         // One paragraph per line; the reader joins them back.
-        return codeLines(node).map(line => new Paragraph({ style: 'Code', children: line === '' ? [] : [new TextRun(line)] }))
+        return codeLines(node).map(line => new Paragraph({ style: 'Code', children: codeRuns(line) }))
       case 'horizontalRule':
         return [new Paragraph({ style: 'HorizontalLine' })]
       case 'pageBreak':
@@ -534,7 +546,7 @@ export async function writeDocx(content: JSONContent): Promise<DocxExport> {
     page,
     headings: hasContents(content.content ?? []) ? contentsEntries(content.content ?? []) : [],
     headingCount: 0,
-    listStarts: new Set(),
+    numberedLists: new Map(),
     listInstances: 0,
     skippedImages: 0,
   }
@@ -577,6 +589,7 @@ export async function writeDocx(content: JSONContent): Promise<DocxExport> {
         { id: 'ListContinue', name: docxStyleNames.ListContinue, basedOn: 'Normal', paragraph: { indent: { left: 720 } } },
         { id: 'Checklist', name: docxStyleNames.Checklist, basedOn: 'Normal', paragraph: { contextualSpacing: true } },
         { id: 'TableText', name: docxStyleNames.TableText, basedOn: 'Normal', paragraph: { spacing: { before: 0, after: 0 } } },
+        { id: 'TableEnd', name: docxStyleNames.TableEnd, basedOn: 'TableText', run: { size: 2 } },
         { id: 'Header', name: 'header', basedOn: 'Normal', paragraph: { spacing: { before: 0, after: 0, line: 240, lineRule: LineRuleType.AUTO } } },
         { id: 'Footer', name: 'footer', basedOn: 'Normal', paragraph: { spacing: { before: 0, after: 0, line: 240, lineRule: LineRuleType.AUTO } } },
         // Word's table of contents styles: each level indented a little more than the one above.
@@ -591,8 +604,8 @@ export async function writeDocx(content: JSONContent): Promise<DocxExport> {
         { reference: 'bulleted', levels: numberingLevels(index => ({ format: LevelFormat.BULLET, text: bulletGlyphs[index % 3] })) },
         { reference: 'placement', levels: unnumberedLevels(index => 720 * (index + 1)) },
         { reference: 'checklist', levels: unnumberedLevels(index => 360 * index) },
-        ...[...context.listStarts].map(start => ({
-          reference: `numbered-${start}`,
+        ...[...context.numberedLists].map(([reference, start]) => ({
+          reference,
           levels: numberingLevels(index => ({ format: numberFormats[index % 3], text: `%${index + 1}.`, start })),
         })),
       ],

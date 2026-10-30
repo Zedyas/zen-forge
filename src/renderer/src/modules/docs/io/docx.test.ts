@@ -168,6 +168,35 @@ describe('docx', () => {
     expect(content.attrs?.['headerFooter']).toMatchObject({ header: [{ type: 'paragraph', content: [{ text: 'Confidential' }] }], footer: [] })
   })
 
+  it('numbers each nested list from its own start, not on from the nested list before it', async () => {
+    const numbered = (...values: string[]): JSONContent => ({ type: 'orderedList', content: values.map(value => item(paragraph(text(value)))) })
+    const nested: JSONContent = { type: 'doc', content: [{ type: 'bulletList', content: [item(paragraph(text('A')), numbered('x', 'y')), item(paragraph(text('B')), numbered('z'))] }] }
+    expect(sameDocument(schema, readDocx((await writeDocx(nested)).bytes).content, nested)).toBe(true)
+  })
+
+  it('keeps the link on a linked picture', async () => {
+    const linked: JSONContent = { type: 'doc', content: [paragraph({ type: 'image', attrs: { src: png, width: 40, height: 20 }, marks: [{ type: 'link', attrs: { href: 'https://example.com/' } }] })] }
+    expect(sameDocument(schema, readDocx((await writeDocx(linked)).bytes).content, linked)).toBe(true)
+  })
+
+  it('writes the tabs in a code block as Word tabs, which show as tabs in Word', async () => {
+    const code: JSONContent = { type: 'doc', content: [{ type: 'codeBlock', content: [text('build:\n\tgo build')] }] }
+    const { bytes } = await writeDocx(code)
+    const xml = strFromU8(unzipSync(bytes)['word/document.xml'] ?? new Uint8Array())
+    expect(xml).toContain('<w:tab/>')
+    expect(xml).not.toMatch(/<w:t[^>]*>[^<]*\t/)
+    expect(sameDocument(schema, readDocx(bytes).content, code)).toBe(true)
+  })
+
+  it('opens a table inside a table cell without an empty line after it, and keeps an empty line the user typed there', async () => {
+    const inner: JSONContent = { type: 'table', content: [{ type: 'tableRow', content: [cell('tableCell', 'Inner')] }] }
+    const outer = (...content: JSONContent[]): JSONContent => ({ type: 'doc', content: [{ type: 'table', content: [{ type: 'tableRow', content: [{ type: 'tableCell', content }] }] }] })
+    const endsWithTable = outer(paragraph(text('Outer')), inner)
+    expect(sameDocument(schema, readDocx((await writeDocx(endsWithTable)).bytes).content, endsWithTable)).toBe(true)
+    const emptyAfter = outer(paragraph(text('Outer')), inner, { type: 'paragraph' })
+    expect(sameDocument(schema, readDocx((await writeDocx(emptyAfter)).bytes).content, emptyAfter)).toBe(true)
+  })
+
   it('writes a file that opens when the text holds control characters', async () => {
     const { bytes } = await writeDocx({ type: 'doc', content: [paragraph(text('Page one\fPage two\u000bthree\u0007'))] })
     const xml = strFromU8(unzipSync(bytes)['word/document.xml'] ?? new Uint8Array())
@@ -219,6 +248,111 @@ describe('docx from Word', () => {
     expect(plainText(content)).toContain('漢')
     expect(plainText(content)).not.toContain('かん')
     expect(content.content?.slice(2).map(node => [node.type, node.content?.length])).toEqual([['orderedList', 1], ['orderedList', 1], ['orderedList', 2]])
+  })
+
+  it('restarts a sub-list under each item of a list that restarts its numbering', () => {
+    const numbering = `<?xml version="1.0"?><w:numbering NS>
+      <w:abstractNum w:abstractNumId="1"><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/></w:lvl><w:lvl w:ilvl="1"><w:start w:val="1"/><w:numFmt w:val="lowerLetter"/></w:lvl></w:abstractNum>
+      <w:num w:numId="1"><w:abstractNumId w:val="1"/></w:num>
+      <w:num w:numId="2"><w:abstractNumId w:val="1"/><w:lvlOverride w:ilvl="0"><w:startOverride w:val="1"/></w:lvlOverride></w:num></w:numbering>`
+    const at = (value: string, numId: string, level: number): string => para(run(value), `<w:numPr><w:ilvl w:val="${level}"/><w:numId w:val="${numId}"/></w:numPr>`)
+    const body = at('One', '1', 0) + at('Sub a', '1', 1) + at('Sub b', '1', 1) + para(run('Between')) + at('Restarted', '2', 0) + at('Sub again', '2', 1)
+    const { content } = readDocx(packageOf(body, { 'word/numbering.xml': numbering }))
+
+    const restarted = content.content?.[2]
+    expect(restarted?.attrs).toBeUndefined()
+    expect(restarted?.content?.[0]?.content?.[1]).toMatchObject({ type: 'orderedList', content: [{ content: [{ content: [{ text: 'Sub again' }] }] }] })
+    expect(restarted?.content?.[0]?.content?.[1]?.attrs).toBeUndefined()
+  })
+
+  it('keeps the spacing and indent of No Spacing and List Paragraph paragraphs', () => {
+    const style = (id: string, name: string, pPr: string): string => `<w:style w:type="paragraph" w:styleId="${id}"><w:name w:val="${name}"/><w:basedOn w:val="Normal"/><w:pPr>${pPr}</w:pPr></w:style>`
+    const styles = `<?xml version="1.0"?><w:styles NS><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:pPr><w:spacing w:after="160" w:line="259" w:lineRule="auto"/></w:pPr></w:style>`
+      + style('NoSpacing', 'No Spacing', '<w:spacing w:after="0" w:line="240" w:lineRule="auto"/>') + style('ListParagraph', 'List Paragraph', '<w:ind w:left="720"/>') + '</w:styles>'
+    const { content, findings } = readDocx(packageOf(para(run('Address line'), '<w:pStyle w:val="NoSpacing"/>') + para(run('Indented'), '<w:pStyle w:val="ListParagraph"/>'), { 'word/styles.xml': styles }))
+
+    expect(findings).toEqual([])
+    expect(content.content?.map(node => node.attrs)).toEqual([{ spaceAfter: 0, lineHeight: 1 }, { indentLeft: 36 }])
+  })
+
+  it('reports links to files and other apps, which it does not keep', () => {
+    const rels = relationships('<Relationship Id="rId1" Type="hyperlink" Target="file:///Users/ana/plan.xlsx" TargetMode="External"/>')
+    const field = '<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> HYPERLINK "onenote:///Notes/Plan.one" </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r>'
+      + run('notes') + '<w:r><w:fldChar w:fldCharType="end"/></w:r>'
+    for (const body of [para(`<w:hyperlink r:id="rId1">${run('the plan')}</w:hyperlink>`), para(field), para(`<w:fldSimple w:instr=" HYPERLINK &quot;file:///x.docx&quot; ">${run('x')}</w:fldSimple>`)]) {
+      const { findings } = readDocx(packageOf(body, { 'word/_rels/document.xml.rels': rels }))
+      expect(findings.map(finding => finding.construct)).toEqual(['Links to files and other apps'])
+    }
+  })
+
+  it('reports cropped, rotated and flipped pictures, which show whole and upright', () => {
+    const rels = relationships('<Relationship Id="rId1" Type="image" Target="media/image1.png"/>')
+    const picture = (srcRect: string, xfrm: string): string => '<w:r><w:drawing><wp:inline xmlns:wp="wp" xmlns:a="a" xmlns:pic="pic"><wp:extent cx="381000" cy="190500"/>'
+      + `<a:graphic><a:graphicData><pic:pic><pic:blipFill><a:blip r:embed="rId1"/>${srcRect}</pic:blipFill><pic:spPr><a:xfrm${xfrm}/></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>`
+    const media = Uint8Array.from(atob(png.split(',')[1] ?? ''), character => character.charCodeAt(0))
+    const open = (body: string): readonly string[] => {
+      const bytes = unzipSync(packageOf(body, { 'word/_rels/document.xml.rels': rels }))
+      return readDocx(zipSync({ ...bytes, 'word/media/image1.png': media })).findings.map(finding => finding.construct)
+    }
+
+    expect(open(para(picture('<a:srcRect/>', ' rot="0"')))).toEqual([])
+    for (const changed of [picture('<a:srcRect l="10000" r="5000"/>', ''), picture('', ' rot="5400000"'), picture('', ' flipH="1"')]) {
+      expect(open(para(changed))).toEqual(['Picture cropping and rotation'])
+    }
+  })
+
+  it('reports a picture cropped in VML, whether the crop is a fixed-point number, a fraction or a percentage', () => {
+    const rels = relationships('<Relationship Id="rId1" Type="image" Target="media/image1.png"/>')
+    const picture = (crop: string): string => `<w:r><w:pict><v:shape xmlns:v="v" style="width:30pt;height:15pt"><v:imagedata r:id="rId1"${crop}/></v:shape></w:pict></w:r>`
+    const media = Uint8Array.from(atob(png.split(',')[1] ?? ''), character => character.charCodeAt(0))
+    const open = (crop: string): readonly string[] => {
+      const bytes = unzipSync(packageOf(para(picture(crop)), { 'word/_rels/document.xml.rels': rels }))
+      return readDocx(zipSync({ ...bytes, 'word/media/image1.png': media })).findings.map(finding => finding.construct)
+    }
+
+    for (const whole of ['', ' cropleft="0"', ' cropleft="0f"', ' croptop="0%"']) expect(open(whole)).toEqual([])
+    for (const cropped of [' cropleft="6554f"', ' cropbottom="-6554f"', ' cropright="0.1"', ' croptop="10%"']) {
+      expect(open(cropped)).toEqual(['Picture cropping and rotation'])
+    }
+  })
+
+  it('keeps the link Word stores on a picture itself, and reports one it cannot keep', () => {
+    const rels = relationships(
+      '<Relationship Id="rId1" Type="image" Target="media/image1.png"/>',
+      '<Relationship Id="rId2" Type="hyperlink" Target="https://example.com/" TargetMode="External"/>',
+      '<Relationship Id="rId3" Type="hyperlink" Target="file:///Users/ana/plan.xlsx" TargetMode="External"/>',
+    )
+    const picture = (id: string): string => '<w:r><w:drawing><wp:inline xmlns:wp="wp" xmlns:a="a" xmlns:pic="pic"><wp:extent cx="381000" cy="190500"/>'
+      + `<wp:docPr id="1" name="Picture 1"><a:hlinkClick r:id="${id}"/></wp:docPr>`
+      + '<a:graphic><a:graphicData><pic:pic><pic:blipFill><a:blip r:embed="rId1"/></pic:blipFill></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>'
+    const media = Uint8Array.from(atob(png.split(',')[1] ?? ''), character => character.charCodeAt(0))
+    const open = (id: string): ReturnType<typeof readDocx> => {
+      const bytes = unzipSync(packageOf(para(picture(id)), { 'word/_rels/document.xml.rels': rels }))
+      return readDocx(zipSync({ ...bytes, 'word/media/image1.png': media }))
+    }
+
+    const linked = open('rId2')
+    expect(linked.findings).toEqual([])
+    expect(linked.content.content?.[0]?.content?.[0]).toMatchObject({ type: 'image', marks: [{ type: 'link', attrs: { href: 'https://example.com/' } }] })
+    expect(open('rId3').findings.map(finding => finding.construct)).toEqual(['Links to files and other apps'])
+  })
+
+  it('reports right indents, which it does not keep', () => {
+    const open = (pPr: string): readonly string[] => readDocx(packageOf(para(run('Indented'), pPr))).findings.map(finding => finding.construct)
+    expect(open('<w:ind w:left="720" w:right="0"/>')).toEqual([])
+    expect(open('<w:ind w:left="720" w:right="720"/>')).toEqual(['Right indents'])
+    expect(open('<w:ind w:end="360"/>')).toEqual(['Right indents'])
+  })
+
+  it('reports table alignment, row heights and cell alignment, which it does not keep', () => {
+    const open = (tblPr: string, trPr: string, tcPr: string): readonly string[] => {
+      const body = `<w:tbl><w:tblPr>${tblPr}</w:tblPr><w:tblGrid><w:gridCol w:w="4000"/></w:tblGrid><w:tr><w:trPr>${trPr}</w:trPr><w:tc><w:tcPr>${tcPr}</w:tcPr>${para(run('Cell'))}</w:tc></w:tr></w:tbl>`
+      return readDocx(packageOf(body)).findings.map(finding => finding.construct)
+    }
+    expect(open('<w:jc w:val="left"/>', '', '<w:vAlign w:val="top"/>')).toEqual([])
+    for (const changed of [open('<w:jc w:val="center"/>', '', ''), open('', '<w:trHeight w:val="900"/>', ''), open('', '', '<w:vAlign w:val="center"/>')]) {
+      expect(changed).toEqual(['Table layout'])
+    }
   })
 
   it('reports what it does not keep, so saving over the file asks first', () => {

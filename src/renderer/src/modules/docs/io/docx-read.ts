@@ -165,6 +165,8 @@ interface ParagraphProps {
   lineExact?: number
   indentLeft?: number
   indentFirstLine?: number
+  /** Not kept; read so that a paragraph with one is reported. */
+  indentRight?: number
   pageBreakBefore?: boolean
   numId?: string
   level?: number
@@ -222,6 +224,7 @@ function readParagraphProps(pPr: Element | undefined): ParagraphProps {
   const before = number(attr(spacing, 'w:before'))
   const after = number(attr(spacing, 'w:after'))
   const left = number(attr(indent, 'w:left') ?? attr(indent, 'w:start'))
+  const right = number(attr(indent, 'w:right') ?? attr(indent, 'w:end'))
   const props: ParagraphProps = {}
   assign(props, 'align', align === undefined ? undefined : alignments[align])
   assign(props, 'spaceBefore', before === undefined ? undefined : before / 20)
@@ -230,6 +233,7 @@ function readParagraphProps(pPr: Element | undefined): ParagraphProps {
   assign(props, 'lineExact', line !== undefined && rule !== 'auto' ? line / 20 : undefined)
   assign(props, 'indentLeft', left === undefined ? undefined : left / 20)
   assign(props, 'indentFirstLine', hanging !== undefined ? -hanging / 20 : firstLine === undefined ? undefined : firstLine / 20)
+  assign(props, 'indentRight', right === undefined ? undefined : right / 20)
   assign(props, 'pageBreakBefore', toggle(pPr, 'w:pageBreakBefore'))
   assign(props, 'numId', val(numPr, 'w:numId'))
   assign(props, 'level', number(val(numPr, 'w:ilvl')))
@@ -422,8 +426,8 @@ interface Context {
   readonly findings: Findings
   /** Open complex fields (`w:fldChar`); they can span runs and paragraphs. */
   readonly fields: Field[]
-  /** Items numbered so far per counter and level, so a list that continues after a break keeps counting. */
-  readonly listCounts: Map<string, number[]>
+  /** Items numbered so far per counter and level (`counter:level`), so a list that continues after a break keeps counting. */
+  readonly listCounts: Map<string, number>
   /** A header or footer reads its page number fields as fields; the body keeps their text. */
   readonly part: 'body' | 'header'
 }
@@ -445,9 +449,11 @@ const kindsByStyleName: Readonly<Record<string, BlockKind>> = {
   [docxStyleNames.Checklist.toLowerCase()]: 'checklist',
   [docxStyleNames.ListContinue.toLowerCase()]: 'continue',
   [docxStyleNames.TableText.toLowerCase()]: 'cell',
-  'list paragraph': 'normal',
-  'no spacing': 'normal',
+  [docxStyleNames.TableEnd.toLowerCase()]: 'cell',
 }
+
+/** Word's everyday styles over Normal, shown as Normal with their spacing and indents kept on each paragraph, without a report. */
+const normalVariants = new Set(['list paragraph', 'no spacing'])
 
 const deeperHeading = /^heading [7-9]$/
 
@@ -493,6 +499,15 @@ function hyperlinkTarget(instruction: string): string | undefined {
   return /^\s*HYPERLINK\s+"([^"]+)"/i.exec(instruction)?.[1]
 }
 
+/** A link's target when Sumi keeps it (web and mail); a link to a file or another app is reported, as only its text is kept. */
+function keptLink(target: string | undefined, context: Context): string | undefined {
+  const href = safeHref(target)
+  if (href === undefined && target !== undefined) {
+    context.findings.add('Links to files and other apps', 'degraded', { unit: 'link', alternative: 'The link text is kept; the links are not.' })
+  }
+  return href
+}
+
 /** Formatting set on the text, as marks. A link's own style gives its colour and underline, which the link mark shows. */
 function marksFor(run: RunProps, href: string | undefined, code: boolean, context: Context): JSONContent['marks'] {
   if (code) return [{ type: 'code' }]
@@ -524,6 +539,13 @@ const imageTypes: Readonly<Record<string, string>> = { png: 'image/png', jpg: 'i
 /** The media parts pictures point at, so only those are unpacked. */
 function imageTargets(relationships: ReadonlyMap<string, Relationship>): Set<string> {
   return new Set([...relationships.values()].filter(relationship => !relationship.external && /\.(png|jpe?g|gif|bmp)$/i.test(relationship.target)).map(relationship => relationship.target))
+}
+
+/** A VML crop as a fraction of the picture: a plain fraction, a percentage, or fixed point such as `6554f` (6554/65536). */
+function vmlFraction(value: string | undefined): number {
+  const text = value?.trim() ?? ''
+  const parsed = number(text.replace(/[f%]$/, '')) ?? 0
+  return text.endsWith('f') ? parsed / 65536 : text.endsWith('%') ? parsed / 100 : parsed
 }
 
 function imageFromDrawing(drawing: Element, context: Context): JSONContent | undefined {
@@ -558,6 +580,11 @@ function imageFromDrawing(drawing: Element, context: Context): JSONContent | und
   if (all(drawing, 'wp:anchor').length > 0) {
     context.findings.add('Image positions and text wrapping', 'degraded', { alternative: 'Shown in line with the text, and saved that way.' })
   }
+  const flag = (value: string | undefined): boolean => value === '1' || value === 'true'
+  const cropped = all(drawing, 'a:srcRect').some(rect => ['l', 't', 'r', 'b'].some(side => (number(attr(rect, side)) ?? 0) !== 0))
+    || all(drawing, 'v:imagedata').some(data => ['croptop', 'cropbottom', 'cropleft', 'cropright'].some(side => vmlFraction(attr(data, side)) !== 0))
+  const turned = all(drawing, 'a:xfrm').some(xfrm => (number(attr(xfrm, 'rot')) ?? 0) % 21_600_000 !== 0 || flag(attr(xfrm, 'flipH')) || flag(attr(xfrm, 'flipV')))
+  if (cropped || turned) context.findings.add('Picture cropping and rotation', 'degraded', { alternative: 'Shown whole and upright, and saved that way.' })
   const extent = all(drawing, 'wp:extent')[0]
   const properties = all(drawing, 'wp:docPr')[0]
   const style = attr(all(drawing, 'v:shape')[0], 'style') ?? ''
@@ -567,6 +594,14 @@ function imageFromDrawing(drawing: Element, context: Context): JSONContent | und
   const width = extent === undefined ? vmlWidth === undefined ? undefined : vmlWidth * 4 / 3 : (number(attr(extent, 'cx')) ?? 0) / 9525
   const height = extent === undefined ? vmlHeight === undefined ? undefined : vmlHeight * 4 / 3 : (number(attr(extent, 'cy')) ?? 0) / 9525
   const alt = attr(properties, 'descr') || attr(properties, 'title')
+  // Word stores a link on the picture itself as a click action in the picture's properties.
+  const click = all(drawing, 'a:hlinkClick')[0]
+  const clickId = attr(click, 'r:id') ?? ''
+  const clickTarget = context.relationships.get(clickId)
+  if (clickId !== '' && clickTarget?.external !== true) {
+    context.findings.add('Links within the document', 'degraded', { unit: 'link', alternative: 'The link text is kept; the links are not.' })
+  }
+  const href = clickTarget?.external === true ? keptLink(clickTarget.target, context) : undefined
   return {
     type: 'image',
     attrs: {
@@ -574,6 +609,7 @@ function imageFromDrawing(drawing: Element, context: Context): JSONContent | und
       ...(alt === undefined || alt === '' ? {} : { alt }),
       ...(width === undefined || height === undefined ? {} : { width: Math.round(width), height: Math.round(height) }),
     },
+    ...(href === undefined ? {} : { marks: [{ type: 'link', attrs: { href } }] }),
   }
 }
 
@@ -612,7 +648,8 @@ function inlineContent(paragraph: Element, styleRun: RunProps, context: Context)
             const name = ended === undefined ? '' : fieldName(ended.instruction)
             const pageField = pageFieldOf(name, context)
             if (pageField !== undefined) current().push({ type: 'pageField', attrs: { kind: pageField }, ...markList(marks()) })
-            else if (name !== '' && name !== 'HYPERLINK') {
+            else if (name === 'HYPERLINK') keptLink(hyperlinkTarget(ended?.instruction ?? ''), context)
+            else if (name !== '') {
               context.findings.add('Fields', 'dropped', { name, alternative: 'Their last shown text is kept as plain text; they no longer update.' })
             }
           }
@@ -664,7 +701,8 @@ function inlineContent(paragraph: Element, styleRun: RunProps, context: Context)
       case 'w:drawing':
       case 'w:pict': {
         const image = imageFromDrawing(child, context)
-        if (image !== undefined) current().push(image)
+        // A picture keeps only its link; the run's text formatting has nothing to show on it.
+        if (image !== undefined) current().push({ ...image, ...markList(marks()?.filter(mark => mark.type === 'link')) })
         return
       }
       case 'mc:AlternateContent': {
@@ -693,7 +731,7 @@ function inlineContent(paragraph: Element, styleRun: RunProps, context: Context)
         case 'w:hyperlink': {
           const relationship = context.relationships.get(attr(child, 'r:id') ?? '')
           const anchor = attr(child, 'w:anchor')
-          const target = relationship?.external === true ? safeHref(`${relationship.target}${anchor === undefined ? '' : `#${anchor}`}`) : undefined
+          const target = relationship?.external === true ? keptLink(`${relationship.target}${anchor === undefined ? '' : `#${anchor}`}`, context) : undefined
           if (relationship === undefined && anchor !== undefined) {
             context.findings.add('Links within the document', 'degraded', { unit: 'link', alternative: 'The link text is kept; the links are not.' })
           }
@@ -709,7 +747,7 @@ function inlineContent(paragraph: Element, styleRun: RunProps, context: Context)
             break
           }
           if (name !== 'HYPERLINK') context.findings.add('Fields', 'dropped', { name, alternative: 'Their last shown text is kept as plain text; they no longer update.' })
-          walk(child, safeHref(hyperlinkTarget(instruction)) ?? href)
+          walk(child, keptLink(hyperlinkTarget(instruction), context) ?? href)
           break
         }
         case 'w:ins':
@@ -749,8 +787,8 @@ function inlineContent(paragraph: Element, styleRun: RunProps, context: Context)
 function blockKind(name: string, resolved: ParagraphProps, context: Context): { readonly kind: BlockKind; readonly otherStyle: boolean } {
   const kind = kindsByStyleName[name]
   if (kind !== undefined) return { kind, otherStyle: false }
-  // Word's own styles for headers and footers; their formatting is kept on the text.
-  if (context.part === 'header' && (name === 'header' || name === 'footer')) return { kind: 'normal', otherStyle: true }
+  // Normal's everyday variants, and Word's own styles for headers and footers: their formatting is kept on the text.
+  if (normalVariants.has(name) || (context.part === 'header' && (name === 'header' || name === 'footer'))) return { kind: 'normal', otherStyle: true }
   const level = deeperHeading.test(name) ? 6 : resolved.outlineLevel
   if (level !== undefined && level < 9) {
     if (level >= 6) context.findings.add('Headings below level 6', 'degraded', { alternative: 'Shown as Heading 6, and saved that way.' })
@@ -826,13 +864,18 @@ type Item =
 
 const listFormats = ['decimal', 'lowerLetter', 'lowerRoman']
 
-/** Counts an item in its list and level, clearing deeper levels as Word does; resolves the count before it. */
-function countItem(context: Context, counter: string, level: number): number {
-  const counts = context.listCounts.get(counter) ?? []
-  const before = counts[level] ?? 0
-  counts[level] = before + 1
-  counts.length = level + 1
-  context.listCounts.set(counter, counts)
+/**
+ * Counts an item in its level's counter, and clears the counters of the list's deeper levels, as
+ * Word does: a list that restarts only its first level still restarts its sub-lists under each item.
+ * Resolves the count before it.
+ */
+function countItem(context: Context, levels: ReadonlyMap<number, ListLevel>, level: number): number {
+  const key = (index: number, entry: ListLevel): string => `${entry.counter}:${index}`
+  const own = levels.get(level)
+  if (own === undefined) return 0
+  const before = context.listCounts.get(key(level, own)) ?? 0
+  context.listCounts.set(key(level, own), before + 1)
+  for (const [index, entry] of levels) if (index > level) context.listCounts.delete(key(index, entry))
   return before
 }
 
@@ -856,6 +899,7 @@ function paragraphItems(paragraph: Element, context: Context): Item[] {
     context.findings.add('Paragraph borders and shading', 'degraded', { alternative: 'Shown without them, and saved that way.' })
   }
   if (resolved.rightToLeft === true) context.findings.add('Right-to-left paragraphs', 'degraded', { alternative: 'Shown left to right, and saved that way.' })
+  if ((resolved.indentRight ?? 0) !== 0) context.findings.add('Right indents', 'degraded', { alternative: 'Shown without them, and saved that way.' })
   const themeStyle: StyleName = kind === 'code' || kind === 'rule' || kind === 'checklist' || kind === 'continue' || kind === 'cell' ? 'normal' : kind
   const base = context.theme[themeStyle]
   const extra = otherStyle ? styleDifference(style, base) : { paragraph: {}, run: {} }
@@ -864,9 +908,9 @@ function paragraphItems(paragraph: Element, context: Context): Item[] {
     context.findings.add('Tab stops', 'degraded', { alternative: 'Tabs line up at the default positions, and save that way.' })
   }
 
-  const levels = resolved.numId === undefined || resolved.numId === '0' ? undefined : context.numbering.get(resolved.numId)
+  const levels: ReadonlyMap<number, ListLevel> = (resolved.numId === undefined || resolved.numId === '0' ? undefined : context.numbering.get(resolved.numId)) ?? new Map()
   const level = resolved.level ?? 0
-  const listLevel = levels?.get(level)
+  const listLevel = levels.get(level)
   const marker = listLevel?.format === 'none'
   const isList = listLevel !== undefined && !marker && (kind === 'normal' || kind === 'continue' || kind === 'quote')
   if (listLevel !== undefined && !marker && kind.startsWith('heading')) {
@@ -895,7 +939,7 @@ function paragraphItems(paragraph: Element, context: Context): Item[] {
       if (listLevel.format !== (listLevel.format === 'bullet' ? 'bullet' : listFormats[level % 3])) {
         context.findings.add('List numbering styles', 'degraded', { alternative: 'Shown as 1., a., i. and bullets, and saved that way.' })
       }
-      const before = countItem(context, listLevel.counter, level)
+      const before = countItem(context, levels, level)
       items.push({
         kind: 'item', list: listLevel.format === 'bullet' ? 'bulletList' : 'orderedList', level, key: resolved.numId ?? '',
         start: listLevel.start + before, checked: false, node: node('paragraph'), quote: kind === 'quote',
@@ -959,6 +1003,10 @@ function table(element: Element, context: Context): JSONContent {
   const columnWidth = contentWidthPixels(context.page) / Math.max(1, grid.length)
   const plain = grid.length > 0 && grid.every(width => Math.abs(width - columnWidth) <= 1)
   if (tableBorders(element)) context.findings.add('Table borders and styles', 'degraded', { alternative: 'Shown with a thin border around every cell, and saved that way.' })
+  if (!['left', 'start', undefined].includes(val(kid(element, 'w:tblPr'), 'w:jc'))
+    || all(element, 'w:trHeight').length > 0 || all(element, 'w:vAlign').some(align => attr(align, 'w:val') !== 'top')) {
+    context.findings.add('Table layout', 'degraded', { alternative: 'Table alignment, row heights and vertical alignment in cells are not kept; shown and saved without them.' })
+  }
   // Cells merged down (vMerge) grow the cell that starts the merge, by column.
   const merging = new Map<number, CellBuild>()
   const rows: CellBuild[][] = []
@@ -981,6 +1029,13 @@ function table(element: Element, context: Context): JSONContent {
       }
       const fill = attr(kid(tcPr, 'w:shd'), 'w:fill')
       const content = blocks(cell, context)
+      // Word needs a paragraph after a table that ends a cell; Sumi marks the one it adds, and any other empty paragraph is the user's.
+      const tail = cell.lastElementChild
+      if (tail?.tagName === 'w:p' && cell.children[cell.children.length - 2]?.tagName === 'w:tbl'
+        && context.styles.name(val(kid(tail, 'w:pPr'), 'w:pStyle')) === docxStyleNames.TableEnd.toLowerCase()) {
+        const last = content[content.length - 1]
+        if (last?.type === 'paragraph' && last.content === undefined) content.pop()
+      }
       const build: CellBuild = {
         header,
         colspan: span,
