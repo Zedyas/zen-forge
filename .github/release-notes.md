@@ -30,6 +30,30 @@ Zen Suzu is a simplified office suite for macOS: spreadsheets (Ledger), PDF edit
 
 **Everywhere**
 - File > Open Recent lists the last 10 files, also in the command palette.
+- Updated to Electron 45.
+
+## Fixes
+
+**Hanko**
+- Redaction removes everything under the box from the saved file: text, lines and shapes it touches, tag alt text, and the form fields and values drawn there.
+- Deleting a page removes its form fields and their values from the saved file.
+- Boxed form fields, such as the SSN and EIN on a W-9, take one character per box, and text longer than a field allows no longer stops the save.
+
+**Ledger**
+- Opens sheets with more than 125,000 rows, and large pastes and Replace All no longer freeze it.
+- Error values stay errors in `.xlsx` files, `TRUE`/`FALSE` and newer Excel functions (`_xlfn.`) calculate, and `-$12.50` reads as a number.
+- Printing stops at the last cell with content and prints merged cells whole.
+
+**Sumi**
+- Word lists keep their numbering, pictures keep their links, and No Spacing and List Paragraph keep their spacing.
+- What Sumi can't keep from a Word file (cropped pictures, right indents, table layout, links to files) is reported, so the save question warns before anything is lost.
+
+**Slides**
+- `.pptx` files open with flipped groups mirrored, placeholders where their layout puts them, and line breaks kept; saved files open in PowerPoint even when text holds pasted control characters or fonts with `&` in their names.
+
+**Everywhere**
+- Quitting asks about unsaved tabs once, a crashed window can close, and opening a file that is already open shows the window that has it.
+- A packaged app ignores the development server address, so an environment variable can no longer load another page with file access.
 
 ## Install
 
