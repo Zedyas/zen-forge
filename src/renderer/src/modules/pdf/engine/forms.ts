@@ -94,6 +94,7 @@ export function readFormFields(doc: PDFDocument): FormField[] {
       readOnly: field.isReadOnly(),
       multiline: field instanceof PDFTextField ? field.isMultiline() : undefined,
       maxLength: field instanceof PDFTextField ? field.getMaxLength() : undefined,
+      combed: field instanceof PDFTextField ? field.isCombed() : undefined,
       widgets,
     }
   })

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { encodableText } from './encodable-text'
 import type { FormField, FormFieldWidget, PageRotation } from './engine'
 import { rotateBox, type Size } from './model'
@@ -80,9 +80,28 @@ function TextField({ documentId, field, widget, value, zoom }: {
       commit()
     },
   }
-  return field.multiline === true
-    ? <textarea {...props} />
-    : <input {...props} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur() }} />
+  const blurOnEnter = (event: KeyboardEvent<HTMLInputElement>): void => {
+    if (event.key === 'Enter') event.currentTarget.blur()
+  }
+  if (field.multiline === true) return <textarea {...props} />
+  if (field.combed !== true || field.maxLength === undefined) return <input {...props} onKeyDown={blurOnEnter} />
+
+  // A combed field draws one character per cell. In a monospace font every character is 1ch wide,
+  // so spacing them one cell apart and indenting half a gap centres each in its cell. The spacing
+  // also follows the last character, so the input runs one cell past the field (or it would scroll
+  // when full) and the wrapper, which is the visible field, clips it.
+  const cell = (widget.width * zoom) / field.maxLength
+  const gap = `${cell}px - 1ch`
+  return (
+    <div className="pdf-field pdf-comb" style={props.style}>
+      <input
+        {...props}
+        className={undefined}
+        style={{ width: `calc(100% + ${cell}px)`, paddingLeft: `calc((${gap}) / 2)`, letterSpacing: `calc(${gap})` }}
+        onKeyDown={blurOnEnter}
+      />
+    </div>
+  )
 }
 
 /** Fillable form fields drawn as real inputs over their widgets. */

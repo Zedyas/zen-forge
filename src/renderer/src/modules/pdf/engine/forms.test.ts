@@ -45,13 +45,14 @@ describe('AcroForm fields', () => {
     expect((await extractPageTexts(flattened))[0]).toContain('Jane Quill')
   })
 
-  it('keeps typed text within a text field\'s maximum length instead of failing the save', async () => {
+  it('reports a combed field and keeps its text within the cells instead of failing the save', async () => {
     const doc = await PDFDocument.create()
     const code = doc.getForm().createTextField('postcode')
     code.setMaxLength(5)
+    code.enableCombing()
     code.addToPage(doc.addPage([400, 600]), { x: 50, y: 500, width: 200, height: 20 })
     const bytes = await doc.save()
-    expect((await listFormFields(bytes))[0]?.maxLength).toBe(5)
+    expect((await listFormFields(bytes))[0]).toMatchObject({ maxLength: 5, combed: true })
 
     const saved = await savePdf({ sources: [bytes], pages: onePage, formValues: { postcode: '1234567' } })
 
