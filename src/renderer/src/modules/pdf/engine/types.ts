@@ -90,6 +90,8 @@ export interface FormField {
   readonly multiline?: boolean
   /** The most characters a text field takes, when it sets a limit. */
   readonly maxLength?: number
+  /** A text field split into `maxLength` equal cells, one character each (an SSN's boxes). */
+  readonly combed?: boolean
   readonly widgets: readonly FormFieldWidget[]
 }
 

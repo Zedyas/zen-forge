@@ -49,6 +49,16 @@
 .pdf-field:disabled { background: transparent; }
 .pdf-check { accent-color: var(--suite); cursor: default; }
 select.pdf-field { appearance: auto; }
+/* A combed field (an SSN's boxes): the wrapper is the field; FormLayer spaces the input's characters one per cell.
+   `clip`, not `hidden`: focusing the wider input would scroll a `hidden` box. Focus keeps the page's cell lines visible. */
+.pdf-comb { padding: 0; overflow: clip; font-family: ui-monospace, Menlo, monospace; }
+.pdf-comb:focus-within { background: transparent; box-shadow: 0 0 0 1.5px var(--suite); }
+.pdf-comb:has(input:disabled) { background: transparent; }
+.pdf-comb > input {
+  box-sizing: border-box; height: 100%;
+  margin: 0; padding-right: 0; border: 0; outline: none;
+  background: transparent; color: inherit; font: inherit;
+}
 
 /* ─── Markup overlay ─── */
 
