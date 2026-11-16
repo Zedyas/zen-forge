@@ -1,21 +1,30 @@
-import { degrees, PDFDocument, PDFName, PDFPageLeaf, type PDFPage } from '@cantoo/pdf-lib'
+import { degrees, PDFDocument, PDFName, PDFObjectCopier, PDFPage, PDFPageLeaf } from '@cantoo/pdf-lib'
 import { applyEdits, textFontProvider } from './draw'
-import { applyFormValues, removeFieldsOffPages, removeWidgets } from './forms'
+import { applyFormValues, flattenFields, removeFieldsOffPages, removeWidgets } from './forms'
 import { pageGeometry } from './geometry'
 import { loadDocument } from './inspect'
 import { dropUnreachable } from './prune'
+import { copyDocumentScripts } from './scripts'
+import { contentTagger, copyStructure, finishStructure, liveContent, markTagged, orderStructureByPages, pruneStructure } from './tags'
 import type { PageRef, SavePdfInput } from './types'
+
+interface ResolvedPages {
+  readonly pages: PDFPage[]
+  /** The sources that have accessibility tags. */
+  readonly tagged: ReadonlySet<number>
+}
 
 /**
  * Picks the `PDFPage` object for every output slot: source 0's own pages, and
- * copies of the other sources' pages. Each source page may appear once, because
- * a page object can only sit in the page tree once.
+ * copies of the other sources' pages, which bring their document scripts and
+ * their pages' tags along. Each source page may appear once, because a page
+ * object can only sit in the page tree once.
  */
 async function resolvePages(
   doc: PDFDocument,
   sources: readonly Uint8Array[],
   pages: readonly PageRef[],
-): Promise<PDFPage[]> {
+): Promise<ResolvedPages> {
   const originals = doc.getPages()
   const resolved = new Array<PDFPage>(pages.length)
   const listed = new Set<string>()
@@ -36,21 +45,36 @@ async function resolvePages(
     resolved[position] = page
   })
 
+  const tagged = new Set<number>()
+  if (doc.catalog.has(PDFName.of('StructTreeRoot'))) tagged.add(0)
   for (const [source, positions] of copies) {
     const donor = await loadDocument(sources[source])
-    const donorPageCount = donor.getPageCount()
-    const indexes = positions.map(position => {
-      const index = pages[position].index
-      if (index < 0 || index >= donorPageCount) throw new Error(`Source ${source} has no page at index ${index}`)
-      return index
+    const donorPages = donor.getPages()
+    const picked = positions.map(position => {
+      const page = donorPages[pages[position].index]
+      if (page === undefined) throw new Error(`Source ${source} has no page at index ${pages[position].index}`)
+      return page
     })
-    const copied = await doc.copyPages(donor, indexes)
-    positions.forEach((position, slot) => {
-      resolved[position] = copied[slot]
+    // One copier per source, and pages copied by reference: then a tag or annotation that
+    // points to a page points to its copy, and objects shared between pages are copied once.
+    const copier = PDFObjectCopier.for(donor.context, doc.context)
+    picked.forEach((page, slot) => {
+      const ref = copier.copy(page.ref)
+      const node = doc.context.lookup(ref)
+      if (!(node instanceof PDFPageLeaf)) throw new Error(`Page ${pages[positions[slot]].index} of source ${source} could not be copied`)
+      resolved[positions[slot]] = PDFPage.of(node, ref, doc)
     })
+    copyDocumentScripts(doc, donor, copier)
+    if (copyStructure(doc, donor, picked, copier)) tagged.add(source)
   }
 
-  return resolved
+  return { pages: resolved, tagged }
+}
+
+/** Whether the output shows other sources' pages, or source 0's pages in a new order. */
+function pagesMoved(pages: readonly PageRef[]): boolean {
+  const own = pages.filter(ref => ref.source === 0).map(ref => ref.index)
+  return own.length !== pages.length || own.some((index, position) => position > 0 && index < own[position - 1])
 }
 
 /**
@@ -69,7 +93,7 @@ export async function savePdf(input: SavePdfInput): Promise<Uint8Array> {
 
   const doc = await loadDocument(sources[0])
   const originals = doc.getPages()
-  const resolved = await resolvePages(doc, sources, pages)
+  const { pages: resolved, tagged } = await resolvePages(doc, sources, pages)
   const kept = new Set(resolved)
 
   // A page can inherit its rotation, page boxes and resources from its parents in the page tree.
@@ -96,13 +120,18 @@ export async function savePdf(input: SavePdfInput): Promise<Uint8Array> {
   }
   resolved.forEach((page, index) => doc.insertPage(index, page))
 
+  // Tags of removed pages go, and the reading order follows the new page order.
+  pruneStructure(doc, liveContent(doc))
+  if (pagesMoved(pages)) orderStructureByPages(doc)
+  const tagger = contentTagger(doc)
+
   const font = textFontProvider(doc)
   for (let index = 0; index < pages.length; index += 1) {
     const ref = pages[index]
     const page = resolved[index]
     const geometry = pageGeometry(page, ref.rotation)
     if (geometry.rotation !== page.getRotation().angle) page.setRotation(degrees(geometry.rotation))
-    if (ref.edits.length > 0) await applyEdits(doc, page, geometry, ref.edits, font)
+    if (ref.edits.length > 0) await applyEdits(doc, page, geometry, ref.edits, font, tagger)
   }
 
   const hasAcroForm = doc.catalog.AcroForm() !== undefined
@@ -110,9 +139,13 @@ export async function savePdf(input: SavePdfInput): Promise<Uint8Array> {
     const form = doc.getForm()
     if (formValues !== undefined) applyFormValues(doc, formValues)
     form.updateFieldAppearances()
-    if (flattenForm === true) form.flatten({ updateFieldAppearances: false })
+    if (flattenForm === true) flattenFields(doc, tagger)
   }
 
+  finishStructure(doc)
+  // A file made from tagged files is tagged; with an untagged file among them, /MarkInfo stays as source 0 had it.
+  const contributing = [...new Set(pages.map(ref => ref.source))]
+  if (contributing.some(source => source !== 0) && contributing.every(source => tagged.has(source))) markTagged(doc)
   dropUnreachable(doc)
   return doc.save({ updateFieldAppearances: false })
 }

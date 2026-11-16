@@ -1,4 +1,4 @@
-import { PDFDocument, PDFName } from '@cantoo/pdf-lib'
+import { PDFDocument } from '@cantoo/pdf-lib'
 import type { ImportFindingInput } from '@shared/fidelity'
 import type { PdfInspection } from './types'
 
@@ -7,10 +7,11 @@ export async function loadDocument(bytes: Uint8Array): Promise<PDFDocument> {
 }
 
 /**
- * Reports only what a save would change. Attachments and document JavaScript
- * survive a save of this file on its own, because the editor rewrites the
- * primary document in place; they are listed as degraded because they are lost
- * when these pages are merged into a different PDF.
+ * Reports only what a save would change. Attachments survive a save of this file on its own,
+ * because the editor rewrites the primary document in place; they are listed as degraded
+ * because they are lost when these pages are merged into a different PDF. JavaScript is kept
+ * in both cases but never run. Accessibility tags are kept and follow every page change, so
+ * they are not listed.
  */
 export async function inspectPdf(bytes: Uint8Array): Promise<PdfInspection> {
   return inspectDocument(await loadDocument(bytes))
@@ -62,15 +63,7 @@ function inspectDocument(doc: PDFDocument): PdfInspection {
     findings.push({
       construct: 'JavaScript actions',
       severity: 'degraded',
-      suggestedAlternative: 'Never run here. Kept when you save; removed when the pages are combined into another PDF or the form is flattened.',
-    })
-  }
-
-  if (doc.catalog.get(PDFName.of('StructTreeRoot')) !== undefined) {
-    findings.push({
-      construct: 'Tagged reading order',
-      severity: 'degraded',
-      suggestedAlternative: 'Kept, but not updated when pages are reordered, removed or edited, so screen readers may read them out of order.',
+      suggestedAlternative: 'Never run here, so form calculations and formatting don’t happen while you fill it. Kept when you save and when the pages are combined with other PDFs; scripts on form fields go when the form is flattened.',
     })
   }
 

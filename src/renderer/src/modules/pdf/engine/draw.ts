@@ -1,5 +1,6 @@
 import {
   degrees,
+  endMarkedContent,
   LineCapStyle,
   LineJoinStyle,
   lineTo,
@@ -15,10 +16,12 @@ import {
   stroke,
   type PDFDocument,
   type PDFFont,
+  type PDFOperator,
   type PDFPage,
   type RGB,
 } from '@cantoo/pdf-lib'
 import { rectToUserSpace, toUserSpace, type PageGeometry } from './geometry'
+import { beginArtifact, type ContentTagger } from './tags'
 import type { PdfColor, PdfEdit } from './types'
 
 /** Spacing between the tops of consecutive lines, as a multiple of the font size. */
@@ -90,11 +93,25 @@ function drawInkEdit(
 }
 
 /**
+ * How a screen reader meets an edit on a tagged page: added text is a paragraph, a signature
+ * or drawing is a figure described by its alt text, and highlights, boxes and white-out are
+ * decoration it skips. Undefined when the edit draws nothing.
+ */
+function openTag(tagger: ContentTagger, page: PDFPage, edit: PdfEdit): PDFOperator | undefined {
+  switch (edit.kind) {
+    case 'text': return edit.text.trim() === '' ? undefined : tagger.begin(page, 'P')
+    case 'image': return tagger.begin(page, 'Figure', 'Signature')
+    case 'ink': return edit.points.length === 0 ? undefined : tagger.begin(page, 'Figure', 'Drawing')
+    case 'rect': return beginArtifact()
+  }
+}
+
+/**
  * Draws one page's edits. Everything lands in PDF user space, so content on a
  * page the viewer will rotate is turned by the same quarter turn to come out
  * upright: `degrees()` turns counter-clockwise, which cancels the clockwise
  * rotation the viewer applies. Sizes are divided by the page's UserUnit, which
- * the viewer multiplies them by.
+ * the viewer multiplies them by. On a tagged document each edit is tagged.
  */
 export async function applyEdits(
   doc: PDFDocument,
@@ -102,8 +119,11 @@ export async function applyEdits(
   geometry: PageGeometry,
   edits: readonly PdfEdit[],
   font: () => PDFFont,
+  tagger?: ContentTagger,
 ): Promise<void> {
   for (const edit of edits) {
+    const tag = tagger === undefined ? undefined : openTag(tagger, page, edit)
+    if (tag !== undefined) page.pushOperators(tag)
     if (edit.kind === 'text') {
       drawTextEdit(page, geometry, font(), edit)
     } else if (edit.kind === 'rect') {
@@ -134,5 +154,6 @@ export async function applyEdits(
     } else {
       drawInkEdit(page, geometry, edit)
     }
+    if (tag !== undefined) page.pushOperators(endMarkedContent())
   }
 }
