@@ -55,7 +55,7 @@ function scriptText(context: PDFContext, action: PDFObject): string | undefined 
 
 /**
  * Copies `donor`'s document-level scripts into `doc`, for pages combined from another PDF.
- * A script with the same name and code as one `doc` has is skipped: forms from the same
+ * A script with the same name and code as one `doc` has, or as a renamed copy, is skipped: forms from the same
  * publisher carry the same boilerplate. A script with a taken name but other code is kept under
  * a new name, because scripts are run by name order and none of them should replace another.
  * Zen Suzu never runs these scripts; they are kept for viewers that do.
@@ -67,9 +67,10 @@ export function copyDocumentScripts(doc: PDFDocument, donor: PDFDocument, copier
   const texts = new Map(merged.map(({ name, action }) => [name, scriptText(doc.context, action)]))
   for (const { name, action } of incoming) {
     const text = scriptText(donor.context, action)
-    if (texts.has(name) && texts.get(name) === text) continue
+    // The script, or an earlier renamed copy of it, may already be there.
     let unique = name
-    for (let copy = 2; texts.has(unique); copy += 1) unique = `${name} (${copy})`
+    for (let copy = 2; texts.has(unique) && texts.get(unique) !== text; copy += 1) unique = `${name} (${copy})`
+    if (texts.has(unique)) continue
     texts.set(unique, text)
     merged.push({ name: unique, action: copier.copy(action) })
   }

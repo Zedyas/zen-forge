@@ -12,6 +12,7 @@ import {
   PDFRawStream,
   PDFRef,
   PDFStream,
+  PDFString,
   beginMarkedContent,
   type PDFContext,
   type PDFDocument,
@@ -137,7 +138,8 @@ export function liveContent(doc: PDFDocument, pages: readonly PDFPage[] = doc.ge
 
 /**
  * Removes the content entries for pages and annotations that are gone, and the elements that
- * are left with no content. An element that had no content to begin with stays.
+ * are left with no content. An element that had no content to begin with stays, unless it
+ * names a page that is gone: its alt text can describe that page.
  * Returns whether `element` still has content.
  */
 function prune(context: PDFContext, element: PDFDict, inherited: string | undefined, live: LiveContent, visited: Set<PDFDict>): boolean {
@@ -158,7 +160,7 @@ function prune(context: PDFContext, element: PDFDict, inherited: string | undefi
     return read.page !== undefined && live.pages.has(read.page)
   })
   if (kept.length !== kids.length) setKids(element, kept)
-  return kept.length > 0 || kids.length === 0
+  return kept.length > 0 || (kids.length === 0 && (page === undefined || live.pages.has(page)))
 }
 
 /** Removes the tags of content that is no longer in the document. The root itself always stays. */
@@ -232,11 +234,6 @@ function soleDocument(context: PDFContext, root: PDFDict): { readonly element: P
   return standardRole(root, element) === 'Document' ? { element, ref: only } : undefined
 }
 
-function mergeDict(target: PDFDict, source: PDFDict | undefined, copier: PDFObjectCopier): void {
-  if (source === undefined) return
-  for (const [key, value] of source.entries()) if (!target.has(key)) target.set(key, copier.copy(value))
-}
-
 /**
  * Copies `donor`'s tags for the pages `copied` (already copied into `doc` with the same
  * `copier`, so each /Pg maps to the copy) and appends them to `doc`'s tree. The donor is
@@ -257,6 +254,11 @@ export function copyStructure(doc: PDFDocument, donor: PDFDocument, donorPages: 
   const unwrap = !fresh && donorDocument !== undefined
   const kids = kidsOf(unwrap ? donorDocument.element : donorRoot)
   const into = ownDocument ?? { element: root, ref: rootRef(doc, root) }
+  const donorElements = elementsUnder(donor.context, donorRoot)
+  const roleRenames = renameClashes(doc.context, root, donor.context, donorRoot, 'RoleMap')
+  const classRenames = renameClashes(doc.context, root, donor.context, donorRoot, 'ClassMap')
+  for (const element of donorElements) renameRoleAndClasses(element, roleRenames, classRenames)
+  renameClashingIds(elementsUnder(doc.context, root), donorElements, donor.context)
   // A kid's /P points to the donor's root or /Document, which would bring every donor page along.
   for (const kid of kids) {
     const element = donor.context.lookup(kid)
@@ -277,17 +279,131 @@ export function copyStructure(doc: PDFDocument, donor: PDFDocument, donorPages: 
   })
   setKids(into.element, [...kidsOf(into.element), ...copiedKids])
 
-  for (const key of ['RoleMap', 'ClassMap']) {
-    const theirs = donorRoot.lookupMaybe(PDFName.of(key), PDFDict)
-    if (theirs === undefined) continue
-    let ours = root.lookupMaybe(PDFName.of(key), PDFDict)
-    if (ours === undefined) {
-      ours = doc.context.obj({})
-      root.set(PDFName.of(key), ours)
-    }
-    mergeDict(ours, theirs, copier)
-  }
+  mergeMap(doc.context, root, donorRoot, 'RoleMap', roleRenames, copier)
+  mergeMap(doc.context, root, donorRoot, 'ClassMap', classRenames, copier)
   return true
+}
+
+/** Every element under `root`, each once. */
+function elementsUnder(context: PDFContext, root: PDFDict): PDFDict[] {
+  const found: PDFDict[] = []
+  const visited = new Set<PDFDict>([root])
+  const pending = [root]
+  for (let node = pending.pop(); node !== undefined; node = pending.pop()) {
+    for (const kid of kidsOf(node)) {
+      const read = readKid(context, kid, undefined)
+      if (read?.kind !== 'element' || visited.has(read.dict)) continue
+      visited.add(read.dict)
+      found.push(read.dict)
+      pending.push(read.dict)
+    }
+  }
+  return found
+}
+
+/** `name_2`, `name_3`, … : the first that `taken` says is free. */
+function freeName(name: string, taken: (candidate: string) => boolean): string {
+  let copy = 2
+  while (taken(`${name}_${copy}`)) copy += 1
+  return `${name}_${copy}`
+}
+
+/**
+ * The donor's role (RoleMap) or class (ClassMap) names that this file defines differently,
+ * each with a free name to use instead, so each file's elements keep their meaning when the
+ * two maps are merged: two files can map /Custom to /P and to /H1.
+ */
+function renameClashes(context: PDFContext, root: PDFDict, donorContext: PDFContext, donorRoot: PDFDict, key: string): Map<string, string> {
+  const renames = new Map<string, string>()
+  const ours = root.lookupMaybe(PDFName.of(key), PDFDict)
+  const theirs = donorRoot.lookupMaybe(PDFName.of(key), PDFDict)
+  if (ours === undefined || theirs === undefined) return renames
+  for (const [name, value] of theirs.entries()) {
+    const mine = ours.get(name)
+    if (mine === undefined || context.lookup(mine)?.toString() === donorContext.lookup(value)?.toString()) continue
+    renames.set(name.decodeText(), freeName(name.decodeText(), candidate => ours.has(PDFName.of(candidate)) || theirs.has(PDFName.of(candidate))))
+  }
+  return renames
+}
+
+function renamed(name: PDFObject | undefined, renames: ReadonlyMap<string, string>): PDFName | undefined {
+  const replacement = name instanceof PDFName ? renames.get(name.decodeText()) : undefined
+  return replacement === undefined ? undefined : PDFName.of(replacement)
+}
+
+function renameRoleAndClasses(element: PDFDict, roles: ReadonlyMap<string, string>, classes: ReadonlyMap<string, string>): void {
+  const role = renamed(element.get(S), roles)
+  if (role !== undefined) element.set(S, role)
+  const C = PDFName.of('C')
+  const own = element.get(C)
+  const list = element.context.lookup(own)
+  if (list instanceof PDFArray) list.asArray().forEach((entry, index) => {
+    const name = renamed(entry, classes)
+    if (name !== undefined) list.set(index, name)
+  })
+  const name = renamed(own, classes)
+  if (name !== undefined) element.set(C, name)
+}
+
+/** Adds the donor's map entries under their new names; a renamed role mapped onto another renamed role follows it. */
+function mergeMap(context: PDFContext, root: PDFDict, donorRoot: PDFDict, key: string, renames: ReadonlyMap<string, string>, copier: PDFObjectCopier): void {
+  const theirs = donorRoot.lookupMaybe(PDFName.of(key), PDFDict)
+  if (theirs === undefined) return
+  let ours = root.lookupMaybe(PDFName.of(key), PDFDict)
+  if (ours === undefined) {
+    ours = context.obj({})
+    root.set(PDFName.of(key), ours)
+  }
+  for (const [name, value] of theirs.entries()) {
+    const target = renamed(name, renames) ?? name
+    if (!ours.has(target)) ours.set(target, renamed(value, renames) ?? copier.copy(value))
+  }
+}
+
+const ID = PDFName.of('ID')
+
+/** A byte string's bytes, one character each, so that strings compare and sort as their bytes do. */
+function byteKey(object: PDFObject | undefined): string | undefined {
+  if (!(object instanceof PDFString || object instanceof PDFHexString)) return undefined
+  return Array.from(object.asBytes(), byte => String.fromCharCode(byte)).join('')
+}
+
+function byteString(key: string): PDFHexString {
+  return PDFHexString.of(Array.from(key, character => character.charCodeAt(0).toString(16).padStart(2, '0')).join(''))
+}
+
+/**
+ * Gives the donor's element IDs that this file already uses new ones, and updates the table
+ * cells that name them in /Headers: otherwise a donor cell could be read with this file's header.
+ */
+function renameClashingIds(own: readonly PDFDict[], donorElements: readonly PDFDict[], donorContext: PDFContext): void {
+  const taken = new Set(own.flatMap(element => byteKey(element.lookup(ID)) ?? []))
+  const renames = new Map<string, string>()
+  for (const element of donorElements) {
+    const id = byteKey(element.lookup(ID))
+    if (id === undefined) continue
+    if (taken.has(id)) {
+      const fresh = freeName(id, candidate => taken.has(candidate))
+      renames.set(id, fresh)
+      element.set(ID, byteString(fresh))
+      taken.add(fresh)
+    } else {
+      taken.add(id)
+    }
+  }
+  if (renames.size === 0) return
+  for (const element of donorElements) {
+    const attributes = donorContext.lookup(element.get(PDFName.of('A')))
+    for (const entry of attributes instanceof PDFArray ? attributes.asArray() : [attributes]) {
+      const headers = donorContext.lookup(entry)
+      const list = headers instanceof PDFDict ? headers.lookup(PDFName.of('Headers')) : undefined
+      if (!(list instanceof PDFArray)) continue
+      list.asArray().forEach((header, index) => {
+        const fresh = renames.get(byteKey(donorContext.lookup(header)) ?? '')
+        if (fresh !== undefined) list.set(index, byteString(fresh))
+      })
+    }
+  }
 }
 
 /** Marks the document as tagged, for when every page in it came from a tagged file. */
@@ -464,8 +580,9 @@ export function finishStructure(doc: PDFDocument): void {
     if (visited.has(element)) return
     visited.add(element)
     const page = pageOf(element, inherited)
-    const id = element.get(PDFName.of('ID'))
-    if (id !== undefined && element !== root) ids.push([id.toString(), id, ref])
+    const id = element.get(ID)
+    const key = byteKey(element.lookup(ID))
+    if (id !== undefined && key !== undefined && element !== root) ids.push([key, id, ref])
     const kids = kidsOf(element)
     let registered = false
     kids.forEach((kid, index) => {

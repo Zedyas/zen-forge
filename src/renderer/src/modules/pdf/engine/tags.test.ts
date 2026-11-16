@@ -11,6 +11,7 @@ import {
   PDFOperatorNames,
   PDFRawStream,
   PDFRef,
+  PDFString,
   StandardFonts,
 } from '@cantoo/pdf-lib'
 import { describe, expect, it } from 'vitest'
@@ -19,7 +20,16 @@ import { extractPageTexts } from './test-support'
 import type { PageRef } from './types'
 
 /** A tagged PDF with one page per label: /Document holds one /P per page, the label as its marked content (MCID 0). */
-async function taggedDocument(labels: readonly string[], { field = false } = {}): Promise<Uint8Array> {
+interface Options {
+  /** Adds a filled text field on page 1, tagged /Form. */
+  readonly field?: boolean
+  /** The role of the per-page elements, and the RoleMap entry for it. */
+  readonly role?: readonly [string, string]
+  /** An /ID for page 1's element. */
+  readonly id?: string
+}
+
+async function taggedDocument(labels: readonly string[], { field = false, role, id }: Options = {}): Promise<Uint8Array> {
   const doc = await PDFDocument.create()
   const font = await doc.embedFont(StandardFonts.Helvetica)
   const { context } = doc
@@ -31,7 +41,8 @@ async function taggedDocument(labels: readonly string[], { field = false } = {})
     page.pushOperators(PDFOperator.of(PDFOperatorNames.BeginMarkedContentSequence, [PDFName.of('P'), '<</MCID 0>>']))
     page.drawText(label, { x: 40, y: 500, size: 18, font })
     page.pushOperators(endMarkedContent())
-    const paragraph = context.register(context.obj({ Type: 'StructElem', S: 'P', P: documentRef, Pg: page.ref, K: [0] }))
+    const paragraph = context.register(context.obj({ Type: 'StructElem', S: role?.[0] ?? 'P', P: documentRef, Pg: page.ref, K: [0] }))
+    if (id !== undefined && index === 0) context.lookup(paragraph, PDFDict).set(PDFName.of('ID'), PDFString.of(id))
     paragraphs.push(paragraph)
     page.node.set(PDFName.of('StructParents'), PDFNumber.of(index))
     nums.push(index, context.obj([paragraph]))
@@ -50,6 +61,7 @@ async function taggedDocument(labels: readonly string[], { field = false } = {})
   }
   context.assign(documentRef, context.obj({ Type: 'StructElem', S: 'Document', K: kids }))
   const root = context.obj({ Type: 'StructTreeRoot', K: [documentRef], ParentTree: context.obj({ Nums: nums }), ParentTreeNextKey: nums.length / 2 })
+  if (role !== undefined) root.set(PDFName.of('RoleMap'), context.obj({ [role[0]]: role[1] }))
   doc.catalog.set(PDFName.of('StructTreeRoot'), context.register(root))
   doc.catalog.set(PDFName.of('MarkInfo'), context.obj({ Marked: true }))
   return doc.save()
@@ -157,6 +169,60 @@ describe('accessibility tags on save', () => {
     expect(doc.getPage(0).node.Annots()?.size() ?? 0).toBe(0)
     expect(order).toEqual(['P@0', 'Form@0'])
     expect(parentOf(0, 1)?.lookup(PDFName.of('S'))).toBe(PDFName.of('Form'))
+  })
+
+  it('drops a tag with no content whose page was removed, so its alt text leaves the file', async () => {
+    const doc = await PDFDocument.load(await taggedDocument(['ALPHA', 'BRAVO']))
+    const figure = doc.context.register(doc.context.obj({ Type: 'StructElem', S: 'Figure', Pg: doc.getPage(1).ref, Alt: PDFString.of('PRIVATE-ALT') }))
+    const root = doc.catalog.lookup(PDFName.of('StructTreeRoot'), PDFDict)
+    doc.context.lookup(root.lookup(PDFName.of('K'), PDFArray).get(0), PDFDict).lookup(PDFName.of('K'), PDFArray).push(figure)
+
+    const output = await savePdf({ sources: [await doc.save({ useObjectStreams: false })], pages: [page(0, 0)] })
+
+    expect((await readTags(output)).order).toEqual(['P@0'])
+    expect(new TextDecoder('latin1').decode(output)).not.toContain('PRIVATE-ALT')
+  })
+
+  it('flattens and tags the fields of pages combined from another file', async () => {
+    const first = await taggedDocument(['ALPHA'])
+    const second = await taggedDocument(['ZULU'], { field: true })
+
+    const output = await savePdf({ sources: [first, second], pages: [page(0, 0), page(1, 0)], flattenForm: true })
+
+    const { order, doc, parentOf } = await readTags(output)
+    expect(doc.getPage(1).node.Annots()?.size() ?? 0).toBe(0)
+    expect(order).toEqual(['P@0', 'P@1', 'Form@1'])
+    expect(parentOf(1, 1)?.lookup(PDFName.of('S'))).toBe(PDFName.of('Form'))
+  })
+
+  it('keeps each file\u2019s meaning of a custom role, and gives a clashing element ID a new name', async () => {
+    const first = await taggedDocument(['ALPHA'], { role: ['Custom', 'P'], id: 'H1' })
+    const second = await taggedDocument(['ZULU'], { role: ['Custom', 'H1'], id: 'H1' })
+
+    const output = await savePdf({ sources: [first, second], pages: [page(0, 0), page(1, 0)] })
+
+    const { order, doc } = await readTags(output)
+    const root = doc.catalog.lookup(PDFName.of('StructTreeRoot'), PDFDict)
+    expect(order).toEqual(['Custom@0', 'Custom_2@1'])
+    expect(root.lookup(PDFName.of('RoleMap'), PDFDict).lookup(PDFName.of('Custom_2'))).toBe(PDFName.of('H1'))
+    const names = doc.context.lookup(root.get(PDFName.of('IDTree')), PDFDict).lookup(PDFName.of('Names'), PDFArray).asArray()
+    const keys = names.filter((_, index) => index % 2 === 0).map(key => (key instanceof PDFString || key instanceof PDFHexString ? key.decodeText() : ''))
+    expect(keys).toEqual(['H1', 'H1_2'])
+  })
+
+  it('flattens an unsigned signature field, which has no appearance to draw', async () => {
+    const doc = await PDFDocument.load(await taggedDocument(['ALPHA']))
+    const { context } = doc
+    const field = context.obj({ FT: 'Sig', T: PDFString.of('sign_here'), Kids: [] })
+    const fieldRef = context.register(field)
+    const widget = context.register(context.obj({ Type: 'Annot', Subtype: 'Widget', Parent: fieldRef, P: doc.getPage(0).ref, Rect: [20, 20, 120, 60] }))
+    field.set(PDFName.of('Kids'), context.obj([widget]))
+    doc.getPage(0).node.set(PDFName.of('Annots'), context.obj([widget]))
+    doc.catalog.set(PDFName.of('AcroForm'), context.obj({ Fields: [fieldRef] }))
+
+    const output = await savePdf({ sources: [await doc.save({ updateFieldAppearances: false })], pages: [page(0, 0)], flattenForm: true })
+
+    expect((await PDFDocument.load(output)).getPage(0).node.Annots()?.size() ?? 0).toBe(0)
   })
 
   it('adds no tags to an untagged file', async () => {

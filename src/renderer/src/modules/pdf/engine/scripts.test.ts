@@ -13,10 +13,11 @@ describe('document scripts on combine', () => {
   it('keeps every file’s scripts once, renaming a different script with a taken name', async () => {
     const first = await withScripts({ shared: 'boilerplate()', check: 'first()' })
     const second = await withScripts({ shared: 'boilerplate()', check: 'second()', extra: 'extra()' })
+    const third = await withScripts({ check: 'second()' })
 
     const output = await savePdf({
-      sources: [first, second],
-      pages: [{ source: 0, index: 0, rotation: 0, edits: [] }, { source: 1, index: 0, rotation: 0, edits: [] }],
+      sources: [first, second, third],
+      pages: [0, 1, 2].map(source => ({ source, index: 0, rotation: 0, edits: [] })),
     })
 
     const scripts = (await PDFDocument.load(output)).getDocumentJavaScripts()
