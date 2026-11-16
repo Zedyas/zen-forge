@@ -26,7 +26,7 @@ describe('inspectPdf', () => {
     ])
   })
 
-  it('reports attachments and JavaScript as degraded, since merging loses them', async () => {
+  it('reports attachments and JavaScript as degraded: merging loses attachments, and scripts never run', async () => {
     const doc = await plain()
     await doc.attach(new Uint8Array([1, 2, 3]), 'receipt.txt', { mimeType: 'text/plain' })
     doc.addJavaScript('greet', 'app.alert("hi")')

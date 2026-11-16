@@ -1,4 +1,6 @@
 import {
+  drawObject,
+  endMarkedContent,
   PDFAcroButton,
   PDFArray,
   PDFButton,
@@ -12,12 +14,16 @@ import {
   PDFRef,
   PDFSignature,
   PDFTextField,
+  PDFWidgetAnnotation,
+  popGraphicsState,
+  pushGraphicsState,
+  translate,
   type PDFField,
   type PDFObject,
   type PDFPage,
-  type PDFWidgetAnnotation,
 } from '@cantoo/pdf-lib'
 import { pageGeometry, rectToDisplayed } from './geometry'
+import type { ContentTagger } from './tags'
 import type { FormField, FormFieldType, FormFieldWidget } from './types'
 
 function typeOf(field: PDFField): FormFieldType {
@@ -133,10 +139,7 @@ export function applyFormValues(
 export function removeWidgets(doc: PDFDocument, doomed: (widget: PDFWidgetAnnotation, page: PDFPage | undefined) => boolean): void {
   if (doc.catalog.AcroForm() === undefined) return
   const form = doc.getForm()
-  const pageOfWidget = new Map<string, PDFPage>()
-  for (const page of doc.getPages()) {
-    for (const ref of page.node.Annots()?.asArray() ?? []) if (ref instanceof PDFRef) pageOfWidget.set(ref.tag, page)
-  }
+  const pageOfWidget = annotationPages(doc)
 
   for (const field of form.getFields()) {
     const widgets = field.acroField.getWidgets()
@@ -162,6 +165,88 @@ export function removeWidgets(doc: PDFDocument, doomed: (widget: PDFWidgetAnnota
       // A button group's /Opt lists one export value per widget, in widget order: the others keep theirs.
       const { acroField } = field
       if (acroField instanceof PDFAcroButton && index < (acroField.getExportValues()?.length ?? 0)) acroField.removeExportValue(index)
+    }
+  }
+}
+
+/** The page each annotation is on, by the annotation's reference tag. */
+function annotationPages(doc: PDFDocument): Map<string, PDFPage> {
+  const pages = new Map<string, PDFPage>()
+  for (const page of doc.getPages()) {
+    for (const ref of page.node.Annots()?.asArray() ?? []) if (ref instanceof PDFRef) pages.set(ref.tag, page)
+  }
+  return pages
+}
+
+/**
+ * The appearance stream a widget shows: its /AP /N, or for a button with on and off
+ * appearances the one for `state`, then its /AS, then /Off. Undefined when it has none,
+ * such as an unsigned signature field.
+ */
+function shownAppearance(doc: PDFDocument, widget: PDFWidgetAnnotation, state: PDFName | undefined): PDFRef | undefined {
+  const normal = widget.AP()?.get(PDFName.of('N'))
+  const states = doc.context.lookup(normal)
+  if (!(states instanceof PDFDict)) return normal instanceof PDFRef ? normal : undefined
+  const chosen = (state === undefined ? undefined : states.get(state)) ?? states.get(widget.getAppearanceState() ?? PDFName.of('Off')) ?? states.get(PDFName.of('Off'))
+  return chosen instanceof PDFRef ? chosen : undefined
+}
+
+/** A widget's field entry, from the widget or from the field above it (its /Parent chain). */
+function fieldEntry(widget: PDFDict, key: string): PDFObject | undefined {
+  const visited = new Set<PDFDict>()
+  for (let node: PDFObject | undefined = widget; node instanceof PDFDict && !visited.has(node); node = node.lookup(PDFName.of('Parent'))) {
+    visited.add(node)
+    const value = node.lookup(PDFName.of(key))
+    if (value !== undefined) return value
+  }
+  return undefined
+}
+
+/**
+ * Draws every field's appearance into its page and removes the fields, as pdf-lib's
+ * `PDFForm.flatten` does, with one addition: on a tagged document a field's tag is moved
+ * from the removed widget to the drawn appearance, so screen readers still read the value.
+ */
+export function flattenFields(doc: PDFDocument, tagger: ContentTagger | undefined): void {
+  const form = doc.getForm()
+  const pageOfWidget = annotationPages(doc)
+  /** Draws one widget's appearance onto its page; says whether it had one to draw. */
+  const draw = (ref: PDFRef, widget: PDFWidgetAnnotation, state: PDFName | undefined): boolean => {
+    const page = pageOfWidget.get(ref.tag)
+    const appearance = shownAppearance(doc, widget, state)
+    if (page === undefined || appearance === undefined) return false
+    const tag = tagger?.replaceObject(page, ref)
+    const rect = widget.getRectangle()
+    const name = page.node.newXObject('FlatWidget', appearance)
+    page.pushOperators(
+      ...(tag === undefined ? [] : [tag]),
+      pushGraphicsState(),
+      translate(rect.x, rect.y),
+      drawObject(name),
+      popGraphicsState(),
+      ...(tag === undefined ? [] : [endMarkedContent()]),
+    )
+    return true
+  }
+
+  for (const field of form.getFields()) {
+    const state = field instanceof PDFCheckBox || field instanceof PDFRadioGroup ? field.acroField.getValue() : undefined
+    for (const widget of field.acroField.getWidgets()) {
+      const ref = doc.context.getObjectRef(widget.dict)
+      if (ref !== undefined) draw(ref, widget, state)
+    }
+    form.removeField(field)
+  }
+
+  // Field widgets that are not in the form's field list, such as those on pages combined from
+  // another file, whose fields stay outside this file's form.
+  for (const page of doc.getPages()) {
+    for (const ref of [...(page.node.Annots()?.asArray() ?? [])]) {
+      const dict = ref instanceof PDFRef ? doc.context.lookup(ref) : undefined
+      if (!(ref instanceof PDFRef) || !(dict instanceof PDFDict) || dict.lookup(PDFName.of('Subtype')) !== PDFName.of('Widget')) continue
+      if (fieldEntry(dict, 'FT') === undefined) continue
+      const value = fieldEntry(dict, 'V')
+      if (draw(ref, PDFWidgetAnnotation.fromDict(dict), value instanceof PDFName ? value : undefined)) page.node.removeAnnot(ref)
     }
   }
 }
